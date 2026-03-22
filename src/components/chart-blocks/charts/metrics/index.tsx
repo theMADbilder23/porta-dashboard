@@ -2,9 +2,9 @@
 
 import { useAtomValue } from "jotai";
 import { TrendingDown, TrendingUp, WalletCards, HandCoins } from "lucide-react";
-import Container from "@components/container";
-import OverviewTimeframeTabs from "@/components/overview-timeframe-tabs";
-import { overviewHeaderData, overviewTimeframeAtom } from "@/lib/atoms/overview";
+import Container from "../../../../components/container";
+import OverviewTimeframeTabs from "../../../../components/overview-timeframe-tabs";
+import { overviewHeaderData, overviewTimeframeAtom } from "../../../../lib/atoms/overview";
 import MetricCard from "./components/metric-card";
 
 export default function Metrics() {
