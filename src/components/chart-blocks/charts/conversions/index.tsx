@@ -42,7 +42,7 @@ function AlignmentMeter() {
   return (
     <div className="mt-4 space-y-2">
       <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>MMII Alignment</span>
+        <span>MMII Alignment Meter</span>
         <span>{Math.round(score)}%</span>
       </div>
 
