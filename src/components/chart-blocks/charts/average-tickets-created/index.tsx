@@ -1,7 +1,7 @@
 "use client";
 
 import { TrendingUp } from "lucide-react";
-import ChartTitle from "../../../../components/chart-title";
+import ChartTitle from "../../../chart-title";
 import Chart from "./chart";
 
 export default function AverageTicketsCreated() {
