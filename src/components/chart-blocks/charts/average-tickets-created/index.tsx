@@ -1,10 +1,7 @@
 "use client";
 
-import { useAtomValue } from "jotai";
-import { FilePlus2 } from "lucide-react";
-import { ticketChartDataAtom } from "@/lib/atoms";
-import type { TicketMetric } from "@/types/types";
-import ChartTitle from "../../components/chart-title";
+import { TrendingUp } from "lucide-react";
+import ChartTitle from "@/components/chart-title";
 import Chart from "./chart";
 
 export default function AverageTicketsCreated() {
