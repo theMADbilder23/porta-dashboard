@@ -16,7 +16,7 @@ const spec: ICirclePackingChartSpec = {
   data: [
     {
       id: "data",
-      values: conversionsData,
+      values: conversionData,
     },
   ],
   type: "circlePacking",
@@ -30,7 +30,7 @@ const spec: ICirclePackingChartSpec = {
       fill: "white",
       stroke: false,
       visible: (d) => d.depth === 0,
-      text: (d) => `${d.percentage}%`,
+      text: (d) => `${d?.percentage}%`,
       fontSize: (d) => d.radius / 2,
       dy: (d) => d.radius / 8,
     },
