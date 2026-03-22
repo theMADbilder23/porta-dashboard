@@ -1,10 +1,9 @@
 "use client";
 
 import { useAtom } from "jotai";
-import { overviewTimeframeAtom, type OverviewTimeframe } from "@/lib/atoms/overview";
-import { cn } from "@/lib/utils";
+import { overviewTimeframeAtom, OverviewTimeframe } from "@/lib/atoms/overview";
 
-const options: OverviewTimeframe[] = [
+const tabs: OverviewTimeframe[] = [
   "daily",
   "weekly",
   "monthly",
@@ -13,26 +12,25 @@ const options: OverviewTimeframe[] = [
 ];
 
 export default function OverviewTimeframeTabs() {
-  const [timeframe, setTimeframe] = useAtom(overviewTimeframeAtom);
+  const [active, setActive] = useAtom(overviewTimeframeAtom);
 
   return (
-    <div className="inline-flex items-center rounded-xl border border-[#D8C8F2] bg-white/70 p-1 backdrop-blur-md dark:border-[#241533] dark:bg-[#100A19]/80">
-      {options.map((option) => {
-        const active = timeframe === option;
+    <div className="flex items-center gap-2 rounded-lg bg-muted/40 p-1">
+      {tabs.map((tab) => {
+        const isActive = active === tab;
 
         return (
           <button
-            key={option}
-            type="button"
-            onClick={() => setTimeframe(option)}
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors",
-              active
-                ? "bg-[#E6D5FF] text-[#5B21B6] dark:bg-[#221433] dark:text-[#D8B4FE]"
-                : "text-[#6B4FA3] hover:bg-[#F1E8FF] dark:text-[#C4B5FD] dark:hover:bg-[#1A1226]"
-            )}
+            key={tab}
+            onClick={() => setActive(tab)}
+            className={`px-3 py-1.5 text-sm rounded-md transition-all
+              ${
+                isActive
+                  ? "bg-[#7C3AED] text-white shadow-md"
+                  : "text-muted-foreground hover:text-white hover:bg-[#7C3AED]/40"
+              }`}
           >
-            {option}
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         );
       })}
