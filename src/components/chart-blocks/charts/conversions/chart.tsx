@@ -19,6 +19,13 @@ const spec: ICirclePackingChartSpec = {
       values: conversionData,
     },
   ],
+
+  interaction: {
+    hover: {
+      enable: true,
+    },
+  },
+  
   type: "circlePacking",
   categoryField: "name",
   valueField: "value",
@@ -60,6 +67,18 @@ const spec: ICirclePackingChartSpec = {
   animationUpdate: {
     easing: "cubicInOut",
   },
+  state: {
+    hover: {
+      scale: 1.08,
+      stroke: "#ffffff",
+      lineWidth: 2,
+      shadowBlur: 20,
+      shadowColor: "rgba(168, 85, 247, 0.6)",
+  },
+    selected: {
+      scale: 1.1,
+  },
+},
 };
 
 export default function Chart() {
