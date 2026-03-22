@@ -7,5 +7,5 @@ export const customDarkTheme: Partial<ITheme> = {
 
 export const customLightTheme: Partial<ITheme> = {
   type: "light",
-  background: "#ece6f7",
+  background: "#f2eff9",
 };
