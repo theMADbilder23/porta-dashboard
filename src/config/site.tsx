@@ -5,6 +5,7 @@ import {
   Bell,
   BarChart3,
   Settings,
+  DollarSign,
   type LucideIcon,
 } from "lucide-react";
 
@@ -36,6 +37,11 @@ export const navigations: Navigation[] = [
     icon: BriefcaseBusiness,
     name: "Wallets",
     href: "/wallets",
+  },
+  {
+  icon: DollarSign,
+  name: "Yield",
+  href: "/yield",
   },
   {
     icon: Bell,
