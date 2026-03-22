@@ -1,21 +1,21 @@
 export const metrics = [
   {
-    title: "Created Tickets",
+    title: "Total Portfolio Value",
     value: "24,208",
     change: -0.05,
   },
   {
-    title: "Unsolved Tickets",
+    title: "Active Positions",
     value: "4,564",
     change: 0.02,
   },
   {
-    title: "Resolved Tickets",
+    title: "Realized Gains",
     value: "18,208",
     change: 0.08,
   },
   {
-    title: "Average First Time Reply",
+    title: "Yield Rate",
     value: "12:01 min",
     change: 0.08,
   },
