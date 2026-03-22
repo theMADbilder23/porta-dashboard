@@ -7,7 +7,7 @@ export default function Conversions() {
   return (
     <section className="flex h-full flex-col gap-2">
       <ChartTitle title="MMII Allocation" icon={Layers3} />
-      <div className="relative max-h-80 flex-grow">
+      <div className="relative h-[320px] w-full pt-2">
         <Chart />
       </div>
     </section>

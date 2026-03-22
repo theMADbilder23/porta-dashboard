@@ -40,7 +40,7 @@ const spec: ICirclePackingChartSpec = {
     trigger: ["click", "hover"],
     mark: {
       content: {
-        value: (d) => addThousandsSeparator(d?.value),
+        value: (d) => `${d?.name}: $${addThousandsSeparator(d?.value)}`,
       },
     },
   },
