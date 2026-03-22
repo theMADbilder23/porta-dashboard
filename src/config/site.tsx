@@ -19,7 +19,7 @@ export type Navigation = {
 
 export const siteConfig = {
   title: "PORTA",
-  description: "Portfolio Intelligence System",
+  description: "AI Portfolio Intelligence System",
 };
 
 export const navigations: Navigation[] = [
