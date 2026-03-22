@@ -23,7 +23,7 @@ const spec: ICirclePackingChartSpec = {
       fill: "white",
       stroke: false,
       visible: (d) => d.depth === 0,
-      text: (d) => addThousandsSeparator(d.value),
+      text: (d) => `${Math.round((d.value / conversions.reduce((acc, curr) => acc + curr.value, 0)) * 100)}%`,
       fontSize: (d) => d.radius / 2,
       dy: (d) => d.radius / 8,
     },
