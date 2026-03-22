@@ -12,24 +12,24 @@ export default function Navigation() {
       {navigations.map((navigation) => {
         const Icon = navigation.icon;
         return (
-          <Link
-            key={navigation.name}
-            href={navigation.href}
-            className={cn(
-              "flex items-center rounded-md px-2 py-1.5 hover:bg-slate-200 dark:hover:bg-slate-800",
-              pathname === navigation.href
-                ? "bg-slate-200 dark:bg-slate-800"
-                : "bg-transparent",
-            )}
-          >
-            <Icon
-              size={16}
-              className="mr-2 text-slate-800 dark:text-slate-200"
-            />
-            <span className="text-sm text-slate-700 dark:text-slate-300">
-              {navigation.name}
-            </span>
-          </Link>
+<Link
+  key={navigation.name}
+  href={navigation.href}
+  className={cn(
+    "flex items-center rounded-xl px-3 py-2 transition-all duration-200 hover:bg-[#E9DAFF] dark:hover:bg-[#1A1226]",
+    pathname === navigation.href
+      ? "bg-[#E6D5FF] text-[#5B21B6] dark:bg-[#221433] dark:text-[#D8B4FE]"
+      : "bg-transparent text-[#3B2A57] dark:text-[#F3E8FF]"
+  )}
+>
+  <Icon
+    size={16}
+    className="mr-2 text-[#7C3AED] dark:text-[#C084FC]"
+  />
+  <span className="text-sm font-medium">
+    {navigation.name}
+  </span>
+</Link> 
         );
       })}
     </nav>
