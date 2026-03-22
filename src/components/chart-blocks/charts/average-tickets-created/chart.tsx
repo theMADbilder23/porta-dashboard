@@ -140,12 +140,7 @@ function generateSpec(data: GrowthPoint[]): ILineChartSpec {
         fillOpacity: 1,
       },
     },
-    color: {
-      field: "series",
-      type: "ordinal",
-      range: ["#A855F7", "#7C3AED"],
-      domain: ["Portfolio Value", "Realized Gains"],
-    },
+    color: ["#A855F7", "#7C3AED"],
     tooltip: {
       visible: true,
     },

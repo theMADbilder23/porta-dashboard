@@ -1,7 +1,7 @@
 "use client";
 
 import { useAtom } from "jotai";
-import { overviewTimeframeAtom, OverviewTimeframe } from "@/lib/atoms/overview";
+import { overviewTimeframeAtom, type OverviewTimeframe } from "@/lib/atoms/overview";
 
 const tabs: OverviewTimeframe[] = [
   "daily",
