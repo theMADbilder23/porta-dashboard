@@ -19,13 +19,6 @@ const spec: ICirclePackingChartSpec = {
       values: conversionData,
     },
   ],
-
-  interaction: {
-    hover: {
-      enable: true,
-    },
-  },
-  
   type: "circlePacking",
   categoryField: "name",
   valueField: "value",
