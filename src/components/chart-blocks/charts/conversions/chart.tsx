@@ -9,7 +9,7 @@ const spec: ICirclePackingChartSpec = {
   data: [
     {
       id: "data",
-      values: convertions,
+      values: conversions,
     },
   ],
   type: "circlePacking",

@@ -4,7 +4,7 @@ import { addThousandsSeparator } from "@/lib/utils";
 import ChartTitle from "../../components/chart-title";
 import Chart from "./chart";
 
-export default function Convertions() {
+export default function Conversions() {
   return (
     <section className="flex h-full flex-col gap-2">
       <ChartTitle title="MMII Allocation" icon={CirclePercent} />
@@ -21,7 +21,7 @@ function Indicator() {
     <div className="mt-3">
       <span className="mr-1 text-2xl font-medium">
         {addThousandsSeparator(
-          convertions.reduce((acc, curr) => acc + curr.value, 0),
+          conversions.reduce((acc, curr) => acc + curr.value, 0),
         )}
       </span>
       <span className="text-muted-foreground/60">Portolio Allocation</span>
