@@ -15,6 +15,10 @@ type GrowthPoint = {
     | "Total Passive Income";
 };
 
+type GrowthDatum = {
+  series: GrowthPoint["series"];
+};
+
 const growthDataByTimeframe: Record<OverviewTimeframe, GrowthPoint[]> = {
   daily: [
     { label: "Mon", value: 24208, series: "Total Portfolio Value" },
@@ -193,8 +197,8 @@ function generateSpec(data: GrowthPoint[]): ILineChartSpec {
         },
       },
     ],
-    line: {
-  style: (datum: any) => {
+line: {
+  style: (datum: GrowthDatum) => {
     switch (datum.series) {
       case "Total Portfolio Value":
         return {
@@ -227,9 +231,9 @@ function generateSpec(data: GrowthPoint[]): ILineChartSpec {
     }
   },
 },
-    point: {
+point: {
   visible: true,
-  style: (datum: any) => ({
+  style: (datum: GrowthDatum) => ({
     fill: datum.series === "Realized Losses" ? "#F43F5E" : "#C084FC",
     stroke: "transparent",
     size: datum.series === "Total Portfolio Value" ? 6 : 4,
