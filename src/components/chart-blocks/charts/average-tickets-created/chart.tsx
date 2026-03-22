@@ -245,12 +245,12 @@ point: {
   },
   visible: true,
   style: (datum: GrowthDatum) => ({
-    fill: datum.series === "Realized Losses" ? "#F43F5E" : "#C084FC",
+    fill: datum.series === "Realized Losses" ? "#eb77f6" : "#C084FC",
     stroke: "#0F0617",
     size: datum.series === "Total Portfolio Value" ? 8 : 5,
   }),
 },
-    color: ["#C084FC", "#8B5CF6", "#F43F5E", "#E9D5FF"],
+    color: ["#500c95", "#844de2", "#af59ff", "#eb77f6"],
     tooltip: {
       visible: true,
     },
