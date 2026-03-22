@@ -1,18 +1,18 @@
-export const convertions = [
+export const conversions = [
   {
-    name: "Bandung",
-    value: 3260,
+    name: "Stable Core",
+    value: 9000,
   },
   {
-    name: "Yogyakarta",
-    value: 12320,
+    name: "Rotational Core",
+    value: 6500,
   },
   {
-    name: "Jakarta",
-    value: 1320,
+    name: "Growth",
+    value: 3200,
   },
   {
-    name: "Kebumen",
-    value: 320,
+    name: "Swing",
+    value: 1500,
   },
 ];
