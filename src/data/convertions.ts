@@ -1,4 +1,4 @@
-const conversions = [
+export const conversions = [
   {
     name: "Stable Core",
     value: 9000,
@@ -17,5 +17,4 @@ const conversions = [
   },
 ];
 
-export { conversions };
 export default conversions;
