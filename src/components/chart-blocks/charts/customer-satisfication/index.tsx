@@ -1,8 +1,5 @@
 import { SmilePlus, ThumbsDown, ThumbsUp } from "lucide-react";
-import {
-  customerSatisfication,
-  totalCustomers,
-} from "@/data/customer-satisfication";
+
 import ChartTitle from "../../components/chart-title";
 import LinearProgress from "./components/linear-progress";
 
@@ -53,7 +50,7 @@ function TotalCustomers() {
   return (
     <div className="flex flex-col items-start justify-center">
       <div className="text-xs text-muted-foreground">Total Yield Distribution</div>
-      <div className="text-2xl font-medium">{$150,000} Yield</div>
+      <div className="text-2xl font-medium">$150,000 Yield</div>
     </div>
   );
 }
