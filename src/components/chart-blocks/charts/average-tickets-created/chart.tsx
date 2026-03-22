@@ -198,48 +198,59 @@ function generateSpec(data: GrowthPoint[]): ILineChartSpec {
       },
     ],
 line: {
+  state: {
+    hover: {
+      lineWidth: 6,
+    },
+  },
   style: (datum: GrowthDatum) => {
     switch (datum.series) {
       case "Total Portfolio Value":
         return {
-          stroke: "#C084FC", // brightest purple
-          lineWidth: 3,
+          stroke: "#500c95", // brightest purple
+          lineWidth: 5,
         };
 
       case "Realized Gains":
         return {
-          stroke: "#7C3AED", // medium purple
-          lineWidth: 2,
+          stroke: "#844de2", // medium purple
+          lineWidth: 3,
         };
 
       case "Total Passive Income":
         return {
-          stroke: "#A855F7", // lighter purple
-          lineWidth: 2,
+          stroke: "#af59ff", // lighter purple
+          lineWidth: 3,
           lineDash: [4, 4], // subtle differentiation
         };
 
       case "Realized Losses":
         return {
-          stroke: "#F43F5E", // red/pink
+          stroke: "#eb77f6", // red/pink
           lineWidth: 2,
           lineDash: [2, 2],
         };
 
       default:
         return {};
-    }
-  },
+      }
+  }
 },
 point: {
+  state: {
+    hover: {
+      scaleX: 1.4,
+      scaleY: 1.4,
+    },
+  },
   visible: true,
   style: (datum: GrowthDatum) => ({
     fill: datum.series === "Realized Losses" ? "#F43F5E" : "#C084FC",
-    stroke: "transparent",
-    size: datum.series === "Total Portfolio Value" ? 6 : 4,
+    stroke: "#0F0617",
+    size: datum.series === "Total Portfolio Value" ? 8 : 5,
   }),
 },
-    color: ["#A855F7", "#7C3AED"],
+    color: ["#C084FC", "#8B5CF6", "#F43F5E", "#E9D5FF"],
     tooltip: {
       visible: true,
     },
