@@ -30,7 +30,12 @@ const spec: ICirclePackingChartSpec = {
       fill: "white",
       stroke: false,
       visible: (d) => d.depth === 0,
-      text: (d) => `${d?.percentage}%`,
+      text: (d) => {
+        const node = d as { percentage?: number; name?: string; value?: number; isHover?: boolean };
+        return node?.isHover
+          ? `${node.name}\n$${addThousandsSeparator(node.value ?? 0)}`
+          : `${node.percentage ?? 0}%`;
+      },
       fontSize: (d) => d.radius / 2,
       dy: (d) => d.radius / 8,
     },
