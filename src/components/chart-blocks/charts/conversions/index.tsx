@@ -7,7 +7,7 @@ import Chart from "./chart";
 export default function Convertions() {
   return (
     <section className="flex h-full flex-col gap-2">
-      <ChartTitle title="Conversions" icon={CirclePercent} />
+      <ChartTitle title="MMII Allocation" icon={CirclePercent} />
       <Indicator />
       <div className="relative max-h-80 flex-grow">
         <Chart />
@@ -24,7 +24,7 @@ function Indicator() {
           convertions.reduce((acc, curr) => acc + curr.value, 0),
         )}
       </span>
-      <span className="text-muted-foreground/60">Sales</span>
+      <span className="text-muted-foreground/60">Portolio Allocation</span>
     </div>
   );
 }
