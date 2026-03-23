@@ -94,7 +94,7 @@ export default function LinearProgress({
               ${addThousandsSeparator(value)}
             </div>
             <div className="text-sm text-muted-foreground">
-              {avgYield}%
+              {avgYield}% avg. APY
             </div>
           </div>
         </div>
