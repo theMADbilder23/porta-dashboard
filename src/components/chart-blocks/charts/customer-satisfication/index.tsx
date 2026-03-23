@@ -6,19 +6,19 @@ const yieldSources = [
   {
     label: "Stable Yield",
     color: "#A855F7",
-    percentage: 55,
+    percentage: 0.05,
     icon: <Landmark className="h-6 w-6 stroke-[#A855F7]" />,
   },
   {
     label: "Hard Asset Yield",
     color: "#7C3AED",
-    percentage: 30,
+    percentage: 0.08,
     icon: <TrendingUp className="h-6 w-6 stroke-[#7C3AED]" />,
   },
   {
     label: "Growth / Risk Yield",
     color: "#C084FC",
-    percentage: 15,
+    percentage: 0.10,
     icon: <Zap className="h-6 w-6 stroke-[#C084FC]" />,
   },
 ];
