@@ -1,4 +1,5 @@
 import { Coins, TrendingUp, Landmark, Zap } from "lucide-react";
+import { addThousandsSeparator } from "@/lib/utils";
 import ChartTitle from "../../components/chart-title";
 import LinearProgress from "./components/linear-progress";
 
@@ -6,22 +7,27 @@ const yieldSources = [
   {
     label: "Stable Yield",
     color: "#A855F7",
-    percentage: 0.05,
-    icon: <Landmark className="h-6 w-6 stroke-[#A855F7]" />,
+    value: 82500,
+    avgYield: 5,
+    icon: <Landmark className="h-5 w-5 stroke-[#A855F7]" />,
   },
   {
     label: "Hard Asset Yield",
     color: "#7C3AED",
-    percentage: 0.08,
-    icon: <TrendingUp className="h-6 w-6 stroke-[#7C3AED]" />,
+    value: 45000,
+    avgYield: 8,
+    icon: <TrendingUp className="h-5 w-5 stroke-[#7C3AED]" />,
   },
   {
     label: "Growth / Risk Yield",
     color: "#C084FC",
-    percentage: 0.10,
-    icon: <Zap className="h-6 w-6 stroke-[#C084FC]" />,
+    value: 22500,
+    avgYield: 10,
+    icon: <Zap className="h-5 w-5 stroke-[#C084FC]" />,
   },
 ];
+
+const totalDistributed = yieldSources.reduce((sum, item) => sum + item.value, 0);
 
 export default function CustomerSatisfication() {
   return (
@@ -35,10 +41,12 @@ export default function CustomerSatisfication() {
               key={option.label}
               label={option.label}
               color={option.color}
-              percentage={option.percentage}
+              value={option.value}
+              avgYield={option.avgYield}
+              distributionPercentage={(option.value / totalDistributed) * 100}
               icon={option.icon}
-            />
-          ))}
+  />
+))}
         </div>
       </div>
     </section>
@@ -49,7 +57,7 @@ function TotalCustomers() {
   return (
     <div className="flex flex-col items-start justify-center">
       <div className="text-xs text-muted-foreground">Total Value Distributed</div>
-      <div className="text-2xl font-medium">$150,000</div>
+      <div className="text-2xl font-medium">${addThousandsSeparator(totalDistributed)}</div>
     </div>
   );
 }

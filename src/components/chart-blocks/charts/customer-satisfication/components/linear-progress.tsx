@@ -3,7 +3,7 @@
 import { VChart } from "@visactor/react-vchart";
 import type { ILinearProgressChartSpec } from "@visactor/vchart";
 import type { Datum } from "@visactor/vchart/esm/typings";
-import { numberToPercentage } from "@/lib/utils";
+import { addThousandsSeparator, numberToPercentage } from "@/lib/utils";
 
 const getSpec = (
   label: string,
@@ -71,27 +71,36 @@ const getSpec = (
 export default function LinearProgress({
   label,
   color,
-  percentage,
+  value,
+  avgYield,
+  distributionPercentage,
   icon,
 }: {
   label: string;
   color: string;
-  percentage: number;
+  value: number;
+  avgYield: number;
+  distributionPercentage: number;
   icon: React.ReactNode;
 }) {
   return (
     <div>
-      <div className="mb-1 flex items-center gap-x-2">
+      <div className="mb-2 flex items-start gap-x-2">
         {icon}
-        <div>
+        <div className="min-w-0">
           <div className="text-xs text-muted-foreground">{label}</div>
-          <div className="text-xl font-medium">
-            {numberToPercentage(percentage)}
+          <div className="flex items-baseline gap-x-2">
+            <div className="text-xl font-medium">
+              ${addThousandsSeparator(value)}
+            </div>
+            <div className="text-sm text-muted-foreground">
+              {avgYield}%
+            </div>
           </div>
         </div>
       </div>
       <div className="relative">
-        <VChart spec={getSpec(label, color, percentage)} />
+        <VChart spec={getSpec(label, color, distributionPercentage)} />
       </div>
     </div>
   );
