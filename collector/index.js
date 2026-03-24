@@ -35,107 +35,18 @@ const SAFE_SYMBOL_ALLOWLIST = new Set([
   "cbBTC",
 ]);
 
-type WalletRow = {
-  id: string;
-  name?: string | null;
-  role?: string | null;
-  wallet_address: string;
-  network_group?: string | null;
-  is_active?: boolean | null;
-};
-
-type DebankToken = {
-  id?: string;
-  chain?: string;
-  name?: string;
-  symbol?: string;
-  optimized_symbol?: string;
-  amount?: number;
-  price?: number;
-  usd_value?: number;
-  is_core?: boolean;
-  is_wallet?: boolean;
-  is_verified?: boolean;
-  is_scam?: boolean;
-  is_suspicious?: boolean;
-};
-
-type DebankProtocol = {
-  id?: string;
-  chain?: string;
-  name?: string;
-  logo_url?: string;
-  stats?: {
-    asset_usd_value?: number;
-    debt_usd_value?: number;
-    net_usd_value?: number;
-  };
-  portfolio_item_list?: Array<{
-    name?: string;
-    detail_types?: string[];
-    stats?: {
-      asset_usd_value?: number;
-      debt_usd_value?: number;
-      net_usd_value?: number;
-    };
-    detail?: Record<
-      string,
-      Array<{
-        optimized_symbol?: string;
-        symbol?: string;
-        amount?: number;
-        price?: number;
-        usd_value?: number;
-      }>
-    >;
-  }>;
-};
-
-type DebankTotalBalance = {
-  total_usd_value?: number;
-};
-
-type UsedChain = {
-  id?: string;
-  name?: string;
-  chain?: string;
-};
-
-type CleanTopToken = {
-  token_symbol: string;
-  token_name: string;
-  network: string;
-  amount: number;
-  value_usd: number;
-  category: string;
-  protocol: string | null;
-  is_yield_position: boolean;
-};
-
-type CleanTopProtocol = {
-  protocol_name: string;
-  token_symbol: string | null;
-  token_name: string | null;
-  network: string;
-  amount: number;
-  value_usd: number;
-  category: string;
-  protocol: string;
-  is_yield_position: boolean;
-};
-
-function cleanWallet(wallet: string): string {
-  return wallet.trim().replace(/</g, "").replace(/>/g, "");
+function cleanWallet(wallet) {
+  return String(wallet || "").trim().replace(/</g, "").replace(/>/g, "");
 }
 
-function isValidWallet(wallet: string): boolean {
+function isValidWallet(wallet) {
   return wallet.startsWith("0x") && wallet.length === 42;
 }
 
-function looksLikeSpamSymbol(symbol?: string): boolean {
+function looksLikeSpamSymbol(symbol) {
   if (!symbol) return true;
 
-  const s = symbol.trim();
+  const s = String(symbol).trim();
   const lower = s.toLowerCase();
 
   if (s.includes(".")) return true;
@@ -161,33 +72,27 @@ function looksLikeSpamSymbol(symbol?: string): boolean {
   return false;
 }
 
-function isTokenTrusted(symbol?: string): boolean {
+function isTokenTrusted(symbol) {
   if (!symbol) return false;
   return SAFE_SYMBOL_ALLOWLIST.has(symbol);
 }
 
-function getTopTokens(
-  tokenData: DebankToken[],
-  walletTotalValue: number,
-  roleUsed?: string | null,
-  limit = 5,
-  minUsd = 25
-): CleanTopToken[] {
+function getTopTokens(tokenData, walletTotalValue, roleUsed, limit = 5, minUsd = 25) {
   if (!Array.isArray(tokenData)) return [];
 
-  const cleaned: CleanTopToken[] = [];
-  const normalizedRole = (roleUsed || "").toLowerCase();
+  const cleaned = [];
+  const normalizedRole = String(roleUsed || "").toLowerCase();
   const isStrictRole =
     normalizedRole === "hub" ||
     normalizedRole === "trading" ||
     normalizedRole === "swing";
 
   for (const token of tokenData) {
-    const symbol = token.optimized_symbol || token.symbol || "";
-    const tokenName = token.name || symbol || "Unknown";
-    const amount = Number(token.amount || 0);
-    const price = Number(token.price || 0);
-    const value = Number(token.usd_value ?? price * amount ?? 0);
+    const symbol = token?.optimized_symbol || token?.symbol || "";
+    const tokenName = token?.name || symbol || "Unknown";
+    const amount = Number(token?.amount || 0);
+    const price = Number(token?.price || 0);
+    const value = Number(token?.usd_value ?? price * amount ?? 0);
     const trusted = isTokenTrusted(symbol);
 
     if (
@@ -213,7 +118,7 @@ function getTopTokens(
     cleaned.push({
       token_symbol: symbol,
       token_name: tokenName,
-      network: token.chain || "Unknown",
+      network: token?.chain || "Unknown",
       amount,
       value_usd: value,
       category: "wallet",
@@ -226,27 +131,23 @@ function getTopTokens(
   return cleaned.slice(0, limit);
 }
 
-function getTopProtocols(
-  protocolData: DebankProtocol[],
-  limit = 5,
-  minUsd = 25
-): CleanTopProtocol[] {
+function getTopProtocols(protocolData, limit = 5, minUsd = 25) {
   if (!Array.isArray(protocolData)) return [];
 
-  const results: CleanTopProtocol[] = [];
+  const results = [];
 
   for (const protocol of protocolData) {
-    const protocolName = protocol.name || "Unknown";
-    const protocolNetwork = protocol.chain || "Unknown";
+    const protocolName = protocol?.name || "Unknown";
+    const protocolNetwork = protocol?.chain || "Unknown";
 
     let totalValue = 0;
     let totalAmount = 0;
-    let amountSymbol: string | null = null;
-    let amountTokenName: string | null = null;
+    let amountSymbol = null;
+    let amountTokenName = null;
 
-    for (const item of protocol.portfolio_item_list || []) {
-      const stats = item.stats || {};
-      const itemValue = Number(stats.asset_usd_value || 0);
+    for (const item of protocol?.portfolio_item_list || []) {
+      const stats = item?.stats || {};
+      const itemValue = Number(stats?.asset_usd_value || 0);
       totalValue += itemValue;
 
       const detailTypes = [
@@ -259,11 +160,11 @@ function getTopProtocols(
       ];
 
       for (const detailType of detailTypes) {
-        const detailList = item.detail?.[detailType] || [];
+        const detailList = item?.detail?.[detailType] || [];
 
         for (const token of detailList) {
-          const symbol = token.optimized_symbol || token.symbol || null;
-          const amount = Number(token.amount || 0);
+          const symbol = token?.optimized_symbol || token?.symbol || null;
+          const amount = Number(token?.amount || 0);
 
           if (amountSymbol === null && symbol) {
             amountSymbol = symbol;
@@ -296,13 +197,13 @@ function getTopProtocols(
   return results.slice(0, limit);
 }
 
-async function debankGet<T>(endpoint: string, wallet: string): Promise<T> {
+async function debankGet(endpoint, wallet) {
   const url = new URL(`${DEBANK_BASE}${endpoint}`);
   url.searchParams.set("id", wallet);
 
   const res = await fetch(url.toString(), {
     headers: {
-      AccessKey: DEBANK_API_KEY as string,
+      AccessKey: DEBANK_API_KEY,
       accept: "application/json",
     },
   });
@@ -312,10 +213,10 @@ async function debankGet<T>(endpoint: string, wallet: string): Promise<T> {
     throw new Error(`DeBank ${res.status}: ${text}`);
   }
 
-  return res.json() as Promise<T>;
+  return res.json();
 }
 
-async function fetchWallets(): Promise<WalletRow[]> {
+async function fetchWallets() {
   const { data, error } = await supabase
     .from("Wallets")
     .select("id, name, role, wallet_address, network_group, is_active")
@@ -326,14 +227,10 @@ async function fetchWallets(): Promise<WalletRow[]> {
     throw new Error(`Failed to fetch Wallets: ${error.message}`);
   }
 
-  return (data || []) as WalletRow[];
+  return data || [];
 }
 
-async function insertSnapshot(
-  wallet: WalletRow,
-  totalValueUsd: number,
-  snapshotTime: string
-) {
+async function insertSnapshot(wallet, totalValueUsd, snapshotTime) {
   const payload = {
     wallet_id: wallet.id,
     total_value_usd: totalValueUsd,
@@ -358,12 +255,7 @@ async function insertSnapshot(
   return data;
 }
 
-async function insertHoldings(
-  wallet: WalletRow,
-  snapshotId: string,
-  snapshotTime: string,
-  holdings: Array<CleanTopToken | CleanTopProtocol>
-) {
+async function insertHoldings(wallet, snapshotId, snapshotTime, holdings) {
   if (!holdings.length) return;
 
   const rows = holdings.map((holding) => ({
@@ -389,7 +281,7 @@ async function insertHoldings(
   }
 }
 
-async function collectOneWallet(wallet: WalletRow) {
+async function collectOneWallet(wallet) {
   const cleanedAddress = cleanWallet(wallet.wallet_address);
 
   if (!isValidWallet(cleanedAddress)) {
@@ -402,10 +294,10 @@ async function collectOneWallet(wallet: WalletRow) {
   const snapshotTime = new Date().toISOString();
 
   const [totalBalance, usedChains, allTokens, allProtocols] = await Promise.all([
-    debankGet<DebankTotalBalance>("/user/total_balance", cleanedAddress),
-    debankGet<UsedChain[]>("/user/used_chain_list", cleanedAddress),
-    debankGet<DebankToken[]>("/user/all_token_list?is_all=false", cleanedAddress),
-    debankGet<DebankProtocol[]>("/user/all_complex_protocol_list", cleanedAddress),
+    debankGet("/user/total_balance", cleanedAddress),
+    debankGet("/user/used_chain_list", cleanedAddress),
+    debankGet("/user/all_token_list?is_all=false", cleanedAddress),
+    debankGet("/user/all_complex_protocol_list", cleanedAddress),
   ]);
 
   const totalWalletValue = Number(totalBalance?.total_usd_value || 0);
