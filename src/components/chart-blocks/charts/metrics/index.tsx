@@ -1,12 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { overviewTimeframeAtom } from "../../../../../lib/atoms/overview-header";
 import { TrendingDown, TrendingUp, WalletCards, HandCoins } from "lucide-react";
 import Container from "../../../../components/container";
 import OverviewTimeframeTabs from "../../../../components/overview-timeframe-tabs";
 import MetricCard from "./components/metric-card";
 
 export default function Metrics() {
+
+  const timeframe = useAtomValue(overviewTimeframeAtom);
+
+  const apiTimeframe = useMemo(() => {
+    switch (timeframe) {
+      case "daily":
+        return "daily";
+      case "weekly":
+        return "weekly";
+      case "monthly":
+        return "monthly";
+      case "quarterly":
+        return "quarterly";
+      case "yearly":
+        return "yearly";
+      default:
+        return "daily";
+    }
+  }, [timeframe]);
+
   const [apiData, setApiData] = useState<{
     total_portfolio_value: number;
     passive_income: number;
@@ -17,7 +38,7 @@ export default function Metrics() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const res = await fetch("/api/overview");
+        const res = await fetch(`/api/overview?timeframe=${apiTimeframe}`);
         const data = await res.json();
         setApiData(data);
       } catch (_error) {
@@ -26,13 +47,19 @@ export default function Metrics() {
     }
 
     fetchData();
-  }, []);
+  }, [apiTimeframe]);
   
   const metrics = {
-    totalPortfolioValue: "$0",
+    totalPortfolioValue:
+      apiData?.total_portfolio_value != null
+        ? `$${Number(apiData.total_portfolio_value).toLocaleString()}`
+        : "N/A",
     realizedGains: "N/A",
     realizedLosses: "N/A",
-    totalPassiveIncome: "$0",
+    totalPassiveIncome:
+      apiData?.passive_income != null
+        ? `$${Number(apiData.passive_income).toLocaleString()}`
+        : "N/A",
   };
 
   return (
@@ -52,11 +79,7 @@ export default function Metrics() {
         <div className="grid grid-cols-1 gap-6 phone:grid-cols-2 desktop:grid-cols-4">
           <MetricCard
             title="Total Portfolio Value"
-            value={
-              apiData
-                ? `$${Number(apiData.total_portfolio_value).toLocaleString()}`
-                : metrics.totalPortfolioValue
-            }
+            value={metrics.totalPortfolioValue}
             change={0.052}
             className="min-w-0"
             icon={<WalletCards size={16} />}
@@ -83,11 +106,7 @@ export default function Metrics() {
 
           <MetricCard
             title="Total Passive Income"
-            value={
-              apiData
-                ? `$${Number(apiData.passive_income).toLocaleString()}`
-                : metrics.totalPassiveIncome
-            }
+            value={metrics.totalPassiveIncome}
             change={0.068}
             className="min-w-0"
             icon={<HandCoins size={16} />}
