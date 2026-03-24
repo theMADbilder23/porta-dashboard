@@ -1,0 +1,483 @@
+import { createClient } from "@supabase/supabase-js";
+
+const DEBANK_API_KEY = process.env.DEBANK_API_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const DEBANK_BASE = "https://pro-openapi.debank.com/v1";
+const POLL_INTERVAL_MS = 60_000;
+
+if (!DEBANK_API_KEY) {
+  throw new Error("Missing DEBANK_API_KEY");
+}
+
+if (!SUPABASE_URL) {
+  throw new Error("Missing SUPABASE_URL");
+}
+
+if (!SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
+}
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+const SAFE_SYMBOL_ALLOWLIST = new Set([
+  "ETH",
+  "WETH",
+  "USDC",
+  "USDT",
+  "DAI",
+  "WBTC",
+  "WELL",
+  "stkWELL",
+  "MAMO",
+  "AERO",
+  "cbBTC",
+]);
+
+type WalletRow = {
+  id: string;
+  name?: string | null;
+  role?: string | null;
+  wallet_address: string;
+  network_group?: string | null;
+  is_active?: boolean | null;
+};
+
+type DebankToken = {
+  id?: string;
+  chain?: string;
+  name?: string;
+  symbol?: string;
+  optimized_symbol?: string;
+  amount?: number;
+  price?: number;
+  usd_value?: number;
+  is_core?: boolean;
+  is_wallet?: boolean;
+  is_verified?: boolean;
+  is_scam?: boolean;
+  is_suspicious?: boolean;
+};
+
+type DebankProtocol = {
+  id?: string;
+  chain?: string;
+  name?: string;
+  logo_url?: string;
+  stats?: {
+    asset_usd_value?: number;
+    debt_usd_value?: number;
+    net_usd_value?: number;
+  };
+  portfolio_item_list?: Array<{
+    name?: string;
+    detail_types?: string[];
+    stats?: {
+      asset_usd_value?: number;
+      debt_usd_value?: number;
+      net_usd_value?: number;
+    };
+    detail?: Record<
+      string,
+      Array<{
+        optimized_symbol?: string;
+        symbol?: string;
+        amount?: number;
+        price?: number;
+        usd_value?: number;
+      }>
+    >;
+  }>;
+};
+
+type DebankTotalBalance = {
+  total_usd_value?: number;
+};
+
+type UsedChain = {
+  id?: string;
+  name?: string;
+  chain?: string;
+};
+
+type CleanTopToken = {
+  token_symbol: string;
+  token_name: string;
+  network: string;
+  amount: number;
+  value_usd: number;
+  category: string;
+  protocol: string | null;
+  is_yield_position: boolean;
+};
+
+type CleanTopProtocol = {
+  protocol_name: string;
+  token_symbol: string | null;
+  token_name: string | null;
+  network: string;
+  amount: number;
+  value_usd: number;
+  category: string;
+  protocol: string;
+  is_yield_position: boolean;
+};
+
+function cleanWallet(wallet: string): string {
+  return wallet.trim().replace(/</g, "").replace(/>/g, "");
+}
+
+function isValidWallet(wallet: string): boolean {
+  return wallet.startsWith("0x") && wallet.length === 42;
+}
+
+function looksLikeSpamSymbol(symbol?: string): boolean {
+  if (!symbol) return true;
+
+  const s = symbol.trim();
+  const lower = s.toLowerCase();
+
+  if (s.includes(".")) return true;
+
+  const spamPatterns = [
+    "http",
+    "www",
+    "claim",
+    "airdrop",
+    "visit",
+    "swap",
+    "bonus",
+    "gift",
+    "reward",
+    "free",
+    "air",
+  ];
+
+  if (spamPatterns.some((p) => lower.includes(p))) return true;
+  if (s.length > 12) return true;
+  if (!/^[A-Za-z0-9\-_]+$/.test(s)) return true;
+
+  return false;
+}
+
+function isTokenTrusted(symbol?: string): boolean {
+  if (!symbol) return false;
+  return SAFE_SYMBOL_ALLOWLIST.has(symbol);
+}
+
+function getTopTokens(
+  tokenData: DebankToken[],
+  walletTotalValue: number,
+  roleUsed?: string | null,
+  limit = 5,
+  minUsd = 25
+): CleanTopToken[] {
+  if (!Array.isArray(tokenData)) return [];
+
+  const cleaned: CleanTopToken[] = [];
+  const normalizedRole = (roleUsed || "").toLowerCase();
+  const isStrictRole =
+    normalizedRole === "hub" ||
+    normalizedRole === "trading" ||
+    normalizedRole === "swing";
+
+  for (const token of tokenData) {
+    const symbol = token.optimized_symbol || token.symbol || "";
+    const tokenName = token.name || symbol || "Unknown";
+    const amount = Number(token.amount || 0);
+    const price = Number(token.price || 0);
+    const value = Number(token.usd_value ?? price * amount ?? 0);
+    const trusted = isTokenTrusted(symbol);
+
+    if (
+      (normalizedRole === "hub" ||
+        normalizedRole === "trading" ||
+        normalizedRole === "swing") &&
+      !trusted
+    ) {
+      continue;
+    }
+
+    if (value < minUsd && !trusted) continue;
+    if (looksLikeSpamSymbol(symbol) && !trusted) continue;
+
+    if (walletTotalValue > 0 && value > walletTotalValue && !trusted) {
+      continue;
+    }
+
+    if (isStrictRole && !trusted) {
+      if (walletTotalValue > 0 && value > walletTotalValue) continue;
+    }
+
+    cleaned.push({
+      token_symbol: symbol,
+      token_name: tokenName,
+      network: token.chain || "Unknown",
+      amount,
+      value_usd: value,
+      category: "wallet",
+      protocol: null,
+      is_yield_position: false,
+    });
+  }
+
+  cleaned.sort((a, b) => b.value_usd - a.value_usd);
+  return cleaned.slice(0, limit);
+}
+
+function getTopProtocols(
+  protocolData: DebankProtocol[],
+  limit = 5,
+  minUsd = 25
+): CleanTopProtocol[] {
+  if (!Array.isArray(protocolData)) return [];
+
+  const results: CleanTopProtocol[] = [];
+
+  for (const protocol of protocolData) {
+    const protocolName = protocol.name || "Unknown";
+    const protocolNetwork = protocol.chain || "Unknown";
+
+    let totalValue = 0;
+    let totalAmount = 0;
+    let amountSymbol: string | null = null;
+    let amountTokenName: string | null = null;
+
+    for (const item of protocol.portfolio_item_list || []) {
+      const stats = item.stats || {};
+      const itemValue = Number(stats.asset_usd_value || 0);
+      totalValue += itemValue;
+
+      const detailTypes = [
+        "supply_token_list",
+        "borrow_token_list",
+        "reward_token_list",
+        "deposit_token_list",
+        "stake_token_list",
+        "lock_token_list",
+      ];
+
+      for (const detailType of detailTypes) {
+        const detailList = item.detail?.[detailType] || [];
+
+        for (const token of detailList) {
+          const symbol = token.optimized_symbol || token.symbol || null;
+          const amount = Number(token.amount || 0);
+
+          if (amountSymbol === null && symbol) {
+            amountSymbol = symbol;
+            amountTokenName = symbol;
+          }
+
+          if (symbol === amountSymbol) {
+            totalAmount += amount;
+          }
+        }
+      }
+    }
+
+    if (totalValue >= minUsd) {
+      results.push({
+        protocol_name: protocolName,
+        token_symbol: amountSymbol,
+        token_name: amountTokenName,
+        network: protocolNetwork,
+        amount: totalAmount,
+        value_usd: totalValue,
+        category: "protocol",
+        protocol: protocolName,
+        is_yield_position: true,
+      });
+    }
+  }
+
+  results.sort((a, b) => b.value_usd - a.value_usd);
+  return results.slice(0, limit);
+}
+
+async function debankGet<T>(endpoint: string, wallet: string): Promise<T> {
+  const url = new URL(`${DEBANK_BASE}${endpoint}`);
+  url.searchParams.set("id", wallet);
+
+  const res = await fetch(url.toString(), {
+    headers: {
+      AccessKey: DEBANK_API_KEY as string,
+      accept: "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`DeBank ${res.status}: ${text}`);
+  }
+
+  return res.json() as Promise<T>;
+}
+
+async function fetchWallets(): Promise<WalletRow[]> {
+  const { data, error } = await supabase
+    .from("Wallets")
+    .select("id, name, role, wallet_address, network_group, is_active")
+    .eq("is_active", true)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw new Error(`Failed to fetch Wallets: ${error.message}`);
+  }
+
+  return (data || []) as WalletRow[];
+}
+
+async function insertSnapshot(
+  wallet: WalletRow,
+  totalValueUsd: number,
+  snapshotTime: string
+) {
+  const payload = {
+    wallet_id: wallet.id,
+    total_value_usd: totalValueUsd,
+    total_rewards_usd: 0,
+    total_claimed_usd: 0,
+    total_pending_usd: 0,
+    snapshot_time: snapshotTime,
+  };
+
+  const { data, error } = await supabase
+    .from("wallet_snapshots")
+    .insert(payload)
+    .select("id")
+    .single();
+
+  if (error) {
+    throw new Error(
+      `Failed to insert snapshot for ${wallet.wallet_address}: ${error.message}`
+    );
+  }
+
+  return data;
+}
+
+async function insertHoldings(
+  wallet: WalletRow,
+  snapshotId: string,
+  snapshotTime: string,
+  holdings: Array<CleanTopToken | CleanTopProtocol>
+) {
+  if (!holdings.length) return;
+
+  const rows = holdings.map((holding) => ({
+    snapshot_id: snapshotId,
+    wallet_id: wallet.id,
+    token_symbol: holding.token_symbol,
+    token_name: holding.token_name,
+    network: holding.network,
+    amount: holding.amount,
+    value_usd: holding.value_usd,
+    category: holding.category,
+    protocol: holding.protocol,
+    is_yield_position: holding.is_yield_position,
+    snapshot_time: snapshotTime,
+  }));
+
+  const { error } = await supabase.from("wallet_holdings").insert(rows);
+
+  if (error) {
+    throw new Error(
+      `Failed to insert holdings for ${wallet.wallet_address}: ${error.message}`
+    );
+  }
+}
+
+async function collectOneWallet(wallet: WalletRow) {
+  const cleanedAddress = cleanWallet(wallet.wallet_address);
+
+  if (!isValidWallet(cleanedAddress)) {
+    console.warn(
+      `[collector] Skipping invalid wallet: ${wallet.name || "Unnamed"} (${wallet.wallet_address})`
+    );
+    return;
+  }
+
+  const snapshotTime = new Date().toISOString();
+
+  const [totalBalance, usedChains, allTokens, allProtocols] = await Promise.all([
+    debankGet<DebankTotalBalance>("/user/total_balance", cleanedAddress),
+    debankGet<UsedChain[]>("/user/used_chain_list", cleanedAddress),
+    debankGet<DebankToken[]>("/user/all_token_list?is_all=false", cleanedAddress),
+    debankGet<DebankProtocol[]>("/user/all_complex_protocol_list", cleanedAddress),
+  ]);
+
+  const totalWalletValue = Number(totalBalance?.total_usd_value || 0);
+  const chainCount = Array.isArray(usedChains) ? usedChains.length : 0;
+  const roleUsed = wallet.role || "core";
+
+  const topTokens = getTopTokens(
+    Array.isArray(allTokens) ? allTokens : [],
+    totalWalletValue,
+    roleUsed,
+    5,
+    25
+  );
+
+  const topProtocols = getTopProtocols(
+    Array.isArray(allProtocols) ? allProtocols : [],
+    5,
+    25
+  );
+
+  const snapshot = await insertSnapshot(wallet, totalWalletValue, snapshotTime);
+
+  await insertHoldings(wallet, snapshot.id, snapshotTime, [
+    ...topTokens,
+    ...topProtocols,
+  ]);
+
+  console.log(
+    JSON.stringify(
+      {
+        wallet_name: wallet.name || null,
+        wallet_address: cleanedAddress,
+        role_used: roleUsed,
+        total_value_usd: totalWalletValue,
+        chain_count: chainCount,
+        snapshot_id: snapshot.id,
+        top_tokens: topTokens,
+        top_protocols: topProtocols,
+      },
+      null,
+      2
+    )
+  );
+}
+
+async function runCollector() {
+  console.log(`[collector] Run started at ${new Date().toISOString()}`);
+
+  try {
+    const wallets = await fetchWallets();
+
+    if (!wallets.length) {
+      console.warn("[collector] No active wallets found in Wallets table.");
+      return;
+    }
+
+    for (const wallet of wallets) {
+      try {
+        await collectOneWallet(wallet);
+      } catch (err) {
+        console.error(
+          `[collector] Wallet failed: ${wallet.name || "Unnamed"} (${wallet.wallet_address})`,
+          err
+        );
+      }
+    }
+
+    console.log(`[collector] Run finished at ${new Date().toISOString()}`);
+  } catch (err) {
+    console.error("[collector] Fatal run error:", err);
+  }
+}
+
+runCollector();
+setInterval(runCollector, POLL_INTERVAL_MS);

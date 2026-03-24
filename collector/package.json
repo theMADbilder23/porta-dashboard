@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "main": "index.ts",
+  "main": "index.js",
   "scripts": {
-    "start": "node index.ts"
+    "start": "node index.js"
   },
   "dependencies": {
-    "node-fetch": "^3.3.2"
+    "@supabase/supabase-js": "^2.49.1"
   }
 }
