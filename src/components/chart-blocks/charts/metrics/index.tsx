@@ -1,6 +1,5 @@
 "use client";
 
-import { useAtomValue } from "jotai";
 import { useEffect, useState } from "react";
 import { TrendingDown, TrendingUp, WalletCards, HandCoins } from "lucide-react";
 import Container from "../../../../components/container";
@@ -8,7 +7,12 @@ import OverviewTimeframeTabs from "../../../../components/overview-timeframe-tab
 import MetricCard from "./components/metric-card";
 
 export default function Metrics() {
-  const [apiData, setApiData] = useState<any>(null);
+  const [apiData, setApiData] = useState<{
+    total_portfolio_value: number;
+    passive_income: number;
+    realized_gains: number | null;
+    realized_losses: number | null;
+  } | null>(null);
 
   useEffect(() => {
     async function fetchData() {
@@ -16,9 +20,7 @@ export default function Metrics() {
         const res = await fetch("/api/overview");
         const data = await res.json();
         setApiData(data);
-      } catch (err) {
-        console.error("Failed to fetch overview:", err);
-      }
+      } catch {}
     }
 
     fetchData();
