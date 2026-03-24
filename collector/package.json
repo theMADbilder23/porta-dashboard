@@ -1,0 +1,13 @@
+{
+  "name": "porta-collector",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "start": "node index.ts"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  }
+}
