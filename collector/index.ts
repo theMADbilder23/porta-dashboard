@@ -1,5 +1,3 @@
-import fetch from "node-fetch";
-
 const DEBANK_API_KEY = process.env.DEBANK_API_KEY;
 const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
 
