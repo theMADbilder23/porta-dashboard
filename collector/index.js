@@ -1,25 +1,39 @@
 import { createClient } from "@supabase/supabase-js";
+import { createPublicClient, http, formatUnits } from "viem";
+import { base } from "viem/chains";
 
 const DEBANK_API_KEY = process.env.DEBANK_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const DEBANK_BASE = "https://pro-openapi.debank.com/v1";
+const MERKL_BASE = "https://api.merkl.xyz/v4";
 const POLL_INTERVAL_MS = 60_000;
 
-if (!DEBANK_API_KEY) {
-  throw new Error("Missing DEBANK_API_KEY");
-}
+const WELL_TOKEN = "0xA88594D404727625A9437C3F886C7643872296AE";
+const STKWELL_CONTRACT = "0xe66E3A37C3274Ac24FE8590f7D84A2427194DC17";
+const BASE_CHAIN_ID = 8453;
 
-if (!SUPABASE_URL) {
-  throw new Error("Missing SUPABASE_URL");
-}
-
-if (!SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
-}
+if (!DEBANK_API_KEY) throw new Error("Missing DEBANK_API_KEY");
+if (!SUPABASE_URL) throw new Error("Missing SUPABASE_URL");
+if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+const baseClient = createPublicClient({
+  chain: base,
+  transport: http("https://mainnet.base.org"),
+});
+
+const ERC20_BALANCE_ABI = [
+  {
+    name: "balanceOf",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+];
 
 const SAFE_SYMBOL_ALLOWLIST = new Set([
   "ETH",
@@ -141,13 +155,15 @@ function getTopProtocols(protocolData, limit = 5, minUsd = 25) {
     const protocolNetwork = protocol?.chain || "Unknown";
 
     let totalValue = 0;
-    let totalAmount = 0;
     let amountSymbol = null;
     let amountTokenName = null;
+    let totalAmount = 0;
 
     for (const item of protocol?.portfolio_item_list || []) {
       const stats = item?.stats || {};
-      const itemValue = Number(stats?.asset_usd_value || 0);
+      const itemValue = Number(
+        stats?.net_usd_value ?? stats?.asset_usd_value ?? 0
+      );
       totalValue += itemValue;
 
       const detailTypes = [
@@ -230,13 +246,121 @@ async function fetchWallets() {
   return data || [];
 }
 
-async function insertSnapshot(wallet, totalValueUsd, snapshotTime) {
+async function getStkWellBalance(walletAddress) {
+  try {
+    const raw = await baseClient.readContract({
+      address: STKWELL_CONTRACT,
+      abi: ERC20_BALANCE_ABI,
+      functionName: "balanceOf",
+      args: [walletAddress],
+    });
+
+    return Number(formatUnits(raw, 18));
+  } catch (err) {
+    console.error(`[collector] stkWELL balance lookup failed for ${walletAddress}`, err);
+    return 0;
+  }
+}
+
+async function getMerklWellRewards(walletAddress) {
+  try {
+    const url = new URL(`${MERKL_BASE}/users/${walletAddress}/rewards`);
+    url.searchParams.set("chainId", String(BASE_CHAIN_ID));
+    url.searchParams.set("claimableOnly", "false");
+    url.searchParams.set("type", "TOKEN");
+    url.searchParams.set("breakdownPage", "0");
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        accept: "application/json",
+      },
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Merkl ${res.status}: ${text}`);
+    }
+
+    const data = await res.json();
+
+    if (!Array.isArray(data) || !data.length || !Array.isArray(data[0]?.rewards) || !data[0].rewards.length) {
+      return {
+        earned: 0,
+        claimed: 0,
+        pending: 0,
+        claimable: 0,
+        price: 0,
+        usd_value: 0,
+        token: "WELL",
+        raw: data,
+      };
+    }
+
+    const reward = data[0].rewards[0];
+    const decimals = Number(reward?.token?.decimals || 18);
+    const price = Number(reward?.token?.price || 0);
+
+    const earned = Number(reward?.amount || 0) / 10 ** decimals;
+    const claimed = Number(reward?.claimed || 0) / 10 ** decimals;
+    const pending = Number(reward?.pending || 0) / 10 ** decimals;
+    const claimable = earned - claimed - pending;
+    const usdValue = claimable * price;
+
+    return {
+      earned,
+      claimed,
+      pending,
+      claimable,
+      price,
+      usd_value: usdValue,
+      token: reward?.token?.symbol || "WELL",
+      raw: data,
+    };
+  } catch (err) {
+    console.error(`[collector] Merkl rewards lookup failed for ${walletAddress}`, err);
+    return {
+      earned: 0,
+      claimed: 0,
+      pending: 0,
+      claimable: 0,
+      price: 0,
+      usd_value: 0,
+      token: "WELL",
+      raw: null,
+    };
+  }
+}
+
+function buildStkWellHolding(stakedAmount, wellPrice, snapshotTime) {
+  if (!stakedAmount || stakedAmount <= 0) return null;
+
+  return {
+    token_symbol: "stkWELL",
+    token_name: "stkWELL",
+    network: "base",
+    amount: stakedAmount,
+    value_usd: stakedAmount * wellPrice,
+    category: "protocol",
+    protocol: "Moonwell",
+    is_yield_position: true,
+    snapshot_time: snapshotTime,
+  };
+}
+
+async function insertSnapshot(
+  wallet,
+  totalValueUsd,
+  totalRewardsUsd,
+  totalClaimedUsd,
+  totalPendingUsd,
+  snapshotTime
+) {
   const payload = {
     wallet_id: wallet.id,
     total_value_usd: totalValueUsd,
-    total_rewards_usd: 0,
-    total_claimed_usd: 0,
-    total_pending_usd: 0,
+    total_rewards_usd: totalRewardsUsd,
+    total_claimed_usd: totalClaimedUsd,
+    total_pending_usd: totalPendingUsd,
     snapshot_time: snapshotTime,
   };
 
@@ -293,12 +417,15 @@ async function collectOneWallet(wallet) {
 
   const snapshotTime = new Date().toISOString();
 
-  const [totalBalance, usedChains, allTokens, allProtocols] = await Promise.all([
-    debankGet("/user/total_balance", cleanedAddress),
-    debankGet("/user/used_chain_list", cleanedAddress),
-    debankGet("/user/all_token_list?is_all=false", cleanedAddress),
-    debankGet("/user/all_complex_protocol_list", cleanedAddress),
-  ]);
+  const [totalBalance, usedChains, allTokens, allProtocols, merklRewards, stkWellAmount] =
+    await Promise.all([
+      debankGet("/user/total_balance", cleanedAddress),
+      debankGet("/user/used_chain_list", cleanedAddress),
+      debankGet("/user/all_token_list?is_all=false", cleanedAddress),
+      debankGet("/user/all_complex_protocol_list", cleanedAddress),
+      getMerklWellRewards(cleanedAddress),
+      getStkWellBalance(cleanedAddress),
+    ]);
 
   const totalWalletValue = Number(totalBalance?.total_usd_value || 0);
   const chainCount = Array.isArray(usedChains) ? usedChains.length : 0;
@@ -318,12 +445,28 @@ async function collectOneWallet(wallet) {
     25
   );
 
-  const snapshot = await insertSnapshot(wallet, totalWalletValue, snapshotTime);
+  const stkWellHolding = buildStkWellHolding(
+    stkWellAmount,
+    Number(merklRewards?.price || 0),
+    snapshotTime
+  );
 
-  await insertHoldings(wallet, snapshot.id, snapshotTime, [
+  const snapshot = await insertSnapshot(
+    wallet,
+    totalWalletValue,
+    Number(merklRewards?.earned || 0) * Number(merklRewards?.price || 0),
+    Number(merklRewards?.claimed || 0) * Number(merklRewards?.price || 0),
+    Number(merklRewards?.pending || 0) * Number(merklRewards?.price || 0),
+    snapshotTime
+  );
+
+  const allHoldings = [
     ...topTokens,
     ...topProtocols,
-  ]);
+    ...(stkWellHolding ? [stkWellHolding] : []),
+  ];
+
+  await insertHoldings(wallet, snapshot.id, snapshotTime, allHoldings);
 
   console.log(
     JSON.stringify(
@@ -334,8 +477,19 @@ async function collectOneWallet(wallet) {
         total_value_usd: totalWalletValue,
         chain_count: chainCount,
         snapshot_id: snapshot.id,
+        merkl_rewards: {
+          token: merklRewards.token,
+          price: merklRewards.price,
+          earned: merklRewards.earned,
+          claimed: merklRewards.claimed,
+          pending: merklRewards.pending,
+          claimable: merklRewards.claimable,
+          usd_value: merklRewards.usd_value,
+        },
+        stkwell_balance: stkWellAmount,
         top_tokens: topTokens,
         top_protocols: topProtocols,
+        enriched_holdings: stkWellHolding ? [stkWellHolding] : [],
       },
       null,
       2
