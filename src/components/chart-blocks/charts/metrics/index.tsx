@@ -20,7 +20,9 @@ export default function Metrics() {
         const res = await fetch("/api/overview");
         const data = await res.json();
         setApiData(data);
-      } catch {}
+      } catch (_error) {
+        return;
+      }
     }
 
     fetchData();
