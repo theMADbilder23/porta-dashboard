@@ -102,53 +102,65 @@ export default async function handler(req, res) {
     let portfolioWalletsUsed = 0;
     let passiveWalletsUsed = 0;
 
-    for (const wallet of activeWallets) {
-      const walletSnapshots = snapshotsByWallet.get(wallet.id) || [];
-      const role = String(wallet.role || "").toLowerCase();
+  
+      // Require meaningful data per timeframe
+      const MIN_SNAPSHOTS = {
+        daily: 3,
+        weekly: 10,
+        monthly: 30,
+        quarterly: 60,
+        yearly: 120,
+      };
 
-      if (walletSnapshots.length >= 2) {
-        let portfolioSum = 0;
+      const requiredSnapshots = MIN_SNAPSHOTS[timeframe] || 3;
 
-        for (const snapshot of walletSnapshots) {
-          portfolioSum +=
-            safeNumber(snapshot.total_value_usd) +
-            safeNumber(snapshot.total_pending_usd);
+      for (const wallet of activeWallets) {
+        const walletSnapshots = snapshotsByWallet.get(wallet.id) || [];
+        const role = String(wallet.role || "").toLowerCase();
+
+        if (walletSnapshots.length >= requiredSnapshots) {
+          let portfolioSum = 0;
+
+          for (const snapshot of walletSnapshots) {
+            portfolioSum +=
+              safeNumber(snapshot.total_value_usd) +
+              safeNumber(snapshot.total_pending_usd);
+          }
+
+          const avgPortfolioValue = portfolioSum / walletSnapshots.length;
+
+          totalPortfolioValue += avgPortfolioValue;
+          portfolioWalletsUsed += 1;
+
+          if (role === "hub") {
+            stableValue += avgPortfolioValue;
+          } else if (role === "yield") {
+            yieldValue += avgPortfolioValue;
+          } else if (role === "core") {
+            growthValue += avgPortfolioValue;
+          } else if (role === "swing") {
+            swingValue += avgPortfolioValue;
+          } else {
+            growthValue += avgPortfolioValue;
+          }
+
+          const firstSnapshot = walletSnapshots[0];
+          const lastSnapshot = walletSnapshots[walletSnapshots.length - 1];
+
+          const firstRewardState =
+            safeNumber(firstSnapshot.total_rewards_usd) +
+            safeNumber(firstSnapshot.total_pending_usd);
+
+          const lastRewardState =
+            safeNumber(lastSnapshot.total_rewards_usd) +
+            safeNumber(lastSnapshot.total_pending_usd);
+
+          const earnedInTimeframe = Math.max(0, lastRewardState - firstRewardState);
+
+          passiveIncome += earnedInTimeframe;
+          passiveWalletsUsed += 1;
         }
-
-        const avgPortfolioValue = portfolioSum / walletSnapshots.length;
-
-        totalPortfolioValue += avgPortfolioValue;
-        portfolioWalletsUsed += 1;
-
-        if (role === "hub") {
-          stableValue += avgPortfolioValue;
-        } else if (role === "yield") {
-          yieldValue += avgPortfolioValue;
-        } else if (role === "core") {
-          growthValue += avgPortfolioValue;
-        } else if (role === "swing") {
-          swingValue += avgPortfolioValue;
-        } else {
-          growthValue += avgPortfolioValue;
-        }
-
-        const firstSnapshot = walletSnapshots[0];
-        const lastSnapshot = walletSnapshots[walletSnapshots.length - 1];
-
-        const firstRewardState =
-          safeNumber(firstSnapshot.total_rewards_usd) +
-          safeNumber(firstSnapshot.total_pending_usd);
-
-        const lastRewardState =
-          safeNumber(lastSnapshot.total_rewards_usd) +
-          safeNumber(lastSnapshot.total_pending_usd);
-
-        const earnedInTimeframe = Math.max(0, lastRewardState - firstRewardState);
-
-        passiveIncome += earnedInTimeframe;
-        passiveWalletsUsed += 1;
       }
-    }
 
     return res.status(200).json({
       timeframe,
