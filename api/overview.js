@@ -49,7 +49,7 @@ export default async function handler(req, res) {
     const timeframeStart = getTimeframeStart(timeframe).toISOString();
 
     const { data: wallets, error: walletsError } = await supabase
-      .from("wallets")
+      .from("Wallets")
       .select("id, name, role, is_active")
       .eq("is_active", true);
 
