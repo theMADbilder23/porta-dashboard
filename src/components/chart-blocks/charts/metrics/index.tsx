@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { overviewTimeframeAtom } from "../../../../../lib/atoms/overview-header";
+import { useAtomValue } from "jotai";
 import { TrendingDown, TrendingUp, WalletCards, HandCoins } from "lucide-react";
-import Container from "../../../../components/container";
-import OverviewTimeframeTabs from "../../../../components/overview-timeframe-tabs";
+import Container from "../../../../../components/container";
+import OverviewTimeframeTabs from "../../../../../components/overview-timeframe-tabs";
+import { overviewTimeframeAtom } from "@/lib/atoms/overview-header";
 import MetricCard from "./components/metric-card";
 
 export default function Metrics() {
