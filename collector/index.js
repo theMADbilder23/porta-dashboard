@@ -150,9 +150,14 @@ function getTopProtocols(protocolData, limit = 5, minUsd = 25) {
 
   const results = [];
 
-  for (const protocol of protocolData) {
-    const protocolName = protocol?.name || "Unknown";
-    const protocolNetwork = protocol?.chain || "Unknown";
+    for (const protocol of protocolData) {
+      const protocolName = protocol?.name || "Unknown";
+      const protocolNetwork = protocol?.chain || "Unknown";
+
+      // Skip Moonwell here because we add the enriched stkWELL position separately
+      if (protocolName === "Moonwell") {
+        continue;
+      }
 
     let totalValue = 0;
     let amountSymbol = null;
