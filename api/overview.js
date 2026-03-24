@@ -61,14 +61,14 @@ export default async function handler(req, res) {
     if (walletIds.length === 0) {
       return res.status(200).json({
         timeframe,
-        total_portfolio_value: 0,
-        stable_value: 0,
-        yield_value: 0,
-        growth_value: 0,
-        swing_value: 0,
+        total_portfolio_value: null,
+        stable_value: null,
+        yield_value: null,
+        growth_value: null,
+        swing_value: null,
         realized_gains: null,
         realized_losses: null,
-        passive_income: 0,
+        passive_income: null,
       });
     }
 
@@ -79,7 +79,7 @@ export default async function handler(req, res) {
       )
       .in("wallet_id", walletIds)
       .gte("snapshot_time", timeframeStart)
-      .order("snapshot_time", { ascending: false });
+      .order("snapshot_time", { ascending: true });
 
     if (snapshotsError) throw snapshotsError;
 
@@ -99,54 +99,67 @@ export default async function handler(req, res) {
     let swingValue = 0;
     let passiveIncome = 0;
 
+    let portfolioWalletsUsed = 0;
+    let passiveWalletsUsed = 0;
+
     for (const wallet of activeWallets) {
       const walletSnapshots = snapshotsByWallet.get(wallet.id) || [];
-      if (walletSnapshots.length === 0) continue;
-
-      let portfolioSum = 0;
-      let passiveIncomeSum = 0;
-
-      for (const snapshot of walletSnapshots) {
-        const snapshotPortfolioValue =
-          safeNumber(snapshot.total_value_usd) + safeNumber(snapshot.total_pending_usd);
-
-        const snapshotPassiveIncome =
-          safeNumber(snapshot.total_rewards_usd) + safeNumber(snapshot.total_pending_usd);
-
-        portfolioSum += snapshotPortfolioValue;
-        passiveIncomeSum += snapshotPassiveIncome;
-      }
-
-      const avgPortfolioValue = portfolioSum / walletSnapshots.length;
-      const avgPassiveIncome = passiveIncomeSum / walletSnapshots.length;
       const role = String(wallet.role || "").toLowerCase();
 
-      totalPortfolioValue += avgPortfolioValue;
-      passiveIncome += avgPassiveIncome;
+      if (walletSnapshots.length >= 2) {
+        let portfolioSum = 0;
 
-      if (role === "hub") {
-        stableValue += avgPortfolioValue;
-      } else if (role === "yield") {
-        yieldValue += avgPortfolioValue;
-      } else if (role === "core") {
-        growthValue += avgPortfolioValue;
-      } else if (role === "swing") {
-        swingValue += avgPortfolioValue;
-      } else {
-        growthValue += avgPortfolioValue;
+        for (const snapshot of walletSnapshots) {
+          portfolioSum +=
+            safeNumber(snapshot.total_value_usd) +
+            safeNumber(snapshot.total_pending_usd);
+        }
+
+        const avgPortfolioValue = portfolioSum / walletSnapshots.length;
+
+        totalPortfolioValue += avgPortfolioValue;
+        portfolioWalletsUsed += 1;
+
+        if (role === "hub") {
+          stableValue += avgPortfolioValue;
+        } else if (role === "yield") {
+          yieldValue += avgPortfolioValue;
+        } else if (role === "core") {
+          growthValue += avgPortfolioValue;
+        } else if (role === "swing") {
+          swingValue += avgPortfolioValue;
+        } else {
+          growthValue += avgPortfolioValue;
+        }
+
+        const firstSnapshot = walletSnapshots[0];
+        const lastSnapshot = walletSnapshots[walletSnapshots.length - 1];
+
+        const firstRewardState =
+          safeNumber(firstSnapshot.total_rewards_usd) +
+          safeNumber(firstSnapshot.total_pending_usd);
+
+        const lastRewardState =
+          safeNumber(lastSnapshot.total_rewards_usd) +
+          safeNumber(lastSnapshot.total_pending_usd);
+
+        const earnedInTimeframe = Math.max(0, lastRewardState - firstRewardState);
+
+        passiveIncome += earnedInTimeframe;
+        passiveWalletsUsed += 1;
       }
     }
 
     return res.status(200).json({
       timeframe,
-      total_portfolio_value: totalPortfolioValue,
-      stable_value: stableValue,
-      yield_value: yieldValue,
-      growth_value: growthValue,
-      swing_value: swingValue,
+      total_portfolio_value: portfolioWalletsUsed > 0 ? totalPortfolioValue : null,
+      stable_value: portfolioWalletsUsed > 0 ? stableValue : null,
+      yield_value: portfolioWalletsUsed > 0 ? yieldValue : null,
+      growth_value: portfolioWalletsUsed > 0 ? growthValue : null,
+      swing_value: portfolioWalletsUsed > 0 ? swingValue : null,
       realized_gains: null,
       realized_losses: null,
-      passive_income: passiveIncome,
+      passive_income: passiveWalletsUsed > 0 ? passiveIncome : null,
     });
   } catch (err) {
     return res.status(500).json({
