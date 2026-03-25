@@ -5,6 +5,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+function safeNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function getTimeframeStart(timeframe) {
   const now = new Date();
 
@@ -38,11 +43,6 @@ function getTimeframeStart(timeframe) {
   }
 }
 
-function safeNumber(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
-}
-
 const MIN_TIME_SPAN_MS = {
   daily: 12 * 60 * 60 * 1000,
   weekly: 5 * 24 * 60 * 60 * 1000,
@@ -61,6 +61,24 @@ function hasEnoughTimeCoverage(snapshots, timeframe) {
 
   const span = last - first;
   return span >= (MIN_TIME_SPAN_MS[timeframe] || MIN_TIME_SPAN_MS.daily);
+}
+
+function getPassiveIncomeState(snapshot) {
+  if (!snapshot) return 0;
+
+  return (
+    safeNumber(snapshot.total_claimed_usd) +
+    safeNumber(snapshot.total_claimable_usd)
+  );
+}
+
+function getPortfolioSnapshotValue(snapshot) {
+  if (!snapshot) return 0;
+
+  return (
+    safeNumber(snapshot.total_value_usd) +
+    safeNumber(snapshot.total_claimable_usd)
+  );
 }
 
 module.exports = async function handler(req, res) {
@@ -94,9 +112,14 @@ module.exports = async function handler(req, res) {
 
     const { data: snapshots, error: snapshotsError } = await supabase
       .from("wallet_snapshots")
-      .select(
-        "id, wallet_id, total_value_usd, total_rewards_usd, total_pending_usd, snapshot_time"
-      )
+      .select(`
+        id,
+        wallet_id,
+        total_value_usd,
+        total_claimed_usd,
+        total_claimable_usd,
+        snapshot_time
+      `)
       .in("wallet_id", walletIds)
       .gte("snapshot_time", timeframeStart)
       .order("snapshot_time", { ascending: true });
@@ -135,23 +158,31 @@ module.exports = async function handler(req, res) {
         continue;
       }
 
+      const firstSnapshot = walletSnapshots[0];
+      const latestSnapshot = walletSnapshots[walletSnapshots.length - 1];
+
       let portfolioValueForTimeframe = 0;
+      let passiveIncomeForTimeframe = 0;
 
       if (timeframe === "daily") {
-        const latestSnapshot = walletSnapshots[walletSnapshots.length - 1];
-        portfolioValueForTimeframe =
-          safeNumber(latestSnapshot.total_value_usd) +
-          safeNumber(latestSnapshot.total_pending_usd);
+        portfolioValueForTimeframe = getPortfolioSnapshotValue(latestSnapshot);
+        passiveIncomeForTimeframe = getPassiveIncomeState(latestSnapshot);
       } else {
         let portfolioSum = 0;
 
         for (const snapshot of walletSnapshots) {
-          portfolioSum +=
-            safeNumber(snapshot.total_value_usd) +
-            safeNumber(snapshot.total_pending_usd);
+          portfolioSum += getPortfolioSnapshotValue(snapshot);
         }
 
         portfolioValueForTimeframe = portfolioSum / walletSnapshots.length;
+
+        const firstPassiveState = getPassiveIncomeState(firstSnapshot);
+        const latestPassiveState = getPassiveIncomeState(latestSnapshot);
+
+        passiveIncomeForTimeframe = Math.max(
+          0,
+          latestPassiveState - firstPassiveState
+        );
       }
 
       totalPortfolioValue += portfolioValueForTimeframe;
@@ -169,23 +200,8 @@ module.exports = async function handler(req, res) {
         growthValue += portfolioValueForTimeframe;
       }
 
-      if (walletSnapshots.length >= 2) {
-        const firstSnapshot = walletSnapshots[0];
-        const lastSnapshot = walletSnapshots[walletSnapshots.length - 1];
-
-        const firstRewardState =
-          safeNumber(firstSnapshot.total_rewards_usd) +
-          safeNumber(firstSnapshot.total_pending_usd);
-
-        const lastRewardState =
-          safeNumber(lastSnapshot.total_rewards_usd) +
-          safeNumber(lastSnapshot.total_pending_usd);
-
-        const earnedInTimeframe = Math.max(0, lastRewardState - firstRewardState);
-
-        passiveIncome += earnedInTimeframe;
-        passiveWalletsUsed += 1;
-      }
+      passiveIncome += passiveIncomeForTimeframe;
+      passiveWalletsUsed += 1;
     }
 
     return res.status(200).json({
@@ -200,6 +216,8 @@ module.exports = async function handler(req, res) {
       passive_income: passiveWalletsUsed > 0 ? passiveIncome : null,
     });
   } catch (err) {
+    console.error("[api/overview] error:", err);
+
     return res.status(500).json({
       error: "Internal Server Error",
       details: err?.message || "Unknown error",
