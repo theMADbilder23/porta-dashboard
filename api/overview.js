@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+const { createClient } = require("@supabase/supabase-js");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -63,7 +63,7 @@ function hasEnoughTimeCoverage(snapshots, timeframe) {
   return span >= (MIN_TIME_SPAN_MS[timeframe] || MIN_TIME_SPAN_MS.daily);
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   try {
     const timeframe = String(req.query.timeframe || "daily").toLowerCase();
     const timeframeStart = getTimeframeStart(timeframe).toISOString();
