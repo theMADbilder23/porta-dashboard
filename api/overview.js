@@ -44,11 +44,11 @@ function safeNumber(value) {
 }
 
 const MIN_TIME_SPAN_MS = {
-  daily: 12 * 60 * 60 * 1000, // 12 hours
-  weekly: 5 * 24 * 60 * 60 * 1000, // 5 days
-  monthly: 21 * 24 * 60 * 60 * 1000, // 21 days
-  quarterly: 60 * 24 * 60 * 60 * 1000, // 60 days
-  yearly: 275 * 24 * 60 * 60 * 1000, // 275 days
+  daily: 12 * 60 * 60 * 1000,
+  weekly: 5 * 24 * 60 * 60 * 1000,
+  monthly: 21 * 24 * 60 * 60 * 1000,
+  quarterly: 60 * 24 * 60 * 60 * 1000,
+  yearly: 275 * 24 * 60 * 60 * 1000,
 };
 
 function hasEnoughTimeCoverage(snapshots, timeframe) {
@@ -133,34 +133,26 @@ module.exports = async function handler(req, res) {
 
       if (!hasCoverage) {
         continue;
-    }
-
-    let portfolioValueForTimeframe = 0;
-
-    if (timeframe === "daily") {
-      const latestSnapshot = walletSnapshots[walletSnapshots.length - 1];
-      portfolioValueForTimeframe =
-        safeNumber(latestSnapshot.total_value_usd) +
-        safeNumber(latestSnapshot.total_pending_usd);
-    } else {
-      let portfolioSum = 0;
-
-      for (const snapshot of walletSnapshots) {
-        portfolioSum +=
-          safeNumber(snapshot.total_value_usd) +
-          safeNumber(snapshot.total_pending_usd);
       }
 
-      portfolioValueForTimeframe = portfolioSum / walletSnapshots.length;
-    }
+      let portfolioValueForTimeframe = 0;
 
-      for (const snapshot of walletSnapshots) {
-        portfolioSum +=
-          safeNumber(snapshot.total_value_usd) +
-          safeNumber(snapshot.total_pending_usd);
+      if (timeframe === "daily") {
+        const latestSnapshot = walletSnapshots[walletSnapshots.length - 1];
+        portfolioValueForTimeframe =
+          safeNumber(latestSnapshot.total_value_usd) +
+          safeNumber(latestSnapshot.total_pending_usd);
+      } else {
+        let portfolioSum = 0;
+
+        for (const snapshot of walletSnapshots) {
+          portfolioSum +=
+            safeNumber(snapshot.total_value_usd) +
+            safeNumber(snapshot.total_pending_usd);
+        }
+
+        portfolioValueForTimeframe = portfolioSum / walletSnapshots.length;
       }
-
-      const portfolioValueForTimeframe = portfolioSum / walletSnapshots.length;
 
       totalPortfolioValue += portfolioValueForTimeframe;
       portfolioWalletsUsed += 1;
@@ -177,21 +169,23 @@ module.exports = async function handler(req, res) {
         growthValue += portfolioValueForTimeframe;
       }
 
-      const firstSnapshot = walletSnapshots[0];
-      const lastSnapshot = walletSnapshots[walletSnapshots.length - 1];
+      if (walletSnapshots.length >= 2) {
+        const firstSnapshot = walletSnapshots[0];
+        const lastSnapshot = walletSnapshots[walletSnapshots.length - 1];
 
-      const firstRewardState =
-        safeNumber(firstSnapshot.total_rewards_usd) +
-        safeNumber(firstSnapshot.total_pending_usd);
+        const firstRewardState =
+          safeNumber(firstSnapshot.total_rewards_usd) +
+          safeNumber(firstSnapshot.total_pending_usd);
 
-      const lastRewardState =
-        safeNumber(lastSnapshot.total_rewards_usd) +
-        safeNumber(lastSnapshot.total_pending_usd);
+        const lastRewardState =
+          safeNumber(lastSnapshot.total_rewards_usd) +
+          safeNumber(lastSnapshot.total_pending_usd);
 
-      const earnedInTimeframe = Math.max(0, lastRewardState - firstRewardState);
+        const earnedInTimeframe = Math.max(0, lastRewardState - firstRewardState);
 
-      passiveIncome += earnedInTimeframe;
-      passiveWalletsUsed += 1;
+        passiveIncome += earnedInTimeframe;
+        passiveWalletsUsed += 1;
+      }
     }
 
     return res.status(200).json({
@@ -211,4 +205,4 @@ module.exports = async function handler(req, res) {
       details: err?.message || "Unknown error",
     });
   }
-}
+};
