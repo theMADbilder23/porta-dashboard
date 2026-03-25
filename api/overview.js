@@ -126,10 +126,23 @@ export default async function handler(req, res) {
       const walletSnapshots = snapshotsByWallet.get(wallet.id) || [];
       const role = String(wallet.role || "").toLowerCase();
 
-      if (!hasEnoughTimeCoverage(walletSnapshots, timeframe)) {
-        continue;
-      }
+      const hasCoverage =
+        timeframe === "daily"
+          ? walletSnapshots.length >= 1
+          : hasEnoughTimeCoverage(walletSnapshots, timeframe);
 
+      if (!hasCoverage) {
+        continue;
+    }
+
+    let portfolioValueForTimeframe = 0;
+
+    if (timeframe === "daily") {
+      const latestSnapshot = walletSnapshots[walletSnapshots.length - 1];
+      portfolioValueForTimeframe =
+        safeNumber(latestSnapshot.total_value_usd) +
+        safeNumber(latestSnapshot.total_pending_usd);
+    } else {
       let portfolioSum = 0;
 
       for (const snapshot of walletSnapshots) {
@@ -138,21 +151,30 @@ export default async function handler(req, res) {
           safeNumber(snapshot.total_pending_usd);
       }
 
-      const avgPortfolioValue = portfolioSum / walletSnapshots.length;
+      portfolioValueForTimeframe = portfolioSum / walletSnapshots.length;
+    }
 
-      totalPortfolioValue += avgPortfolioValue;
+      for (const snapshot of walletSnapshots) {
+        portfolioSum +=
+          safeNumber(snapshot.total_value_usd) +
+          safeNumber(snapshot.total_pending_usd);
+      }
+
+      const portfolioValueForTimeframe = portfolioSum / walletSnapshots.length;
+
+      totalPortfolioValue += portfolioValueForTimeframe;
       portfolioWalletsUsed += 1;
 
       if (role === "hub") {
-        stableValue += avgPortfolioValue;
+        stableValue += portfolioValueForTimeframe;
       } else if (role === "yield") {
-        yieldValue += avgPortfolioValue;
+        yieldValue += portfolioValueForTimeframe;
       } else if (role === "core") {
-        growthValue += avgPortfolioValue;
+        growthValue += portfolioValueForTimeframe;
       } else if (role === "swing") {
-        swingValue += avgPortfolioValue;
+        swingValue += portfolioValueForTimeframe;
       } else {
-        growthValue += avgPortfolioValue;
+        growthValue += portfolioValueForTimeframe;
       }
 
       const firstSnapshot = walletSnapshots[0];
