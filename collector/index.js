@@ -10,7 +10,6 @@ const DEBANK_BASE = "https://pro-openapi.debank.com/v1";
 const MERKL_BASE = "https://api.merkl.xyz/v4";
 const POLL_INTERVAL_MS = 30 * 60 * 1000;
 
-const WELL_TOKEN = "0xA88594D404727625A9437C3F886C7643872296AE";
 const STKWELL_CONTRACT = "0xe66E3A37C3274Ac24FE8590f7D84A2427194DC17";
 const BASE_CHAIN_ID = 8453;
 
@@ -57,6 +56,11 @@ function isValidWallet(wallet) {
   return wallet.startsWith("0x") && wallet.length === 42;
 }
 
+function safeNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function looksLikeSpamSymbol(symbol) {
   if (!symbol) return true;
 
@@ -81,7 +85,7 @@ function looksLikeSpamSymbol(symbol) {
 
   if (spamPatterns.some((p) => lower.includes(p))) return true;
   if (s.length > 12) return true;
-  if (!/^[A-Za-z0-9\-_]+$/.test(s)) return true;
+  if (!/^[A-Za-z0-9\\-_]+$/.test(s)) return true;
 
   return false;
 }
@@ -104,9 +108,9 @@ function getTopTokens(tokenData, walletTotalValue, roleUsed, limit = 5, minUsd =
   for (const token of tokenData) {
     const symbol = token?.optimized_symbol || token?.symbol || "";
     const tokenName = token?.name || symbol || "Unknown";
-    const amount = Number(token?.amount || 0);
-    const price = Number(token?.price || 0);
-    const value = Number(token?.usd_value ?? price * amount ?? 0);
+    const amount = safeNumber(token?.amount || 0);
+    const price = safeNumber(token?.price || 0);
+    const value = safeNumber(token?.usd_value ?? price * amount ?? 0);
     const trusted = isTokenTrusted(symbol);
 
     if (
@@ -150,14 +154,13 @@ function getTopProtocols(protocolData, limit = 5, minUsd = 25) {
 
   const results = [];
 
-    for (const protocol of protocolData) {
-      const protocolName = protocol?.name || "Unknown";
-      const protocolNetwork = protocol?.chain || "Unknown";
+  for (const protocol of protocolData) {
+    const protocolName = protocol?.name || "Unknown";
+    const protocolNetwork = protocol?.chain || "Unknown";
 
-      // Skip Moonwell here because we add the enriched stkWELL position separately
-      if (protocolName === "Moonwell") {
-        continue;
-      }
+    if (protocolName === "Moonwell") {
+      continue;
+    }
 
     let totalValue = 0;
     let amountSymbol = null;
@@ -166,7 +169,7 @@ function getTopProtocols(protocolData, limit = 5, minUsd = 25) {
 
     for (const item of protocol?.portfolio_item_list || []) {
       const stats = item?.stats || {};
-      const itemValue = Number(
+      const itemValue = safeNumber(
         stats?.net_usd_value ?? stats?.asset_usd_value ?? 0
       );
       totalValue += itemValue;
@@ -185,7 +188,7 @@ function getTopProtocols(protocolData, limit = 5, minUsd = 25) {
 
         for (const token of detailList) {
           const symbol = token?.optimized_symbol || token?.symbol || null;
-          const amount = Number(token?.amount || 0);
+          const amount = safeNumber(token?.amount || 0);
 
           if (amountSymbol === null && symbol) {
             amountSymbol = symbol;
@@ -260,7 +263,7 @@ async function getStkWellBalance(walletAddress) {
       args: [walletAddress],
     });
 
-    return Number(formatUnits(raw, 18));
+    return safeNumber(formatUnits(raw, 18));
   } catch (err) {
     console.error(`[collector] stkWELL balance lookup failed for ${walletAddress}`, err);
     return 0;
@@ -288,7 +291,12 @@ async function getMerklWellRewards(walletAddress) {
 
     const data = await res.json();
 
-    if (!Array.isArray(data) || !data.length || !Array.isArray(data[0]?.rewards) || !data[0].rewards.length) {
+    if (
+      !Array.isArray(data) ||
+      !data.length ||
+      !Array.isArray(data[0]?.rewards) ||
+      !data[0].rewards.length
+    ) {
       return {
         earned: 0,
         claimed: 0,
@@ -302,13 +310,13 @@ async function getMerklWellRewards(walletAddress) {
     }
 
     const reward = data[0].rewards[0];
-    const decimals = Number(reward?.token?.decimals || 18);
-    const price = Number(reward?.token?.price || 0);
+    const decimals = safeNumber(reward?.token?.decimals || 18);
+    const price = safeNumber(reward?.token?.price || 0);
 
-    const earned = Number(reward?.amount || 0) / 10 ** decimals;
-    const claimed = Number(reward?.claimed || 0) / 10 ** decimals;
-    const pending = Number(reward?.pending || 0) / 10 ** decimals;
-    const claimable = earned - claimed - pending;
+    const earned = safeNumber(reward?.amount || 0) / 10 ** decimals;
+    const claimed = safeNumber(reward?.claimed || 0) / 10 ** decimals;
+    const pending = safeNumber(reward?.pending || 0) / 10 ** decimals;
+    const claimable = Math.max(0, earned - claimed - pending);
     const usdValue = claimable * price;
 
     return {
@@ -352,20 +360,40 @@ function buildStkWellHolding(stakedAmount, wellPrice, snapshotTime) {
   };
 }
 
+function buildSnapshotMetrics(merklRewards) {
+  const price = safeNumber(merklRewards?.price || 0);
+  const earned = safeNumber(merklRewards?.earned || 0);
+  const claimed = safeNumber(merklRewards?.claimed || 0);
+  const pending = safeNumber(merklRewards?.pending || 0);
+  const claimable = safeNumber(merklRewards?.claimable || 0);
+
+  return {
+    total_rewards_usd: earned * price,
+    total_claimed_usd: claimed * price,
+    total_pending_usd: pending * price,
+    total_claimable_usd: claimable * price,
+    total_claimable_token: claimable,
+    rewards_token_symbol: merklRewards?.token || null,
+    merkl_rewards_json: merklRewards?.raw || null,
+  };
+}
+
 async function insertSnapshot(
   wallet,
   totalValueUsd,
-  totalRewardsUsd,
-  totalClaimedUsd,
-  totalPendingUsd,
+  merklMetrics,
   snapshotTime
 ) {
   const payload = {
     wallet_id: wallet.id,
-    total_value_usd: totalValueUsd,
-    total_rewards_usd: totalRewardsUsd,
-    total_claimed_usd: totalClaimedUsd,
-    total_pending_usd: totalPendingUsd,
+    total_value_usd: safeNumber(totalValueUsd),
+    total_rewards_usd: safeNumber(merklMetrics.total_rewards_usd),
+    total_claimed_usd: safeNumber(merklMetrics.total_claimed_usd),
+    total_pending_usd: safeNumber(merklMetrics.total_pending_usd),
+    total_claimable_usd: safeNumber(merklMetrics.total_claimable_usd),
+    total_claimable_token: safeNumber(merklMetrics.total_claimable_token),
+    rewards_token_symbol: merklMetrics.rewards_token_symbol || null,
+    merkl_rewards_json: merklMetrics.merkl_rewards_json || null,
     snapshot_time: snapshotTime,
   };
 
@@ -432,7 +460,7 @@ async function collectOneWallet(wallet) {
       getStkWellBalance(cleanedAddress),
     ]);
 
-  const totalWalletValue = Number(totalBalance?.total_usd_value || 0);
+  const totalWalletValue = safeNumber(totalBalance?.total_usd_value || 0);
   const chainCount = Array.isArray(usedChains) ? usedChains.length : 0;
   const roleUsed = wallet.role || "core";
 
@@ -452,16 +480,16 @@ async function collectOneWallet(wallet) {
 
   const stkWellHolding = buildStkWellHolding(
     stkWellAmount,
-    Number(merklRewards?.price || 0),
+    safeNumber(merklRewards?.price || 0),
     snapshotTime
   );
+
+  const merklMetrics = buildSnapshotMetrics(merklRewards);
 
   const snapshot = await insertSnapshot(
     wallet,
     totalWalletValue,
-    Number(merklRewards?.earned || 0) * Number(merklRewards?.price || 0),
-    Number(merklRewards?.claimed || 0) * Number(merklRewards?.price || 0),
-    Number(merklRewards?.pending || 0) * Number(merklRewards?.price || 0),
+    merklMetrics,
     snapshotTime
   );
 
@@ -482,6 +510,14 @@ async function collectOneWallet(wallet) {
         total_value_usd: totalWalletValue,
         chain_count: chainCount,
         snapshot_id: snapshot.id,
+        snapshot_metrics: {
+          total_rewards_usd: merklMetrics.total_rewards_usd,
+          total_claimed_usd: merklMetrics.total_claimed_usd,
+          total_pending_usd: merklMetrics.total_pending_usd,
+          total_claimable_usd: merklMetrics.total_claimable_usd,
+          total_claimable_token: merklMetrics.total_claimable_token,
+          rewards_token_symbol: merklMetrics.rewards_token_symbol,
+        },
         merkl_rewards: {
           token: merklRewards.token,
           price: merklRewards.price,
