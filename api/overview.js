@@ -95,6 +95,15 @@ function getPositiveClaimableAccrual(snapshots) {
   return totalAccrued;
 }
 
+function getChangePct(currentValue, previousValue) {
+  const current = safeNumber(currentValue);
+  const previous = safeNumber(previousValue);
+
+  if (previous <= 0) return null;
+
+  return (current - previous) / previous;
+}
+
 module.exports = async function handler(req, res) {
   try {
     const timeframe = String(req.query.timeframe || "daily").toLowerCase();
@@ -121,6 +130,10 @@ module.exports = async function handler(req, res) {
         realized_gains: null,
         realized_losses: null,
         passive_income: null,
+        total_portfolio_value_change_pct: null,
+        passive_income_change_pct: null,
+        realized_gains_change_pct: null,
+        realized_losses_change_pct: null,
       });
     }
 
@@ -155,8 +168,13 @@ module.exports = async function handler(req, res) {
     let swingValue = 0;
     let passiveIncome = 0;
 
+    let totalPreviousPortfolioValue = 0;
+    let totalPreviousPassiveIncome = 0;
+
     let portfolioWalletsUsed = 0;
     let passiveWalletsUsed = 0;
+    let portfolioChangeWalletsUsed = 0;
+    let passiveChangeWalletsUsed = 0;
 
     for (const wallet of activeWallets) {
       const walletSnapshots = snapshotsByWallet.get(wallet.id) || [];
@@ -175,10 +193,18 @@ module.exports = async function handler(req, res) {
 
       let portfolioValueForTimeframe = 0;
       let passiveIncomeForTimeframe = 0;
+      let previousPortfolioValueForTimeframe = null;
+      let previousPassiveIncomeForTimeframe = null;
 
       if (timeframe === "daily") {
         portfolioValueForTimeframe = getPortfolioSnapshotValue(latestSnapshot);
         passiveIncomeForTimeframe = getClaimableValue(latestSnapshot);
+
+        if (walletSnapshots.length >= 2) {
+          const previousSnapshot = walletSnapshots[walletSnapshots.length - 2];
+          previousPortfolioValueForTimeframe = getPortfolioSnapshotValue(previousSnapshot);
+          previousPassiveIncomeForTimeframe = getClaimableValue(previousSnapshot);
+        }
       } else {
         let portfolioSum = 0;
 
@@ -188,6 +214,10 @@ module.exports = async function handler(req, res) {
 
         portfolioValueForTimeframe = portfolioSum / walletSnapshots.length;
         passiveIncomeForTimeframe = getPositiveClaimableAccrual(walletSnapshots);
+
+        const firstSnapshot = walletSnapshots[0];
+        previousPortfolioValueForTimeframe = getPortfolioSnapshotValue(firstSnapshot);
+        previousPassiveIncomeForTimeframe = getClaimableValue(firstSnapshot);
       }
 
       totalPortfolioValue += portfolioValueForTimeframe;
@@ -195,6 +225,16 @@ module.exports = async function handler(req, res) {
 
       portfolioWalletsUsed += 1;
       passiveWalletsUsed += 1;
+
+      if (previousPortfolioValueForTimeframe != null) {
+        totalPreviousPortfolioValue += previousPortfolioValueForTimeframe;
+        portfolioChangeWalletsUsed += 1;
+      }
+
+      if (previousPassiveIncomeForTimeframe != null) {
+        totalPreviousPassiveIncome += previousPassiveIncomeForTimeframe;
+        passiveChangeWalletsUsed += 1;
+      }
 
       if (role === "hub") {
         stableValue += portfolioValueForTimeframe;
@@ -209,6 +249,16 @@ module.exports = async function handler(req, res) {
       }
     }
 
+    const totalPortfolioValueChangePct =
+      portfolioChangeWalletsUsed > 0
+        ? getChangePct(totalPortfolioValue, totalPreviousPortfolioValue)
+        : null;
+
+    const passiveIncomeChangePct =
+      passiveChangeWalletsUsed > 0
+        ? getChangePct(passiveIncome, totalPreviousPassiveIncome)
+        : null;
+
     return res.status(200).json({
       timeframe,
       total_portfolio_value: portfolioWalletsUsed > 0 ? totalPortfolioValue : null,
@@ -219,6 +269,10 @@ module.exports = async function handler(req, res) {
       realized_gains: null,
       realized_losses: null,
       passive_income: passiveWalletsUsed > 0 ? passiveIncome : null,
+      total_portfolio_value_change_pct: totalPortfolioValueChangePct,
+      passive_income_change_pct: passiveIncomeChangePct,
+      realized_gains_change_pct: null,
+      realized_losses_change_pct: null,
     });
   } catch (err) {
     console.error("[api/overview] error:", err);
