@@ -21,14 +21,15 @@ type OverviewApiResponse = {
 
 function formatCurrency(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "N/A";
+
   return `$${Number(value).toLocaleString(undefined, {
     minimumFractionDigits: 0,
     maximumFractionDigits: 3,
   })}`;
 }
 
-function normalizeChange(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return null;
+function toMetricChange(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return 0;
   return Number(value);
 }
 
@@ -65,7 +66,7 @@ export default function Metrics() {
         if (!cancelled) {
           setApiData(data);
         }
-      } catch (_error) {
+      } catch {
         if (!cancelled) {
           setApiData(null);
         }
@@ -87,10 +88,10 @@ export default function Metrics() {
   };
 
   const changes = {
-    totalPortfolioValue: normalizeChange(apiData?.total_portfolio_value_change_pct),
-    realizedGains: normalizeChange(apiData?.realized_gains_change_pct),
-    realizedLosses: normalizeChange(apiData?.realized_losses_change_pct),
-    totalPassiveIncome: normalizeChange(apiData?.passive_income_change_pct),
+    totalPortfolioValue: toMetricChange(apiData?.total_portfolio_value_change_pct),
+    realizedGains: toMetricChange(apiData?.realized_gains_change_pct),
+    realizedLosses: toMetricChange(apiData?.realized_losses_change_pct),
+    totalPassiveIncome: toMetricChange(apiData?.passive_income_change_pct),
   };
 
   return (
