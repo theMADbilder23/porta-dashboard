@@ -63,15 +63,6 @@ function hasEnoughTimeCoverage(snapshots, timeframe) {
   return span >= (MIN_TIME_SPAN_MS[timeframe] || MIN_TIME_SPAN_MS.daily);
 }
 
-function getPassiveIncomeState(snapshot) {
-  if (!snapshot) return 0;
-
-  return (
-    safeNumber(snapshot.total_claimed_usd) +
-    safeNumber(snapshot.total_claimable_usd)
-  );
-}
-
 function getPortfolioSnapshotValue(snapshot) {
   if (!snapshot) return 0;
 
@@ -79,6 +70,29 @@ function getPortfolioSnapshotValue(snapshot) {
     safeNumber(snapshot.total_value_usd) +
     safeNumber(snapshot.total_claimable_usd)
   );
+}
+
+function getClaimableValue(snapshot) {
+  if (!snapshot) return 0;
+  return safeNumber(snapshot.total_claimable_usd);
+}
+
+function getPositiveClaimableAccrual(snapshots) {
+  if (!Array.isArray(snapshots) || snapshots.length === 0) return 0;
+  if (snapshots.length === 1) return getClaimableValue(snapshots[0]);
+
+  let totalAccrued = 0;
+
+  for (let i = 1; i < snapshots.length; i += 1) {
+    const previous = getClaimableValue(snapshots[i - 1]);
+    const current = getClaimableValue(snapshots[i]);
+
+    if (current > previous) {
+      totalAccrued += current - previous;
+    }
+  }
+
+  return totalAccrued;
 }
 
 module.exports = async function handler(req, res) {
@@ -116,7 +130,6 @@ module.exports = async function handler(req, res) {
         id,
         wallet_id,
         total_value_usd,
-        total_claimed_usd,
         total_claimable_usd,
         snapshot_time
       `)
@@ -158,7 +171,6 @@ module.exports = async function handler(req, res) {
         continue;
       }
 
-      const firstSnapshot = walletSnapshots[0];
       const latestSnapshot = walletSnapshots[walletSnapshots.length - 1];
 
       let portfolioValueForTimeframe = 0;
@@ -166,7 +178,7 @@ module.exports = async function handler(req, res) {
 
       if (timeframe === "daily") {
         portfolioValueForTimeframe = getPortfolioSnapshotValue(latestSnapshot);
-        passiveIncomeForTimeframe = getPassiveIncomeState(latestSnapshot);
+        passiveIncomeForTimeframe = getClaimableValue(latestSnapshot);
       } else {
         let portfolioSum = 0;
 
@@ -175,18 +187,14 @@ module.exports = async function handler(req, res) {
         }
 
         portfolioValueForTimeframe = portfolioSum / walletSnapshots.length;
-
-        const firstPassiveState = getPassiveIncomeState(firstSnapshot);
-        const latestPassiveState = getPassiveIncomeState(latestSnapshot);
-
-        passiveIncomeForTimeframe = Math.max(
-          0,
-          latestPassiveState - firstPassiveState
-        );
+        passiveIncomeForTimeframe = getPositiveClaimableAccrual(walletSnapshots);
       }
 
       totalPortfolioValue += portfolioValueForTimeframe;
+      passiveIncome += passiveIncomeForTimeframe;
+
       portfolioWalletsUsed += 1;
+      passiveWalletsUsed += 1;
 
       if (role === "hub") {
         stableValue += portfolioValueForTimeframe;
@@ -199,9 +207,6 @@ module.exports = async function handler(req, res) {
       } else {
         growthValue += portfolioValueForTimeframe;
       }
-
-      passiveIncome += passiveIncomeForTimeframe;
-      passiveWalletsUsed += 1;
     }
 
     return res.status(200).json({
