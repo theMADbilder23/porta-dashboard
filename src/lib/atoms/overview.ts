@@ -7,7 +7,7 @@ export type OverviewTimeframe =
   | "quarterly"
   | "yearly";
 
-export const overviewTimeframeAtom = atom<OverviewTimeframe>("monthly");
+export const overviewTimeframeAtom = atom<OverviewTimeframe>("daily");
 
 export type OverviewHeaderMetrics = {
   totalPortfolioValue: string;
