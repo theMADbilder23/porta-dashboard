@@ -8,8 +8,31 @@ import OverviewTimeframeTabs from "@/components/overview-timeframe-tabs";
 import { overviewTimeframeAtom } from "@/lib/atoms/overview";
 import MetricCard from "./components/metric-card";
 
-export default function Metrics() {
+type OverviewApiResponse = {
+  total_portfolio_value: number | null;
+  passive_income: number | null;
+  realized_gains: number | null;
+  realized_losses: number | null;
+  total_portfolio_value_change_pct?: number | null;
+  passive_income_change_pct?: number | null;
+  realized_gains_change_pct?: number | null;
+  realized_losses_change_pct?: number | null;
+};
 
+function formatCurrency(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "N/A";
+  return `$${Number(value).toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 3,
+  })}`;
+}
+
+function normalizeChange(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Number(value);
+}
+
+export default function Metrics() {
   const timeframe = useAtomValue(overviewTimeframeAtom);
 
   const apiTimeframe = useMemo(() => {
@@ -29,38 +52,45 @@ export default function Metrics() {
     }
   }, [timeframe]);
 
-  const [apiData, setApiData] = useState<{
-    total_portfolio_value: number;
-    passive_income: number;
-    realized_gains: number | null;
-    realized_losses: number | null;
-  } | null>(null);
+  const [apiData, setApiData] = useState<OverviewApiResponse | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function fetchData() {
       try {
         const res = await fetch(`/api/overview?timeframe=${apiTimeframe}`);
         const data = await res.json();
-        setApiData(data);
+
+        if (!cancelled) {
+          setApiData(data);
+        }
       } catch (_error) {
-        return;
+        if (!cancelled) {
+          setApiData(null);
+        }
       }
     }
 
     fetchData();
+
+    return () => {
+      cancelled = true;
+    };
   }, [apiTimeframe]);
-  
+
   const metrics = {
-    totalPortfolioValue:
-      apiData?.total_portfolio_value != null
-        ? `$${Number(apiData.total_portfolio_value).toLocaleString()}`
-        : "N/A",
-    realizedGains: "N/A",
-    realizedLosses: "N/A",
-    totalPassiveIncome:
-      apiData?.passive_income != null
-        ? `$${Number(apiData.passive_income).toLocaleString()}`
-        : "N/A",
+    totalPortfolioValue: formatCurrency(apiData?.total_portfolio_value),
+    realizedGains: formatCurrency(apiData?.realized_gains),
+    realizedLosses: formatCurrency(apiData?.realized_losses),
+    totalPassiveIncome: formatCurrency(apiData?.passive_income),
+  };
+
+  const changes = {
+    totalPortfolioValue: normalizeChange(apiData?.total_portfolio_value_change_pct),
+    realizedGains: normalizeChange(apiData?.realized_gains_change_pct),
+    realizedLosses: normalizeChange(apiData?.realized_losses_change_pct),
+    totalPassiveIncome: normalizeChange(apiData?.passive_income_change_pct),
   };
 
   return (
@@ -81,7 +111,7 @@ export default function Metrics() {
           <MetricCard
             title="Total Portfolio Value"
             value={metrics.totalPortfolioValue}
-            change={0.052}
+            change={changes.totalPortfolioValue}
             className="min-w-0"
             icon={<WalletCards size={16} />}
             helperText="vs selected period"
@@ -89,8 +119,8 @@ export default function Metrics() {
 
           <MetricCard
             title="Realized Gains"
-            value={"N/A"}
-            change={0.084}
+            value={metrics.realizedGains}
+            change={changes.realizedGains}
             className="min-w-0"
             icon={<TrendingUp size={16} />}
             helperText="vs selected period"
@@ -98,8 +128,8 @@ export default function Metrics() {
 
           <MetricCard
             title="Realized Losses"
-            value={"N/A"}
-            change={-0.021}
+            value={metrics.realizedLosses}
+            change={changes.realizedLosses}
             className="min-w-0"
             icon={<TrendingDown size={16} />}
             helperText="vs selected period"
@@ -108,7 +138,7 @@ export default function Metrics() {
           <MetricCard
             title="Total Passive Income"
             value={metrics.totalPassiveIncome}
-            change={0.068}
+            change={changes.totalPassiveIncome}
             className="min-w-0"
             icon={<HandCoins size={16} />}
             helperText="vs selected period"
