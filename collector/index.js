@@ -85,7 +85,7 @@ function looksLikeSpamSymbol(symbol) {
 
   if (spamPatterns.some((p) => lower.includes(p))) return true;
   if (s.length > 12) return true;
-  if (!/^[A-Za-z0-9\\-_]+$/.test(s)) return true;
+  if (!/^[A-Za-z0-9\-_]+$/.test(s)) return true;
 
   return false;
 }
@@ -274,6 +274,7 @@ async function getMerklWellRewards(walletAddress) {
   try {
     const url = new URL(`${MERKL_BASE}/users/${walletAddress}/rewards`);
     url.searchParams.set("chainId", String(BASE_CHAIN_ID));
+    url.searchParams.set("reloadChainId", String(BASE_CHAIN_ID));
     url.searchParams.set("claimableOnly", "false");
     url.searchParams.set("type", "TOKEN");
     url.searchParams.set("breakdownPage", "0");
@@ -316,7 +317,7 @@ async function getMerklWellRewards(walletAddress) {
     const earned = safeNumber(reward?.amount || 0) / 10 ** decimals;
     const claimed = safeNumber(reward?.claimed || 0) / 10 ** decimals;
     const pending = safeNumber(reward?.pending || 0) / 10 ** decimals;
-    const claimable = Math.max(0, earned - claimed - pending);
+    const claimable = Math.max(0, earned - claimed);
     const usdValue = claimable * price;
 
     return {
