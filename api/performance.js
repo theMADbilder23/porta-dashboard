@@ -43,23 +43,69 @@ function getTimeframeStart(timeframe) {
   }
 }
 
-function makeBucketLabel(dateString, timeframe) {
+function getBucketKey(dateString, timeframe) {
   const d = new Date(dateString);
 
   switch (timeframe) {
-    case "daily":
-      return d.toLocaleDateString("en-US", { weekday: "short" });
-    case "weekly":
-      return `W${Math.ceil(d.getDate() / 7)}`;
-    case "monthly":
-      return d.toLocaleDateString("en-US", { month: "short" });
-    case "quarterly":
-      return `Q${Math.floor(d.getMonth() / 3) + 1}`;
+    case "daily": {
+      const yyyy = d.getUTCFullYear();
+      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(d.getUTCDate()).padStart(2, "0");
+      const hh = String(d.getUTCHours()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd} ${hh}:00`;
+    }
+
+    case "weekly": {
+      const yyyy = d.getUTCFullYear();
+      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(d.getUTCDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    case "monthly": {
+      const yyyy = d.getUTCFullYear();
+      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+      return `${yyyy}-${mm}`;
+    }
+
+    case "quarterly": {
+      const yyyy = d.getUTCFullYear();
+      const quarter = Math.floor(d.getUTCMonth() / 3) + 1;
+      return `${yyyy}-Q${quarter}`;
+    }
+
     case "yearly":
-      return String(d.getFullYear());
     default:
-      return d.toLocaleDateString("en-US", { weekday: "short" });
+      return String(d.getUTCFullYear());
   }
+}
+
+function makeBucketLabel(bucketKey, timeframe) {
+  if (timeframe === "daily") {
+    const [datePart, hourPart] = bucketKey.split(" ");
+    const d = new Date(`${datePart}T${hourPart}:00:00Z`);
+    return d.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      hour12: true,
+    });
+  }
+
+  if (timeframe === "weekly") {
+    const d = new Date(`${bucketKey}T00:00:00Z`);
+    return d.toLocaleDateString("en-US", { weekday: "short" });
+  }
+
+  if (timeframe === "monthly") {
+    const [year, month] = bucketKey.split("-");
+    const d = new Date(`${year}-${month}-01T00:00:00Z`);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  if (timeframe === "quarterly") {
+    return bucketKey;
+  }
+
+  return bucketKey;
 }
 
 module.exports = async function handler(req, res) {
@@ -69,15 +115,14 @@ module.exports = async function handler(req, res) {
 
     const { data: wallets, error: walletsError } = await supabase
       .from("Wallets")
-      .select("id, is_active")
+      .select("id")
       .eq("is_active", true);
 
     if (walletsError) {
       throw walletsError;
     }
 
-    const activeWallets = Array.isArray(wallets) ? wallets : [];
-    const walletIds = activeWallets.map((w) => w.id);
+    const walletIds = Array.isArray(wallets) ? wallets.map((w) => w.id) : [];
 
     if (walletIds.length === 0) {
       return res.status(200).json([]);
@@ -98,28 +143,65 @@ module.exports = async function handler(req, res) {
       return res.status(200).json([]);
     }
 
-    const grouped = new Map();
+    // Step 1: for each (bucket + wallet), keep ONLY the latest snapshot
+    const latestPerWalletPerBucket = new Map();
 
     for (const snapshot of snapshots) {
-      const label = makeBucketLabel(snapshot.snapshot_time, timeframe);
+      const bucketKey = getBucketKey(snapshot.snapshot_time, timeframe);
+      const compositeKey = `${bucketKey}__${snapshot.wallet_id}`;
+      const existing = latestPerWalletPerBucket.get(compositeKey);
 
-      if (!grouped.has(label)) {
-        grouped.set(label, {
-          label,
+      if (
+        !existing ||
+        new Date(snapshot.snapshot_time).getTime() >
+          new Date(existing.snapshot_time).getTime()
+      ) {
+        latestPerWalletPerBucket.set(compositeKey, {
+          bucketKey,
+          wallet_id: snapshot.wallet_id,
           snapshot_time: snapshot.snapshot_time,
+          total_value_usd: safeNumber(snapshot.total_value_usd),
+          total_claimable_usd: safeNumber(snapshot.total_claimable_usd),
+        });
+      }
+    }
+
+    // Step 2: sum latest wallet snapshots inside each bucket
+    const bucketTotals = new Map();
+
+    for (const entry of latestPerWalletPerBucket.values()) {
+      if (!bucketTotals.has(entry.bucketKey)) {
+        bucketTotals.set(entry.bucketKey, {
+          bucketKey: entry.bucketKey,
+          snapshot_time: entry.snapshot_time,
           total_value_usd: 0,
           total_claimable_usd: 0,
         });
       }
 
-      const bucket = grouped.get(label);
+      const bucket = bucketTotals.get(entry.bucketKey);
+      bucket.total_value_usd += entry.total_value_usd;
+      bucket.total_claimable_usd += entry.total_claimable_usd;
 
-      bucket.total_value_usd += safeNumber(snapshot.total_value_usd);
-      bucket.total_claimable_usd += safeNumber(snapshot.total_claimable_usd);
-      bucket.snapshot_time = snapshot.snapshot_time;
+      if (
+        new Date(entry.snapshot_time).getTime() >
+        new Date(bucket.snapshot_time).getTime()
+      ) {
+        bucket.snapshot_time = entry.snapshot_time;
+      }
     }
 
-    const result = Array.from(grouped.values());
+    const result = Array.from(bucketTotals.values())
+      .sort(
+        (a, b) =>
+          new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
+      )
+      .map((bucket) => ({
+        snapshot_time: bucket.snapshot_time,
+        label: makeBucketLabel(bucket.bucketKey, timeframe),
+        total_value_usd: bucket.total_value_usd,
+        total_claimable_usd: bucket.total_claimable_usd,
+      }));
 
     return res.status(200).json(result);
   } catch (err) {
