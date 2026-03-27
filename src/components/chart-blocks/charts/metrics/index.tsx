@@ -1,11 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useAtomValue } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { TrendingDown, TrendingUp, WalletCards, HandCoins } from "lucide-react";
 import Container from "@/components/container";
 import OverviewTimeframeTabs from "@/components/overview-timeframe-tabs";
-import { overviewTimeframeAtom } from "@/lib/atoms/overview";
+import {
+  overviewSelectedMetricAtom,
+  overviewTimeframeAtom,
+  type OverviewMetricKey,
+} from "@/lib/atoms/overview";
 import MetricCard from "./components/metric-card";
 
 type OverviewApiResponse = {
@@ -35,6 +39,7 @@ function toMetricChange(value: number | null | undefined) {
 
 export default function Metrics() {
   const timeframe = useAtomValue(overviewTimeframeAtom);
+  const [selectedMetric, setSelectedMetric] = useAtom(overviewSelectedMetricAtom);
 
   const apiTimeframe = useMemo(() => {
     switch (timeframe) {
@@ -94,6 +99,10 @@ export default function Metrics() {
     totalPassiveIncome: toMetricChange(apiData?.passive_income_change_pct),
   };
 
+  function isActive(metric: OverviewMetricKey) {
+    return selectedMetric === metric;
+  }
+
   return (
     <section className="border-b border-border">
       <Container className="flex flex-col gap-4 py-4">
@@ -113,6 +122,8 @@ export default function Metrics() {
             title="Total Portfolio Value"
             value={metrics.totalPortfolioValue}
             change={changes.totalPortfolioValue}
+            active={isActive("totalPortfolioValue")}
+            onClick={() => setSelectedMetric("totalPortfolioValue")}
             className="min-w-0"
             icon={<WalletCards size={16} />}
             helperText="vs selected period"
@@ -122,6 +133,8 @@ export default function Metrics() {
             title="Realized Gains"
             value={metrics.realizedGains}
             change={changes.realizedGains}
+            active={isActive("realizedGains")}
+            onClick={() => setSelectedMetric("realizedGains")}
             className="min-w-0"
             icon={<TrendingUp size={16} />}
             helperText="vs selected period"
@@ -131,6 +144,8 @@ export default function Metrics() {
             title="Realized Losses"
             value={metrics.realizedLosses}
             change={changes.realizedLosses}
+            active={isActive("realizedLosses")}
+            onClick={() => setSelectedMetric("realizedLosses")}
             className="min-w-0"
             icon={<TrendingDown size={16} />}
             helperText="vs selected period"
@@ -140,6 +155,8 @@ export default function Metrics() {
             title="Total Passive Income"
             value={metrics.totalPassiveIncome}
             change={changes.totalPassiveIncome}
+            active={isActive("totalPassiveIncome")}
+            onClick={() => setSelectedMetric("totalPassiveIncome")}
             className="min-w-0"
             icon={<HandCoins size={16} />}
             helperText="vs selected period"

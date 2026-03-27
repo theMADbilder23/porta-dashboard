@@ -1,7 +1,7 @@
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { chartTitle } from "../../../../../components/primitives";
-import { cn } from "../../../../../lib/utils";
+import { chartTitle } from "../../../../../../components/primitives";
+import { cn } from "../../../../../../lib/utils";
 
 export default function MetricCard({
   title,
@@ -10,6 +10,8 @@ export default function MetricCard({
   className,
   icon,
   helperText = "vs selected period",
+  active = false,
+  onClick,
 }: {
   title: string;
   value: string;
@@ -17,16 +19,29 @@ export default function MetricCard({
   className?: string;
   icon?: ReactNode;
   helperText?: string;
+  active?: boolean;
+  onClick?: () => void;
 }) {
   return (
-    <section className={cn("flex flex-col", className)}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex flex-col text-left transition-all rounded-lg border border-transparent p-2 -m-2",
+        "hover:border-[#7C3AED]/40 hover:bg-[#7C3AED]/5",
+        active && "border-[#7C3AED]/60 bg-[#7C3AED]/10 shadow-[0_0_0_1px_rgba(124,58,237,0.25)]",
+        className
+      )}
+    >
       <h2
         className={cn(
           chartTitle({ color: "mute", size: "sm" }),
           "mb-1 flex items-center gap-2"
         )}
       >
-        {icon ? <span className="text-[#7C3AED] dark:text-[#C084FC]">{icon}</span> : null}
+        {icon ? (
+          <span className="text-[#7C3AED] dark:text-[#C084FC]">{icon}</span>
+        ) : null}
         <span>{title}</span>
       </h2>
 
@@ -36,7 +51,7 @@ export default function MetricCard({
       </div>
 
       <div className="text-xs text-muted-foreground">{helperText}</div>
-    </section>
+    </button>
   );
 }
 

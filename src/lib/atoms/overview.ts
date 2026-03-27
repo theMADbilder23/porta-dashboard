@@ -7,7 +7,16 @@ export type OverviewTimeframe =
   | "quarterly"
   | "yearly";
 
+export type OverviewMetricKey =
+  | "totalPortfolioValue"
+  | "realizedGains"
+  | "realizedLosses"
+  | "totalPassiveIncome";
+
 export const overviewTimeframeAtom = atom<OverviewTimeframe>("daily");
+
+export const overviewSelectedMetricAtom =
+  atom<OverviewMetricKey>("totalPortfolioValue");
 
 export type OverviewHeaderMetrics = {
   totalPortfolioValue: string;

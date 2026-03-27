@@ -4,16 +4,23 @@ import { useEffect, useMemo, useState } from "react";
 import { useAtomValue } from "jotai";
 import { VChart } from "@visactor/react-vchart";
 import type { ILineChartSpec } from "@visactor/vchart";
-import { overviewTimeframeAtom } from "@/lib/atoms/overview";
+import {
+  overviewSelectedMetricAtom,
+  type OverviewMetricKey,
+  overviewTimeframeAtom,
+} from "@/lib/atoms/overview";
 
 type ApiRow = {
   snapshot_time: string;
+  label: string;
   total_value_usd: number;
   total_claimable_usd: number;
 };
 
 type ChartSeriesName =
   | "Total Portfolio Value"
+  | "Realized Gains"
+  | "Realized Losses"
   | "Total Passive Income";
 
 type ChartPoint = {
@@ -26,7 +33,54 @@ type LineStyleDatum = {
   series?: ChartSeriesName;
 };
 
-function generateSpec(data: ChartPoint[]): ILineChartSpec {
+function getSeriesName(metric: OverviewMetricKey): ChartSeriesName {
+  switch (metric) {
+    case "totalPortfolioValue":
+      return "Total Portfolio Value";
+    case "realizedGains":
+      return "Realized Gains";
+    case "realizedLosses":
+      return "Realized Losses";
+    case "totalPassiveIncome":
+      return "Total Passive Income";
+    default:
+      return "Total Portfolio Value";
+  }
+}
+
+function getSeriesValue(row: ApiRow, metric: OverviewMetricKey) {
+  switch (metric) {
+    case "totalPortfolioValue":
+      return Number(row.total_value_usd || 0);
+    case "realizedGains":
+      return 0;
+    case "realizedLosses":
+      return 0;
+    case "totalPassiveIncome":
+      return Number(row.total_claimable_usd || 0);
+    default:
+      return Number(row.total_value_usd || 0);
+  }
+}
+
+function getSeriesColor(metric: OverviewMetricKey) {
+  switch (metric) {
+    case "totalPortfolioValue":
+      return "#500c95";
+    case "realizedGains":
+      return "#844de2";
+    case "realizedLosses":
+      return "#eb77f6";
+    case "totalPassiveIncome":
+      return "#af59ff";
+    default:
+      return "#500c95";
+  }
+}
+
+function generateSpec(data: ChartPoint[], metric: OverviewMetricKey): ILineChartSpec {
+  const color = getSeriesColor(metric);
+
   return {
     type: "line",
     data: [
@@ -82,20 +136,10 @@ function generateSpec(data: ChartPoint[]): ILineChartSpec {
           lineWidth: 6,
         },
       },
-      style: (datum: LineStyleDatum) => {
-        if (datum.series === "Total Portfolio Value") {
-          return {
-            stroke: "#500c95",
-            lineWidth: 5,
-          };
-        }
-
-        return {
-          stroke: "#af59ff",
-          lineWidth: 3,
-          lineDash: [4, 4],
-        };
-      },
+      style: (_datum: LineStyleDatum) => ({
+        stroke: color,
+        lineWidth: 4,
+      }),
     },
     point: {
       state: {
@@ -105,16 +149,13 @@ function generateSpec(data: ChartPoint[]): ILineChartSpec {
         },
       },
       visible: true,
-      style: (datum: LineStyleDatum) => ({
-        fill:
-          datum.series === "Total Portfolio Value"
-            ? "#e1c2ff"
-            : "#c084fc",
+      style: (_datum: LineStyleDatum) => ({
+        fill: "#e1c2ff",
         stroke: "#0F0617",
-        size: datum.series === "Total Portfolio Value" ? 8 : 5,
+        size: 7,
       }),
     },
-    color: ["#500c95", "#af59ff"],
+    color: [color],
     tooltip: {
       visible: true,
     },
@@ -136,6 +177,7 @@ function generateSpec(data: ChartPoint[]): ILineChartSpec {
 
 export default function Chart() {
   const timeframe = useAtomValue(overviewTimeframeAtom);
+  const selectedMetric = useAtomValue(overviewSelectedMetricAtom);
   const [data, setData] = useState<ChartPoint[]>([]);
 
   useEffect(() => {
@@ -153,26 +195,13 @@ export default function Chart() {
           return;
         }
 
-        const transformed: ChartPoint[] = [];
+        const seriesName = getSeriesName(selectedMetric);
 
-        for (const row of rows) {
-          const label = new Date(row.snapshot_time).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-          });
-
-          transformed.push({
-            label,
-            value: Number(row.total_value_usd || 0),
-            series: "Total Portfolio Value",
-          });
-
-          transformed.push({
-            label,
-            value: Number(row.total_claimable_usd || 0),
-            series: "Total Passive Income",
-          });
-        }
+        const transformed: ChartPoint[] = rows.map((row) => ({
+          label: row.label,
+          value: getSeriesValue(row, selectedMetric),
+          series: seriesName,
+        }));
 
         if (!cancelled) {
           setData(transformed);
@@ -189,9 +218,12 @@ export default function Chart() {
     return () => {
       cancelled = true;
     };
-  }, [timeframe]);
+  }, [timeframe, selectedMetric]);
 
-  const spec = useMemo(() => generateSpec(data), [data]);
+  const spec = useMemo(
+    () => generateSpec(data, selectedMetric),
+    [data, selectedMetric]
+  );
 
   return <VChart spec={spec} />;
 }
