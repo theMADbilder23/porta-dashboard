@@ -1,7 +1,7 @@
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { chartTitle } from "../../../../../../components/primitives";
-import { cn } from "../../../../../../lib/utils";
+import { chartTitle } from "@/components/primitives";
+import { cn } from "@/lib/utils";
 
 export default function MetricCard({
   title,
@@ -27,7 +27,7 @@ export default function MetricCard({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex flex-col text-left transition-all rounded-lg border border-transparent p-2 -m-2",
+        "flex flex-col rounded-lg border border-transparent p-2 -m-2 text-left transition-all",
         "hover:border-[#7C3AED]/40 hover:bg-[#7C3AED]/5",
         active && "border-[#7C3AED]/60 bg-[#7C3AED]/10 shadow-[0_0_0_1px_rgba(124,58,237,0.25)]",
         className
