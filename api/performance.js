@@ -47,14 +47,6 @@ function getBucketKey(dateString, timeframe) {
   const d = new Date(dateString);
 
   switch (timeframe) {
-    case "daily": {
-      const yyyy = d.getUTCFullYear();
-      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-      const dd = String(d.getUTCDate()).padStart(2, "0");
-      const hh = String(d.getUTCHours()).padStart(2, "0");
-      return `${yyyy}-${mm}-${dd} ${hh}:00`;
-    }
-
     case "weekly": {
       const yyyy = d.getUTCFullYear();
       const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
@@ -81,15 +73,6 @@ function getBucketKey(dateString, timeframe) {
 }
 
 function makeBucketLabel(bucketKey, timeframe) {
-  if (timeframe === "daily") {
-    const [datePart, hourPart] = bucketKey.split(" ");
-    const d = new Date(`${datePart}T${hourPart}:00:00Z`);
-    return d.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      hour12: true,
-    });
-  }
-
   if (timeframe === "weekly") {
     const d = new Date(`${bucketKey}T00:00:00Z`);
     return d.toLocaleDateString("en-US", { weekday: "short" });
@@ -106,6 +89,104 @@ function makeBucketLabel(bucketKey, timeframe) {
   }
 
   return bucketKey;
+}
+
+function getPercentChange(current, previous) {
+  if (!Number.isFinite(previous) || previous === 0) return 0;
+  return ((current - previous) / previous) * 100;
+}
+
+function getStdDev(values) {
+  if (!Array.isArray(values) || values.length < 2) return 0;
+
+  const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
+  const variance =
+    values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / values.length;
+
+  return Math.sqrt(variance);
+}
+
+function formatDailyLabel(snapshotTime) {
+  const d = new Date(snapshotTime);
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function buildDailySummary(snapshots) {
+  const sortedSnapshots = [...snapshots].sort(
+    (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
+  );
+
+  const portfolioValues = sortedSnapshots.map((s) => safeNumber(s.total_value_usd));
+  const passiveValues = sortedSnapshots.map((s) => safeNumber(s.total_claimable_usd));
+
+  const firstPortfolio = portfolioValues[0] || 0;
+  const lastPortfolio = portfolioValues[portfolioValues.length - 1] || 0;
+
+  const firstPassive = passiveValues[0] || 0;
+  const lastPassive = passiveValues[passiveValues.length - 1] || 0;
+
+  const avgPortfolio =
+    portfolioValues.length > 0
+      ? portfolioValues.reduce((sum, v) => sum + v, 0) / portfolioValues.length
+      : 0;
+
+  const avgPassive =
+    passiveValues.length > 0
+      ? passiveValues.reduce((sum, v) => sum + v, 0) / passiveValues.length
+      : 0;
+
+  const portfolioPctChanges = [];
+  const passivePctChanges = [];
+
+  for (let i = 1; i < portfolioValues.length; i += 1) {
+    portfolioPctChanges.push(
+      getPercentChange(portfolioValues[i], portfolioValues[i - 1])
+    );
+  }
+
+  for (let i = 1; i < passiveValues.length; i += 1) {
+    passivePctChanges.push(
+      getPercentChange(passiveValues[i], passiveValues[i - 1])
+    );
+  }
+
+  const avgPortfolioPctChange =
+    portfolioPctChanges.length > 0
+      ? portfolioPctChanges.reduce((sum, v) => sum + v, 0) / portfolioPctChanges.length
+      : 0;
+
+  const avgPassivePctChange =
+    passivePctChanges.length > 0
+      ? passivePctChanges.reduce((sum, v) => sum + v, 0) / passivePctChanges.length
+      : 0;
+
+  return {
+    mode: "daily_summary",
+    snapshot_time: sortedSnapshots[sortedSnapshots.length - 1].snapshot_time,
+    label: formatDailyLabel(sortedSnapshots[sortedSnapshots.length - 1].snapshot_time),
+
+    total_value_usd: lastPortfolio,
+    total_claimable_usd: lastPassive,
+
+    avg_total_value_usd: avgPortfolio,
+    min_total_value_usd: portfolioValues.length ? Math.min(...portfolioValues) : 0,
+    max_total_value_usd: portfolioValues.length ? Math.max(...portfolioValues) : 0,
+    net_change_total_value_usd: lastPortfolio - firstPortfolio,
+    avg_change_total_value_pct: avgPortfolioPctChange,
+    volatility_total_value_usd: getStdDev(portfolioValues),
+
+    avg_total_claimable_usd: avgPassive,
+    min_total_claimable_usd: passiveValues.length ? Math.min(...passiveValues) : 0,
+    max_total_claimable_usd: passiveValues.length ? Math.max(...passiveValues) : 0,
+    net_change_total_claimable_usd: lastPassive - firstPassive,
+    avg_change_total_claimable_pct: avgPassivePctChange,
+    volatility_total_claimable_usd: getStdDev(passiveValues),
+
+    snapshot_count: sortedSnapshots.length,
+  };
 }
 
 module.exports = async function handler(req, res) {
@@ -143,7 +224,34 @@ module.exports = async function handler(req, res) {
       return res.status(200).json([]);
     }
 
-    // Step 1: for each (bucket + wallet), keep ONLY the latest snapshot
+    if (timeframe === "daily") {
+      const latestPerWallet = new Map();
+
+      for (const snapshot of snapshots) {
+        const existing = latestPerWallet.get(snapshot.wallet_id);
+
+        if (
+          !existing ||
+          new Date(snapshot.snapshot_time).getTime() >
+            new Date(existing.snapshot_time).getTime()
+        ) {
+          latestPerWallet.set(snapshot.wallet_id, {
+            wallet_id: snapshot.wallet_id,
+            snapshot_time: snapshot.snapshot_time,
+            total_value_usd: safeNumber(snapshot.total_value_usd),
+            total_claimable_usd: safeNumber(snapshot.total_claimable_usd),
+          });
+        }
+      }
+
+      const dedupedSnapshots = Array.from(latestPerWallet.values());
+
+      const dailySummary = buildDailySummary(dedupedSnapshots);
+
+      return res.status(200).json([dailySummary]);
+    }
+
+    // Weekly+ trend mode
     const latestPerWalletPerBucket = new Map();
 
     for (const snapshot of snapshots) {
@@ -166,7 +274,6 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    // Step 2: sum latest wallet snapshots inside each bucket
     const bucketTotals = new Map();
 
     for (const entry of latestPerWalletPerBucket.values()) {
@@ -197,6 +304,7 @@ module.exports = async function handler(req, res) {
           new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
       )
       .map((bucket) => ({
+        mode: "trend",
         snapshot_time: bucket.snapshot_time,
         label: makeBucketLabel(bucket.bucketKey, timeframe),
         total_value_usd: bucket.total_value_usd,
