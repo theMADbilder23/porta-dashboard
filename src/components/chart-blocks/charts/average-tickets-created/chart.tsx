@@ -3,18 +3,36 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAtomValue } from "jotai";
 import { VChart } from "@visactor/react-vchart";
-import type { ILineChartSpec } from "@visactor/vchart";
+import type { IBarChartSpec, ILineChartSpec } from "@visactor/vchart";
 import {
   overviewSelectedMetricAtom,
   type OverviewMetricKey,
   overviewTimeframeAtom,
 } from "@/lib/atoms/overview";
 
-type ApiRow = {
+type PerformanceApiRow = {
+  mode?: "daily_summary" | "trend";
   snapshot_time: string;
   label: string;
-  total_value_usd: number;
-  total_claimable_usd: number;
+
+  total_value_usd?: number;
+  total_claimable_usd?: number;
+
+  avg_total_value_usd?: number;
+  min_total_value_usd?: number;
+  max_total_value_usd?: number;
+  net_change_total_value_usd?: number;
+  avg_change_total_value_pct?: number;
+  volatility_total_value_usd?: number;
+
+  avg_total_claimable_usd?: number;
+  min_total_claimable_usd?: number;
+  max_total_claimable_usd?: number;
+  net_change_total_claimable_usd?: number;
+  avg_change_total_claimable_pct?: number;
+  volatility_total_claimable_usd?: number;
+
+  snapshot_count?: number;
 };
 
 type ChartSeriesName =
@@ -23,7 +41,13 @@ type ChartSeriesName =
   | "Realized Losses"
   | "Total Passive Income";
 
-type ChartPoint = {
+type TrendPoint = {
+  label: string;
+  value: number;
+  series: ChartSeriesName;
+};
+
+type DailyBarPoint = {
   label: string;
   value: number;
   series: ChartSeriesName;
@@ -48,21 +72,6 @@ function getSeriesName(metric: OverviewMetricKey): ChartSeriesName {
   }
 }
 
-function getSeriesValue(row: ApiRow, metric: OverviewMetricKey) {
-  switch (metric) {
-    case "totalPortfolioValue":
-      return Number(row.total_value_usd || 0);
-    case "realizedGains":
-      return 0;
-    case "realizedLosses":
-      return 0;
-    case "totalPassiveIncome":
-      return Number(row.total_claimable_usd || 0);
-    default:
-      return Number(row.total_value_usd || 0);
-  }
-}
-
 function getSeriesColor(metric: OverviewMetricKey) {
   switch (metric) {
     case "totalPortfolioValue":
@@ -78,7 +87,57 @@ function getSeriesColor(metric: OverviewMetricKey) {
   }
 }
 
-function generateSpec(data: ChartPoint[], metric: OverviewMetricKey): ILineChartSpec {
+function getTrendValue(row: PerformanceApiRow, metric: OverviewMetricKey) {
+  switch (metric) {
+    case "totalPortfolioValue":
+      return Number(row.total_value_usd || 0);
+    case "realizedGains":
+      return 0;
+    case "realizedLosses":
+      return 0;
+    case "totalPassiveIncome":
+      return Number(row.total_claimable_usd || 0);
+    default:
+      return Number(row.total_value_usd || 0);
+  }
+}
+
+function buildDailySummaryBars(
+  row: PerformanceApiRow,
+  metric: OverviewMetricKey
+): DailyBarPoint[] {
+  const series = getSeriesName(metric);
+
+  if (metric === "totalPortfolioValue") {
+    return [
+      { label: "Min", value: Number(row.min_total_value_usd || 0), series },
+      { label: "Avg", value: Number(row.avg_total_value_usd || 0), series },
+      { label: "Current", value: Number(row.total_value_usd || 0), series },
+      { label: "Max", value: Number(row.max_total_value_usd || 0), series },
+    ];
+  }
+
+  if (metric === "totalPassiveIncome") {
+    return [
+      { label: "Min", value: Number(row.min_total_claimable_usd || 0), series },
+      { label: "Avg", value: Number(row.avg_total_claimable_usd || 0), series },
+      { label: "Current", value: Number(row.total_claimable_usd || 0), series },
+      { label: "Max", value: Number(row.max_total_claimable_usd || 0), series },
+    ];
+  }
+
+  return [
+    { label: "Min", value: 0, series },
+    { label: "Avg", value: 0, series },
+    { label: "Current", value: 0, series },
+    { label: "Max", value: 0, series },
+  ];
+}
+
+function generateLineSpec(
+  data: TrendPoint[],
+  metric: OverviewMetricKey
+): ILineChartSpec {
   const color = getSeriesColor(metric);
 
   return {
@@ -183,10 +242,94 @@ function generateSpec(data: ChartPoint[], metric: OverviewMetricKey): ILineChart
   };
 }
 
+function generateBarSpec(
+  data: DailyBarPoint[],
+  metric: OverviewMetricKey
+): IBarChartSpec {
+  const color = getSeriesColor(metric);
+
+  return {
+    type: "bar",
+    data: [
+      {
+        id: "dailySummary",
+        values: data,
+      },
+    ],
+    xField: "label",
+    yField: "value",
+    seriesField: "series",
+    padding: [20, 24, 24, 16],
+    legends: {
+      visible: true,
+      position: "start",
+      orient: "top",
+      item: {
+        label: {
+          style: {
+            fill: "#C4B5FD",
+          },
+        },
+      },
+    },
+    axes: [
+      {
+        orient: "left",
+        label: {
+          style: {
+            fill: "#A78BFA",
+          },
+        },
+        title: {
+          visible: true,
+          text: "USD",
+          style: {
+            fill: "#A78BFA",
+            fontSize: 12,
+          },
+        },
+        grid: {
+          visible: true,
+          style: {
+            stroke: "#241533",
+            lineWidth: 1,
+          },
+        },
+      },
+      {
+        orient: "bottom",
+        label: {
+          style: {
+            fill: "#A78BFA",
+          },
+        },
+      },
+    ],
+    bar: {
+      style: {
+        fill: color,
+        cornerRadius: 6,
+      },
+      state: {
+        hover: {
+          fillOpacity: 0.9,
+        },
+      },
+    },
+    color: [color],
+    tooltip: {
+      visible: true,
+    },
+    background: "transparent",
+  };
+}
+
 export default function Chart() {
   const timeframe = useAtomValue(overviewTimeframeAtom);
   const selectedMetric = useAtomValue(overviewSelectedMetricAtom);
-  const [data, setData] = useState<ChartPoint[]>([]);
+
+  const [trendData, setTrendData] = useState<TrendPoint[]>([]);
+  const [dailySummary, setDailySummary] = useState<PerformanceApiRow | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -194,29 +337,42 @@ export default function Chart() {
     async function load() {
       try {
         const res = await fetch(`/api/performance?timeframe=${timeframe}`);
-        const rows: ApiRow[] = await res.json();
+        const rows: PerformanceApiRow[] = await res.json();
 
-        if (!Array.isArray(rows)) {
+        if (!Array.isArray(rows) || rows.length === 0) {
           if (!cancelled) {
-            setData([]);
+            setTrendData([]);
+            setDailySummary(null);
+          }
+          return;
+        }
+
+        const firstRow = rows[0];
+
+        if (timeframe === "daily" && firstRow.mode === "daily_summary") {
+          if (!cancelled) {
+            setDailySummary(firstRow);
+            setTrendData([]);
           }
           return;
         }
 
         const seriesName = getSeriesName(selectedMetric);
 
-        const transformed: ChartPoint[] = rows.map((row) => ({
+        const transformed: TrendPoint[] = rows.map((row) => ({
           label: row.label,
-          value: getSeriesValue(row, selectedMetric),
+          value: getTrendValue(row, selectedMetric),
           series: seriesName,
         }));
 
         if (!cancelled) {
-          setData(transformed);
+          setTrendData(transformed);
+          setDailySummary(null);
         }
       } catch {
         if (!cancelled) {
-          setData([]);
+          setTrendData([]);
+          setDailySummary(null);
         }
       }
     }
@@ -228,10 +384,16 @@ export default function Chart() {
     };
   }, [timeframe, selectedMetric]);
 
-  const spec = useMemo(
-    () => generateSpec(data, selectedMetric),
-    [data, selectedMetric]
-  );
+  const spec = useMemo(() => {
+    if (timeframe === "daily" && dailySummary) {
+      return generateBarSpec(
+        buildDailySummaryBars(dailySummary, selectedMetric),
+        selectedMetric
+      );
+    }
+
+    return generateLineSpec(trendData, selectedMetric);
+  }, [timeframe, dailySummary, trendData, selectedMetric]);
 
   return <VChart spec={spec} />;
 }
