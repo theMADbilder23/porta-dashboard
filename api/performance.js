@@ -53,20 +53,17 @@ function getBucketKey(dateString, timeframe) {
       const dd = String(d.getUTCDate()).padStart(2, "0");
       return `${yyyy}-${mm}-${dd}`;
     }
-
     case "monthly": {
       const yyyy = d.getUTCFullYear();
       const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
       const dd = String(d.getUTCDate()).padStart(2, "0");
       return `${yyyy}-${mm}-${dd}`;
     }
-
     case "quarterly": {
       const yyyy = d.getUTCFullYear();
       const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
       return `${yyyy}-${mm}`;
     }
-
     case "yearly":
     default: {
       const yyyy = d.getUTCFullYear();
@@ -119,26 +116,38 @@ function formatDailyLabel(snapshotTime) {
   });
 }
 
+function getThirtyMinuteBucket(dateString) {
+  const d = new Date(dateString);
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  const hour = String(d.getUTCHours()).padStart(2, "0");
+  const minuteBucket = d.getUTCMinutes() < 30 ? "00" : "30";
+  return `${year}-${month}-${day}T${hour}:${minuteBucket}:00Z`;
+}
+
 function buildDailyIntradaySeries(snapshots) {
-  const byTimestamp = new Map();
+  const byBucket = new Map();
 
   for (const snapshot of snapshots) {
-    const ts = snapshot.snapshot_time;
+    const bucket = getThirtyMinuteBucket(snapshot.snapshot_time);
 
-    if (!byTimestamp.has(ts)) {
-      byTimestamp.set(ts, {
-        snapshot_time: ts,
+    if (!byBucket.has(bucket)) {
+      byBucket.set(bucket, {
+        snapshot_time: bucket,
         total_value_usd: 0,
         total_claimable_usd: 0,
+        count: 0,
       });
     }
 
-    const point = byTimestamp.get(ts);
+    const point = byBucket.get(bucket);
     point.total_value_usd += safeNumber(snapshot.total_value_usd);
     point.total_claimable_usd += safeNumber(snapshot.total_claimable_usd);
+    point.count += 1;
   }
 
-  return Array.from(byTimestamp.values()).sort(
+  return Array.from(byBucket.values()).sort(
     (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
   );
 }
