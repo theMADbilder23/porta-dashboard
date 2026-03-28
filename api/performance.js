@@ -274,7 +274,10 @@ function buildDailySummary(snapshots) {
     volatility_total_value_usd: getStdDev(portfolioValues),
 
     avg_total_claimable_usd: avgPassive,
-    min_total_claimable_usd: passiveValues.length ? Math.min(...passiveValues) : 0,
+    min_total_claimable_usd: (() => {
+      const nonZeroPassiveValues = passiveValues.filter((v) => v > 0);
+      return nonZeroPassiveValues.length ? Math.min(...nonZeroPassiveValues) : 0;
+    })(),
     max_total_claimable_usd: passiveValues.length ? Math.max(...passiveValues) : 0,
     net_change_total_claimable_usd: currentTotals.total_claimable_usd - firstPassive,
     avg_change_total_claimable_pct: avgPassivePctChange,
