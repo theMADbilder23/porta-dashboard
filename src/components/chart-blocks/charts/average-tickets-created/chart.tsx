@@ -78,12 +78,6 @@ function getSeriesColor(metric: OverviewMetricKey) {
   }
 }
 
-function formatUsdCompact(value: number) {
-  return `$${Number(value).toLocaleString(undefined, {
-    maximumFractionDigits: 0,
-  })}`;
-}
-
 function generateSpec(data: ChartPoint[], metric: OverviewMetricKey): ILineChartSpec {
   const color = getSeriesColor(metric);
 
@@ -172,18 +166,6 @@ function generateSpec(data: ChartPoint[], metric: OverviewMetricKey): ILineChart
     color: [color],
     tooltip: {
       visible: true,
-      mark: {
-        title: {
-          value: (datum: { label?: string }) => datum?.label || "",
-        },
-        content: [
-          {
-            key: (datum: { series?: string }) => datum?.series || "",
-            value: (datum: { value?: number }) =>
-              `${formatUsdCompact(Number(datum?.value || 0))} USD`,
-          },
-        ],
-      },
     },
     crosshair: {
       xField: {
