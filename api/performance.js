@@ -43,7 +43,7 @@ function getTimeframeStart(timeframe) {
   }
 }
 
-function getBucketKey(dateString, timeframe) {
+function getTrendBucketKey(dateString, timeframe) {
   const d = new Date(dateString);
 
   switch (timeframe) {
@@ -73,7 +73,7 @@ function getBucketKey(dateString, timeframe) {
   }
 }
 
-function makeBucketLabel(bucketKey, timeframe) {
+function makeTrendBucketLabel(bucketKey, timeframe) {
   if (timeframe === "weekly") {
     const d = new Date(`${bucketKey}T00:00:00Z`);
     return d.toLocaleDateString("en-US", { weekday: "short" });
@@ -126,41 +126,102 @@ function getThirtyMinuteBucket(dateString) {
   return `${year}-${month}-${day}T${hour}:${minuteBucket}:00Z`;
 }
 
-function buildDailyIntradaySeries(snapshots) {
-  const byBucket = new Map();
+function buildDailyBucketSeries(snapshots) {
+  const latestPerWalletPerBucket = new Map();
 
   for (const snapshot of snapshots) {
     const bucket = getThirtyMinuteBucket(snapshot.snapshot_time);
+    const compositeKey = `${bucket}__${snapshot.wallet_id}`;
+    const existing = latestPerWalletPerBucket.get(compositeKey);
 
-    if (!byBucket.has(bucket)) {
-      byBucket.set(bucket, {
-        snapshot_time: bucket,
+    if (
+      !existing ||
+      new Date(snapshot.snapshot_time).getTime() >
+        new Date(existing.snapshot_time).getTime()
+    ) {
+      latestPerWalletPerBucket.set(compositeKey, {
+        bucket,
+        wallet_id: snapshot.wallet_id,
+        snapshot_time: snapshot.snapshot_time,
+        total_value_usd: safeNumber(snapshot.total_value_usd),
+        total_claimable_usd: safeNumber(snapshot.total_claimable_usd),
+      });
+    }
+  }
+
+  const bucketTotals = new Map();
+
+  for (const entry of latestPerWalletPerBucket.values()) {
+    if (!bucketTotals.has(entry.bucket)) {
+      bucketTotals.set(entry.bucket, {
+        snapshot_time: entry.bucket,
         total_value_usd: 0,
         total_claimable_usd: 0,
-        count: 0,
       });
     }
 
-    const point = byBucket.get(bucket);
-    point.total_value_usd += safeNumber(snapshot.total_value_usd);
-    point.total_claimable_usd += safeNumber(snapshot.total_claimable_usd);
-    point.count += 1;
+    const bucket = bucketTotals.get(entry.bucket);
+    bucket.total_value_usd += entry.total_value_usd;
+    bucket.total_claimable_usd += entry.total_claimable_usd;
   }
 
-  return Array.from(byBucket.values()).sort(
+  return Array.from(bucketTotals.values()).sort(
     (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
   );
 }
 
-function buildDailySummary(intradayPoints) {
-  const portfolioValues = intradayPoints.map((p) => safeNumber(p.total_value_usd));
-  const passiveValues = intradayPoints.map((p) => safeNumber(p.total_claimable_usd));
+function buildLatestCurrentTotals(snapshots) {
+  const latestPerWallet = new Map();
+
+  for (const snapshot of snapshots) {
+    const existing = latestPerWallet.get(snapshot.wallet_id);
+
+    if (
+      !existing ||
+      new Date(snapshot.snapshot_time).getTime() >
+        new Date(existing.snapshot_time).getTime()
+    ) {
+      latestPerWallet.set(snapshot.wallet_id, {
+        wallet_id: snapshot.wallet_id,
+        snapshot_time: snapshot.snapshot_time,
+        total_value_usd: safeNumber(snapshot.total_value_usd),
+        total_claimable_usd: safeNumber(snapshot.total_claimable_usd),
+      });
+    }
+  }
+
+  let total_value_usd = 0;
+  let total_claimable_usd = 0;
+  let latest_snapshot_time = null;
+
+  for (const row of latestPerWallet.values()) {
+    total_value_usd += row.total_value_usd;
+    total_claimable_usd += row.total_claimable_usd;
+
+    if (
+      !latest_snapshot_time ||
+      new Date(row.snapshot_time).getTime() > new Date(latest_snapshot_time).getTime()
+    ) {
+      latest_snapshot_time = row.snapshot_time;
+    }
+  }
+
+  return {
+    snapshot_time: latest_snapshot_time,
+    total_value_usd,
+    total_claimable_usd,
+  };
+}
+
+function buildDailySummary(snapshots) {
+  const bucketSeries = buildDailyBucketSeries(snapshots);
+  const currentTotals = buildLatestCurrentTotals(snapshots);
+
+  const portfolioValues = bucketSeries.map((p) => safeNumber(p.total_value_usd));
+  const passiveValues = bucketSeries.map((p) => safeNumber(p.total_claimable_usd));
 
   const firstPortfolio = portfolioValues[0] || 0;
-  const lastPortfolio = portfolioValues[portfolioValues.length - 1] || 0;
-
   const firstPassive = passiveValues[0] || 0;
-  const lastPassive = passiveValues[passiveValues.length - 1] || 0;
 
   const avgPortfolio =
     portfolioValues.length > 0
@@ -197,31 +258,29 @@ function buildDailySummary(intradayPoints) {
       ? passivePctChanges.reduce((sum, v) => sum + v, 0) / passivePctChanges.length
       : 0;
 
-  const lastPoint = intradayPoints[intradayPoints.length - 1];
-
   return {
     mode: "daily_summary",
-    snapshot_time: lastPoint.snapshot_time,
-    label: formatDailyLabel(lastPoint.snapshot_time),
+    snapshot_time: currentTotals.snapshot_time,
+    label: formatDailyLabel(currentTotals.snapshot_time),
 
-    total_value_usd: lastPortfolio,
-    total_claimable_usd: lastPassive,
+    total_value_usd: currentTotals.total_value_usd,
+    total_claimable_usd: currentTotals.total_claimable_usd,
 
     avg_total_value_usd: avgPortfolio,
     min_total_value_usd: portfolioValues.length ? Math.min(...portfolioValues) : 0,
     max_total_value_usd: portfolioValues.length ? Math.max(...portfolioValues) : 0,
-    net_change_total_value_usd: lastPortfolio - firstPortfolio,
+    net_change_total_value_usd: currentTotals.total_value_usd - firstPortfolio,
     avg_change_total_value_pct: avgPortfolioPctChange,
     volatility_total_value_usd: getStdDev(portfolioValues),
 
     avg_total_claimable_usd: avgPassive,
     min_total_claimable_usd: passiveValues.length ? Math.min(...passiveValues) : 0,
     max_total_claimable_usd: passiveValues.length ? Math.max(...passiveValues) : 0,
-    net_change_total_claimable_usd: lastPassive - firstPassive,
+    net_change_total_claimable_usd: currentTotals.total_claimable_usd - firstPassive,
     avg_change_total_claimable_pct: avgPassivePctChange,
     volatility_total_claimable_usd: getStdDev(passiveValues),
 
-    snapshot_count: intradayPoints.length,
+    snapshot_count: bucketSeries.length,
   };
 }
 
@@ -261,15 +320,14 @@ module.exports = async function handler(req, res) {
     }
 
     if (timeframe === "daily") {
-      const intradayPoints = buildDailyIntradaySeries(snapshots);
-      const dailySummary = buildDailySummary(intradayPoints);
+      const dailySummary = buildDailySummary(snapshots);
       return res.status(200).json([dailySummary]);
     }
 
     const latestPerWalletPerBucket = new Map();
 
     for (const snapshot of snapshots) {
-      const bucketKey = getBucketKey(snapshot.snapshot_time, timeframe);
+      const bucketKey = getTrendBucketKey(snapshot.snapshot_time, timeframe);
       const compositeKey = `${bucketKey}__${snapshot.wallet_id}`;
       const existing = latestPerWalletPerBucket.get(compositeKey);
 
@@ -320,7 +378,7 @@ module.exports = async function handler(req, res) {
       .map((bucket) => ({
         mode: "trend",
         snapshot_time: bucket.snapshot_time,
-        label: makeBucketLabel(bucket.bucketKey, timeframe),
+        label: makeTrendBucketLabel(bucket.bucketKey, timeframe),
         total_value_usd: bucket.total_value_usd,
         total_claimable_usd: bucket.total_claimable_usd,
       }));
