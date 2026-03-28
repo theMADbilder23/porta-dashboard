@@ -57,6 +57,24 @@ type LineStyleDatum = {
   series?: ChartSeriesName;
 };
 
+function formatUsdCompact(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatAxisUsd(value: number) {
+  if (!Number.isFinite(value)) return "$0";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 function getSeriesName(metric: OverviewMetricKey): ChartSeriesName {
   switch (metric) {
     case "totalPortfolioValue":
@@ -142,6 +160,7 @@ function generateLineSpec(
 
   return {
     type: "line",
+    animation: false,
     data: [
       {
         id: "growthData",
@@ -168,6 +187,10 @@ function generateLineSpec(
       {
         orient: "left",
         label: {
+          formatMethod: (text) => {
+            const numericValue = Number(text);
+            return formatAxisUsd(numericValue);
+          },
           style: {
             fill: "#A78BFA",
           },
@@ -225,6 +248,17 @@ function generateLineSpec(
     color: [color],
     tooltip: {
       visible: true,
+      mark: {
+        title: {
+          value: (datum) => String(datum?.label ?? ""),
+        },
+        content: [
+          {
+            key: (datum) => String(datum?.series ?? ""),
+            value: (datum) => formatUsdCompact(Number(datum?.value ?? 0)),
+          },
+        ],
+      },
     },
     crosshair: {
       xField: {
@@ -250,6 +284,7 @@ function generateBarSpec(
 
   return {
     type: "bar",
+    animation: false,
     data: [
       {
         id: "dailySummary",
@@ -276,6 +311,10 @@ function generateBarSpec(
       {
         orient: "left",
         label: {
+          formatMethod: (text) => {
+            const numericValue = Number(text);
+            return formatAxisUsd(numericValue);
+          },
           style: {
             fill: "#A78BFA",
           },
@@ -319,6 +358,17 @@ function generateBarSpec(
     color: [color],
     tooltip: {
       visible: true,
+      mark: {
+        title: {
+          value: (datum) => String(datum?.label ?? ""),
+        },
+        content: [
+          {
+            key: (datum) => String(datum?.series ?? ""),
+            value: (datum) => formatUsdCompact(Number(datum?.value ?? 0)),
+          },
+        ],
+      },
     },
     background: "transparent",
   };
@@ -336,7 +386,9 @@ export default function Chart() {
 
     async function load() {
       try {
-        const res = await fetch(`/api/performance?timeframe=${timeframe}`);
+        const res = await fetch(`/api/performance?timeframe=${timeframe}`, {
+          cache: "no-store",
+        });
         const rows: PerformanceApiRow[] = await res.json();
 
         if (!Array.isArray(rows) || rows.length === 0) {
