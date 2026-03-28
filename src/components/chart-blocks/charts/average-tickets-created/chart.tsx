@@ -78,6 +78,12 @@ function getSeriesColor(metric: OverviewMetricKey) {
   }
 }
 
+function formatUsdCompact(value: number) {
+  return `$${Number(value).toLocaleString(undefined, {
+    maximumFractionDigits: 0,
+  })}`;
+}
+
 function generateSpec(data: ChartPoint[], metric: OverviewMetricKey): ILineChartSpec {
   const color = getSeriesColor(metric);
 
@@ -92,7 +98,7 @@ function generateSpec(data: ChartPoint[], metric: OverviewMetricKey): ILineChart
     xField: "label",
     yField: "value",
     seriesField: "series",
-    padding: [20, 24, 16, 12],
+    padding: [20, 24, 24, 16],
     legends: {
       visible: true,
       position: "start",
@@ -111,6 +117,19 @@ function generateSpec(data: ChartPoint[], metric: OverviewMetricKey): ILineChart
         label: {
           style: {
             fill: "#A78BFA",
+          },
+          formatMethod: (value: string | number) => {
+            const numericValue = Number(value);
+            if (!Number.isFinite(numericValue)) return "USD";
+            return formatUsdCompact(numericValue);
+          },
+        },
+        title: {
+          visible: true,
+          text: "USD",
+          style: {
+            fill: "#A78BFA",
+            fontSize: 12,
           },
         },
         grid: {
@@ -158,6 +177,18 @@ function generateSpec(data: ChartPoint[], metric: OverviewMetricKey): ILineChart
     color: [color],
     tooltip: {
       visible: true,
+      mark: {
+        title: {
+          value: (datum: { label?: string }) => datum?.label || "",
+        },
+        content: [
+          {
+            key: (datum: { series?: string }) => datum?.series || "",
+            value: (datum: { value?: number }) =>
+              `${formatUsdCompact(Number(datum?.value || 0))} USD`,
+          },
+        ],
+      },
     },
     crosshair: {
       xField: {
