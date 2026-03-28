@@ -118,11 +118,6 @@ function generateSpec(data: ChartPoint[], metric: OverviewMetricKey): ILineChart
           style: {
             fill: "#A78BFA",
           },
-          formatMethod: (value: string | number) => {
-            const numericValue = Number(value);
-            if (!Number.isFinite(numericValue)) return "USD";
-            return formatUsdCompact(numericValue);
-          },
         },
         title: {
           visible: true,
