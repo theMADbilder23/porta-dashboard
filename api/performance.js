@@ -57,18 +57,22 @@ function getBucketKey(dateString, timeframe) {
     case "monthly": {
       const yyyy = d.getUTCFullYear();
       const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-      return `${yyyy}-${mm}`;
+      const dd = String(d.getUTCDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
     }
 
     case "quarterly": {
       const yyyy = d.getUTCFullYear();
-      const quarter = Math.floor(d.getUTCMonth() / 3) + 1;
-      return `${yyyy}-Q${quarter}`;
+      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+      return `${yyyy}-${mm}`;
     }
 
     case "yearly":
-    default:
-      return String(d.getUTCFullYear());
+    default: {
+      const yyyy = d.getUTCFullYear();
+      const quarter = Math.floor(d.getUTCMonth() / 3) + 1;
+      return `${yyyy}-Q${quarter}`;
+    }
   }
 }
 
@@ -79,13 +83,14 @@ function makeBucketLabel(bucketKey, timeframe) {
   }
 
   if (timeframe === "monthly") {
-    const [year, month] = bucketKey.split("-");
-    const d = new Date(`${year}-${month}-01T00:00:00Z`);
+    const d = new Date(`${bucketKey}T00:00:00Z`);
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   }
 
   if (timeframe === "quarterly") {
-    return bucketKey;
+    const [year, month] = bucketKey.split("-");
+    const d = new Date(`${year}-${month}-01T00:00:00Z`);
+    return d.toLocaleDateString("en-US", { month: "short" });
   }
 
   return bucketKey;
@@ -114,13 +119,33 @@ function formatDailyLabel(snapshotTime) {
   });
 }
 
-function buildDailySummary(snapshots) {
-  const sortedSnapshots = [...snapshots].sort(
+function buildDailyIntradaySeries(snapshots) {
+  const byTimestamp = new Map();
+
+  for (const snapshot of snapshots) {
+    const ts = snapshot.snapshot_time;
+
+    if (!byTimestamp.has(ts)) {
+      byTimestamp.set(ts, {
+        snapshot_time: ts,
+        total_value_usd: 0,
+        total_claimable_usd: 0,
+      });
+    }
+
+    const point = byTimestamp.get(ts);
+    point.total_value_usd += safeNumber(snapshot.total_value_usd);
+    point.total_claimable_usd += safeNumber(snapshot.total_claimable_usd);
+  }
+
+  return Array.from(byTimestamp.values()).sort(
     (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
   );
+}
 
-  const portfolioValues = sortedSnapshots.map((s) => safeNumber(s.total_value_usd));
-  const passiveValues = sortedSnapshots.map((s) => safeNumber(s.total_claimable_usd));
+function buildDailySummary(intradayPoints) {
+  const portfolioValues = intradayPoints.map((p) => safeNumber(p.total_value_usd));
+  const passiveValues = intradayPoints.map((p) => safeNumber(p.total_claimable_usd));
 
   const firstPortfolio = portfolioValues[0] || 0;
   const lastPortfolio = portfolioValues[portfolioValues.length - 1] || 0;
@@ -163,10 +188,12 @@ function buildDailySummary(snapshots) {
       ? passivePctChanges.reduce((sum, v) => sum + v, 0) / passivePctChanges.length
       : 0;
 
+  const lastPoint = intradayPoints[intradayPoints.length - 1];
+
   return {
     mode: "daily_summary",
-    snapshot_time: sortedSnapshots[sortedSnapshots.length - 1].snapshot_time,
-    label: formatDailyLabel(sortedSnapshots[sortedSnapshots.length - 1].snapshot_time),
+    snapshot_time: lastPoint.snapshot_time,
+    label: formatDailyLabel(lastPoint.snapshot_time),
 
     total_value_usd: lastPortfolio,
     total_claimable_usd: lastPassive,
@@ -185,7 +212,7 @@ function buildDailySummary(snapshots) {
     avg_change_total_claimable_pct: avgPassivePctChange,
     volatility_total_claimable_usd: getStdDev(passiveValues),
 
-    snapshot_count: sortedSnapshots.length,
+    snapshot_count: intradayPoints.length,
   };
 }
 
@@ -225,33 +252,11 @@ module.exports = async function handler(req, res) {
     }
 
     if (timeframe === "daily") {
-      const latestPerWallet = new Map();
-
-      for (const snapshot of snapshots) {
-        const existing = latestPerWallet.get(snapshot.wallet_id);
-
-        if (
-          !existing ||
-          new Date(snapshot.snapshot_time).getTime() >
-            new Date(existing.snapshot_time).getTime()
-        ) {
-          latestPerWallet.set(snapshot.wallet_id, {
-            wallet_id: snapshot.wallet_id,
-            snapshot_time: snapshot.snapshot_time,
-            total_value_usd: safeNumber(snapshot.total_value_usd),
-            total_claimable_usd: safeNumber(snapshot.total_claimable_usd),
-          });
-        }
-      }
-
-      const dedupedSnapshots = Array.from(latestPerWallet.values());
-
-      const dailySummary = buildDailySummary(dedupedSnapshots);
-
+      const intradayPoints = buildDailyIntradaySeries(snapshots);
+      const dailySummary = buildDailySummary(intradayPoints);
       return res.status(200).json([dailySummary]);
     }
 
-    // Weekly+ trend mode
     const latestPerWalletPerBucket = new Map();
 
     for (const snapshot of snapshots) {
