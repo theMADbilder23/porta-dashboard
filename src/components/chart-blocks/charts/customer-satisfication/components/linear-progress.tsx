@@ -33,13 +33,13 @@ const getSpec = (
   percentage: number,
   value: number,
   dailyYield: number,
-  avgYield: number
+  avgYield: number,
 ): ILinearProgressChartSpec => {
   return {
     type: "linearProgress",
     data: [
       {
-        id: "i0",
+        id: "id0",
         values: [
           {
             type: label,
@@ -71,13 +71,9 @@ const getSpec = (
           {
             key: label,
             value: (_datum: Datum | undefined) =>
-              `${formatUsdRounded(value)} • ${formatPercent(
-                percentage,
-                2
-              )} • ${formatUsdPrecise(dailyYield)}/day • ${formatPercent(
-                avgYield,
-                2
-              )} avg. APY`,
+              `${formatUsdRounded(value)} • ${formatPercent(percentage, 2)} • ${formatUsdPrecise(
+                dailyYield,
+              )}/day • ${formatPercent(avgYield, 2)} avg. APY`,
           },
         ],
       },
@@ -118,34 +114,25 @@ export default function LinearProgress({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="grid grid-cols-[180px_160px_minmax(0,1fr)] items-center gap-4">
-      <div className="flex min-w-0 items-start gap-2">
-        <div className="mt-1 shrink-0">{icon}</div>
-
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="leading-tight">{label}</span>
-            <InfoTooltip title={label} description={description} />
-          </div>
+    <div className="mx-auto w-full max-w-[560px]">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="mt-1 shrink-0">{icon}</div>
+          <div className="text-sm font-semibold text-foreground">{label}</div>
+          <InfoTooltip title={label} description={description} />
         </div>
-      </div>
 
-      <div className="min-w-0">
-        <div className="flex items-baseline gap-2">
-          <div className="text-2xl font-semibold leading-none">
+        <div className="shrink-0 text-right">
+          <div className="text-2xl font-semibold leading-none text-foreground">
             {formatUsdRounded(value)}
           </div>
           <div className="text-sm text-muted-foreground">
-            {formatPercent(avgYield, 1)} avg. APY
+            {formatPercent(avgYield, 1)} avg. APY ({formatUsdPrecise(dailyYield)}/day)
           </div>
-        </div>
-
-        <div className="mt-1 text-xs text-muted-foreground">
-          {formatUsdPrecise(dailyYield)}/day
         </div>
       </div>
 
-      <div className="w-full">
+      <div className="mt-3 w-full">
         <VChart
           spec={getSpec(
             label,
@@ -153,7 +140,7 @@ export default function LinearProgress({
             distributionPercentage,
             value,
             dailyYield,
-            avgYield
+            avgYield,
           )}
         />
       </div>
