@@ -28,6 +28,11 @@ function isStableSymbol(symbol) {
   return STABLE_SYMBOLS.has(normalizeSymbol(symbol));
 }
 
+function capitalizeTimeframe(timeframe) {
+  const value = String(timeframe || "daily").toLowerCase();
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 function getTimeframeStart(timeframe) {
   const now = new Date();
 
@@ -314,6 +319,8 @@ function buildWalletYieldDebug({
   walletYieldFlow,
   walletStableYieldValue,
   walletGrowthRiskYieldValue,
+  stableWeight,
+  growthWeight,
 }) {
   return {
     wallet_id: walletId,
@@ -327,12 +334,9 @@ function buildWalletYieldDebug({
     wallet_yield_flow: walletYieldFlow,
     wallet_stable_yield_value: walletStableYieldValue,
     wallet_growth_risk_yield_value: walletGrowthRiskYieldValue,
+    stable_weight: stableWeight,
+    growth_weight: growthWeight,
   };
-}
-
-function capitalizeTimeframe(timeframe) {
-  const value = String(timeframe || "daily").toLowerCase();
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 module.exports = async function handler(req, res) {
@@ -453,10 +457,6 @@ module.exports = async function handler(req, res) {
     let growthRiskYieldValue = 0;
     const hardAssetYieldValue = 0;
 
-    let stableYieldFlow = 0;
-    let growthRiskYieldFlow = 0;
-    const hardAssetYieldFlow = 0;
-
     const walletYieldDebug = [];
 
     for (const snapshot of latestSnapshots) {
@@ -526,13 +526,10 @@ module.exports = async function handler(req, res) {
       const walletYieldFlow = getRangeFlow(walletStats.max, walletStats.min);
       const walletYieldBase = walletStableYieldValue + walletGrowthRiskYieldValue;
 
-      if (walletYieldBase > 0 && walletYieldFlow > 0) {
-        const stableWeight = walletStableYieldValue / walletYieldBase;
-        const growthWeight = walletGrowthRiskYieldValue / walletYieldBase;
-
-        stableYieldFlow += walletYieldFlow * stableWeight;
-        growthRiskYieldFlow += walletYieldFlow * growthWeight;
-      }
+      const stableWeight =
+        walletYieldBase > 0 ? walletStableYieldValue / walletYieldBase : 0;
+      const growthWeight =
+        walletYieldBase > 0 ? walletGrowthRiskYieldValue / walletYieldBase : 0;
 
       walletYieldDebug.push(
         buildWalletYieldDebug({
@@ -544,12 +541,11 @@ module.exports = async function handler(req, res) {
           walletYieldFlow,
           walletStableYieldValue,
           walletGrowthRiskYieldValue,
+          stableWeight,
+          growthWeight,
         })
       );
     }
-
-    const totalYieldFlow =
-      stableYieldFlow + growthRiskYieldFlow + hardAssetYieldFlow;
 
     const totalValueDistributed =
       stableYieldValue + growthRiskYieldValue + hardAssetYieldValue;
@@ -560,7 +556,19 @@ module.exports = async function handler(req, res) {
     const minPortfolioValue = getMinValue(portfolioBucketValues);
     const minClaimableValue = getMinValue(claimableBucketValues, { ignoreZero: true });
     const maxClaimableValue = getMaxValue(claimableBucketValues);
-    const claimableFlowRange = getRangeFlow(maxClaimableValue, minClaimableValue);
+
+    const totalYieldFlow = getRangeFlow(maxClaimableValue, minClaimableValue);
+
+    const stableFlowWeight =
+      totalValueDistributed > 0 ? stableYieldValue / totalValueDistributed : 0;
+    const growthFlowWeight =
+      totalValueDistributed > 0 ? growthRiskYieldValue / totalValueDistributed : 0;
+    const hardAssetFlowWeight =
+      totalValueDistributed > 0 ? hardAssetYieldValue / totalValueDistributed : 0;
+
+    const stableYieldFlow = totalYieldFlow * stableFlowWeight;
+    const growthRiskYieldFlow = totalYieldFlow * growthFlowWeight;
+    const hardAssetYieldFlow = totalYieldFlow * hardAssetFlowWeight;
 
     return res.status(200).json({
       timeframe,
@@ -578,8 +586,8 @@ module.exports = async function handler(req, res) {
         minPortfolioValue
       ),
       passive_income_change_pct: getChangePctFromMin(
-        totalYieldFlow,
-        claimableFlowRange
+        minClaimableValue,
+        maxClaimableValue
       ),
       realized_gains_change_pct: null,
       realized_losses_change_pct: null,
