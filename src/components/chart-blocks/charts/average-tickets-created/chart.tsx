@@ -476,11 +476,13 @@ function InfoTooltip({
 
 function StatPill({
   label,
+  tooltipTitle,
   description,
   value,
   isPercent = false,
 }: {
   label: string;
+  tooltipTitle?: string;
   description: string;
   value: number;
   isPercent?: boolean;
@@ -489,7 +491,7 @@ function StatPill({
     <div className="min-w-[110px] rounded-md border border-border/60 bg-muted/20 px-3 py-2">
       <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
         <span>{label}</span>
-        <InfoTooltip title={label} description={description} />
+        <InfoTooltip title={tooltipTitle ?? label} description={description} />
       </div>
       <div className="mt-1 text-sm font-medium text-foreground">
         {isPercent ? formatPct(value) : formatStatUsd(value)}
@@ -582,30 +584,35 @@ export default function Chart() {
       return [
         {
           label: "Current",
+          tooltipTitle: `Current ${timeframe.charAt(0).toUpperCase() + timeframe.slice(1)} Yield Earned`,
           description:
             "Estimated yield flow earned during the selected timeframe, calculated from the claimable yield range.",
           value: stats.current,
         },
         {
           label: "Min",
+          tooltipTitle: "Min Claimable Yield",
           description:
             "Lowest claimable yield observed across the selected timeframe snapshots.",
           value: stats.min,
         },
         {
           label: "Avg",
+          tooltipTitle: "Avg Claimable Yield",
           description:
             "Average claimable yield balance across the selected timeframe snapshots.",
           value: stats.avg,
         },
         {
           label: "Max",
+          tooltipTitle: "Max Claimable Yield",
           description:
             "Highest claimable yield observed across the selected timeframe snapshots.",
           value: stats.max,
         },
         {
           label: "Min → Max",
+          tooltipTitle: "Min → Max Claimable Yield % Increase",
           description:
             "Percentage increase from the lowest to the highest claimable yield over the selected timeframe.",
           value: stats.rangePct,
@@ -613,6 +620,7 @@ export default function Chart() {
         },
         {
           label: "Yield / TVD",
+          tooltipTitle: "Yield / TVD %",
           description:
             "Current yield flow as a percentage of Total Value Distributed. This shows how much yield the distributed capital generated during the selected timeframe.",
           value: yieldToTvdPct,
@@ -682,6 +690,7 @@ export default function Chart() {
             <StatPill
               key={card.label}
               label={card.label}
+              tooltipTitle={card.tooltipTitle}
               description={card.description}
               value={card.value}
               isPercent={card.isPercent}
