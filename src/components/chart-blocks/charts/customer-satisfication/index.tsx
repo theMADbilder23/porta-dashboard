@@ -3,7 +3,7 @@
 import { Coins, Landmark, TrendingUp, Zap } from "lucide-react";
 import ChartTitle from "../../components/chart-title";
 import LinearProgress from "./components/linear-progress";
-import { buildYieldSourcesFromOverview } from "../../data/customer-satisfaction";
+import { buildYieldSourcesFromOverview } from "../../../data/customer-satisfaction";
 import { useOverview } from "@/hooks/use-overview";
 import { formatUsdRounded } from "@/lib/utils";
 
