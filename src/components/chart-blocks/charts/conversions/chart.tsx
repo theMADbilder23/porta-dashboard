@@ -65,11 +65,20 @@ export default function Chart({
       mark: {
         content: [
           {
-            key: (d) => d?.name ?? "",
-            value: (d: { value?: number; percentage?: number }) =>
-              `$${addThousandsSeparator(d?.value ?? 0)} • ${(
-                d?.percentage ?? 0
-              ).toFixed(2)}%`,
+            key: (d) => {
+              const datum = (d ?? {}) as { name?: string };
+              return datum.name ?? "";
+            },
+            value: (d) => {
+              const datum = (d ?? {}) as {
+                value?: number;
+                percentage?: number;
+              };
+
+              return `$${addThousandsSeparator(datum.value ?? 0)} • ${(
+                datum.percentage ?? 0
+              ).toFixed(2)}%`;
+            },
           },
         ],
       },
