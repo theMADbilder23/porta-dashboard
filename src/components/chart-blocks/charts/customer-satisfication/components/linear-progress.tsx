@@ -118,34 +118,43 @@ export default function LinearProgress({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="grid grid-cols-[1fr_300px] items-center gap-6">
-      <div className="flex items-start gap-3">
-        <div className="mt-1">{icon}</div>
+    <div className="grid grid-cols-[180px_160px_minmax(0,1fr)] items-center gap-4">
+      <div className="flex min-w-0 items-start gap-2">
+        <div className="mt-1 shrink-0">{icon}</div>
 
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>{label}</span>
+            <span className="leading-tight">{label}</span>
             <InfoTooltip title={label} description={description} />
-          </div>
-
-          <div className="mt-1 flex items-baseline gap-2">
-            <div className="text-2xl font-semibold leading-none">
-              {formatUsdRounded(value)}
-            </div>
-            <div className="text-sm text-muted-foreground">
-              {formatPercent(avgYield, 1)} avg. APY
-            </div>
-          </div>
-
-          <div className="mt-1 text-xs text-muted-foreground">
-            {formatUsdPrecise(dailyYield)}/day
           </div>
         </div>
       </div>
 
-      <div className="w-[300px] max-w-full">
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-2">
+          <div className="text-2xl font-semibold leading-none">
+            {formatUsdRounded(value)}
+          </div>
+          <div className="text-sm text-muted-foreground">
+            {formatPercent(avgYield, 1)} avg. APY
+          </div>
+        </div>
+
+        <div className="mt-1 text-xs text-muted-foreground">
+          {formatUsdPrecise(dailyYield)}/day
+        </div>
+      </div>
+
+      <div className="w-full">
         <VChart
-          spec={getSpec(label, color, distributionPercentage, value, dailyYield, avgYield)}
+          spec={getSpec(
+            label,
+            color,
+            distributionPercentage,
+            value,
+            dailyYield,
+            avgYield
+          )}
         />
       </div>
     </div>
