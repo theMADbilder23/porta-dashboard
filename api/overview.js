@@ -146,6 +146,7 @@ function buildLatestPerWallet(snapshots) {
 
 function getStartOfCurrentUtcDay() {
   const now = new Date();
+
   return new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
   );
@@ -271,6 +272,7 @@ function getEmptyResponse(timeframe) {
     stable_avg_apy: null,
     growth_risk_avg_apy: null,
     hard_asset_avg_apy: null,
+    wallet_yield_debug: [],
   };
 }
 
@@ -339,6 +341,31 @@ function calculateSimpleApy(dailyYield, principalValue) {
 
   if (principal <= 0) return 0;
   return (daily * 365 * 100) / principal;
+}
+
+function buildWalletYieldDebug({
+  walletId,
+  role,
+  latestSnapshot,
+  previousDayCloseSnapshot,
+  walletDailyYield,
+  walletStableYieldValue,
+  walletGrowthRiskYieldValue,
+}) {
+  return {
+    wallet_id: walletId,
+    role,
+    latest_snapshot_time: latestSnapshot?.snapshot_time ?? null,
+    previous_day_close_snapshot_time:
+      previousDayCloseSnapshot?.snapshot_time ?? null,
+    latest_flow_basis: latestSnapshot ? getYieldFlowBasis(latestSnapshot) : null,
+    previous_day_close_flow_basis: previousDayCloseSnapshot
+      ? getYieldFlowBasis(previousDayCloseSnapshot)
+      : null,
+    wallet_daily_yield: walletDailyYield,
+    wallet_stable_yield_value: walletStableYieldValue,
+    wallet_growth_risk_yield_value: walletGrowthRiskYieldValue,
+  };
 }
 
 module.exports = async function handler(req, res) {
@@ -444,6 +471,8 @@ module.exports = async function handler(req, res) {
     let growthRiskDailyYield = 0;
     const hardAssetDailyYield = 0;
 
+    const walletYieldDebug = [];
+
     for (const snapshot of latestSnapshots) {
       const walletId = snapshot.wallet_id;
       const role = walletRoleMap.get(walletId) || "";
@@ -523,6 +552,18 @@ module.exports = async function handler(req, res) {
         stableDailyYield += walletDailyYield * stableWeight;
         growthRiskDailyYield += walletDailyYield * growthWeight;
       }
+
+      walletYieldDebug.push(
+        buildWalletYieldDebug({
+          walletId,
+          role,
+          latestSnapshot: snapshot,
+          previousDayCloseSnapshot,
+          walletDailyYield,
+          walletStableYieldValue,
+          walletGrowthRiskYieldValue,
+        })
+      );
     }
 
     const totalDailyYield =
@@ -575,6 +616,7 @@ module.exports = async function handler(req, res) {
         hardAssetDailyYield,
         hardAssetYieldValue
       ),
+      wallet_yield_debug: walletYieldDebug,
     });
   } catch (err) {
     console.error("[api/overview] error:", err);
