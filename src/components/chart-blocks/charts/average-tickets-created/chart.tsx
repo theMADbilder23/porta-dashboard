@@ -581,31 +581,31 @@ export default function Chart() {
     if (selectedMetric === "totalPassiveIncome") {
       return [
         {
-          label: `Current ${timeframe.charAt(0).toUpperCase() + timeframe.slice(1)} Yield Earned`,
+          label: "Current",
           description:
             "Estimated yield flow earned during the selected timeframe, calculated from the claimable yield range.",
           value: stats.current,
         },
         {
-          label: "Min Claimable Yield",
+          label: "Min",
           description:
             "Lowest claimable yield observed across the selected timeframe snapshots.",
           value: stats.min,
         },
         {
-          label: "Avg Claimable Yield",
+          label: "Avg",
           description:
             "Average claimable yield balance across the selected timeframe snapshots.",
           value: stats.avg,
         },
         {
-          label: "Max Claimable Yield",
+          label: "Max",
           description:
             "Highest claimable yield observed across the selected timeframe snapshots.",
           value: stats.max,
         },
         {
-          label: "Min → Max Yield %",
+          label: "Min → Max",
           description:
             "Percentage increase from the lowest to the highest claimable yield over the selected timeframe.",
           value: stats.rangePct,
