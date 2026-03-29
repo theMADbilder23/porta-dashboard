@@ -14,6 +14,7 @@ import {
   overviewSelectedMetricAtom,
   overviewTimeframeAtom,
   type OverviewMetricKey,
+  type OverviewTimeframe,
 } from "@/lib/atoms/overview";
 import MetricCard from "./components/metric-card";
 
@@ -42,6 +43,40 @@ function formatCurrency(value: number | null | undefined) {
 function toMetricChange(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return 0;
   return Number(value);
+}
+
+function getYieldFlowTitle(timeframe: OverviewTimeframe) {
+  switch (timeframe) {
+    case "daily":
+      return "Daily Yield Flow";
+    case "weekly":
+      return "Weekly Yield Flow";
+    case "monthly":
+      return "Monthly Yield Flow";
+    case "quarterly":
+      return "Quarterly Yield Flow";
+    case "yearly":
+      return "Yearly Yield Flow";
+    default:
+      return "Yield Flow";
+  }
+}
+
+function getYieldFlowHelperText(timeframe: OverviewTimeframe) {
+  switch (timeframe) {
+    case "daily":
+      return "vs previous day";
+    case "weekly":
+      return "vs previous week";
+    case "monthly":
+      return "vs previous month";
+    case "quarterly":
+      return "vs previous quarter";
+    case "yearly":
+      return "vs previous year";
+    default:
+      return "vs selected period";
+  }
 }
 
 export default function Metrics() {
@@ -108,6 +143,9 @@ export default function Metrics() {
     totalPassiveIncome: toMetricChange(apiData?.passive_income_change_pct),
   };
 
+  const passiveIncomeTitle = getYieldFlowTitle(timeframe);
+  const passiveIncomeHelperText = getYieldFlowHelperText(timeframe);
+
   function isActive(metric: OverviewMetricKey) {
     return selectedMetric === metric;
   }
@@ -121,7 +159,7 @@ export default function Metrics() {
             <p className="text-sm text-muted-foreground">
               MMII portfolio intelligence across your selected timeframe
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="mt-1 text-xs text-muted-foreground">
               All values displayed in USD
             </p>
           </div>
@@ -164,14 +202,14 @@ export default function Metrics() {
           />
 
           <MetricCard
-            title="Total Passive Income"
+            title={passiveIncomeTitle}
             value={metrics.totalPassiveIncome}
             change={changes.totalPassiveIncome}
             active={isActive("totalPassiveIncome")}
             onClick={() => setSelectedMetric("totalPassiveIncome")}
             className="min-w-0"
             icon={<HandCoins size={16} />}
-            helperText="vs selected period range"
+            helperText={passiveIncomeHelperText}
           />
         </div>
       </Container>
