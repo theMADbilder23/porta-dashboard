@@ -155,14 +155,18 @@ function getDailyStats(
   }
 
   if (metric === "totalPassiveIncome") {
-    const current = Number(row.total_claimable_usd || 0);
+    // 🔥 CORE FIX: current = yield flow (max - min)
+    const max = Number(row.max_total_claimable_usd ?? 0);
     const min = Number(
       row.min_non_zero_total_claimable_usd ??
-        row.min_total_claimable_usd ??
-        current
+      row.min_total_claimable_usd ??
+      0
     );
+
+    const current = max - min;
+
+    // ✅ KEEP existing stats (these are correct already)
     const avg = Number(row.avg_total_claimable_usd ?? current);
-    const max = Number(row.max_total_claimable_usd ?? current);
 
     return {
       current,
