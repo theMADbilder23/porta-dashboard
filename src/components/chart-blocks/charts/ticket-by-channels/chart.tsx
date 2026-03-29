@@ -76,7 +76,7 @@ function buildHealthResult(input: {
   if (stablePct >= 0.3 && rotationalPct >= 0.15) {
     summary = "Stable Core and Rotational Core are supporting a healthier MMII structure.";
   } else if (growthPct >= 0.7) {
-    summary = "Portfolio is heavily concentrated in Growth exposure with limited defensive balance.";
+    summary = "Portfolio is heavily weighted toward Growth exposure with limited Stable Core and Rotational balance.";
   } else if (swingPct >= 0.15) {
     summary = "Swing exposure is elevated, which weakens overall portfolio health.";
   } else if (stablePct < 0.1 && rotationalPct < 0.1) {
@@ -135,18 +135,19 @@ function describeArc(
 
 function getHealthColor(index: number, active: boolean) {
   const activeColors = [
-    "#E9D5FF",
-    "#D8B4FE",
-    "#C084FC",
-    "#A855F7",
-    "#9333EA",
-    "#7E22CE",
-    "#6B21A8",
-    "#581C87",
+    "#EDE9FE", // very light
+    "#DDD6FE",
+    "#C4B5FD",
+    "#A78BFA",
+    "#8B5CF6",
+    "#7C3AED",
+    "#6D28D9",
+    "#5B21B6", // deep
   ];
 
-  if (!active) return "#F3E8FF";
-  return activeColors[index] ?? "#581C87";
+  const inactiveColor = "#F5F3FF"; // slightly visible (not invisible)
+
+  return active ? activeColors[index] ?? "#5B21B6" : inactiveColor;
 }
 
 export default function Chart() {
@@ -200,8 +201,8 @@ export default function Chart() {
   ];
 
   return (
-    <div className="flex h-full flex-col justify-between gap-4">
-      <div className="rounded-2xl border border-border/60 bg-muted/10 p-4">
+   <div className="flex h-full flex-col justify-between gap-5">
+      <div className="rounded-2xl border border-border/60 bg-muted/10 p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -265,7 +266,7 @@ export default function Chart() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-4">
         {allocationRows.map((row) => (
           <div
             key={row.label}
@@ -281,7 +282,7 @@ export default function Chart() {
         ))}
       </div>
 
-      <div className="rounded-xl border border-border/60 bg-muted/10 px-3 py-3">
+      <div className="rounded-xl border border-border/60 bg-muted/10 px-4 py-3">
         <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
           Current tracked defensive base
         </div>

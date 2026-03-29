@@ -8,7 +8,7 @@ export default function TicketByChannels() {
   return (
     <section className="flex h-full flex-col gap-2">
       <ChartTitle title="Portfolio Health" icon={Activity} />
-      <div className="relative flex min-h-[320px] flex-1 flex-col justify-center">
+      <div className="relative flex min-h-[360px] flex-1 flex-col justify-between">
         <Chart />
       </div>
     </section>
