@@ -38,6 +38,15 @@ export function formatUsdCompact(value: number) {
 
 export function formatUsdRounded(value: number) {
   const safeValue = Number.isFinite(value) ? value : 0;
-
   return `$${Math.round(safeValue).toLocaleString()}`;
+}
+
+export function formatUsdPrecise(value: number) {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  return `$${safeValue.toFixed(2)}`;
+}
+
+export function formatPercent(value: number, digits = 1) {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  return `${safeValue.toFixed(digits)}%`;
 }
