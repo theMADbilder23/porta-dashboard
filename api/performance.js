@@ -303,7 +303,10 @@ module.exports = async function handler(req, res) {
       .from("wallet_snapshots")
       .select("wallet_id, snapshot_time, total_value_usd, total_claimable_usd")
       .in("wallet_id", walletIds)
-      .gte("snapshot_time", timeframeStart)
+      .gte(
+        "snapshot_time",
+        new Date(new Date(timeframeStart).getTime() - 48 * 60 * 60 * 1000).toISOString()
+      ) 
       .order("snapshot_time", { ascending: true });
 
     if (snapshotsError) {
