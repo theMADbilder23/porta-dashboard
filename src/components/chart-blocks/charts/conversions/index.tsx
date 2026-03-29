@@ -1,3 +1,5 @@
+"use client";
+
 import { Layers3 } from "lucide-react";
 import ChartTitle from "../../components/chart-title";
 import Chart from "./chart";

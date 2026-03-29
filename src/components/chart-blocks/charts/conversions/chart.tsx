@@ -66,7 +66,7 @@ export default function Chart({
         content: [
           {
             key: (d) => d?.name ?? "",
-            value: (d) =>
+            value: (d: { value?: number; percentage?: number }) =>
               `$${addThousandsSeparator(d?.value ?? 0)} • ${(
                 d?.percentage ?? 0
               ).toFixed(2)}%`,
