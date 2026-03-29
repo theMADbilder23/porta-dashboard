@@ -5,7 +5,6 @@ import { useAtomValue } from "jotai";
 import { VChart } from "@visactor/react-vchart";
 import type { IBarChartSpec, ILineChartSpec } from "@visactor/vchart";
 import { TrendingUp } from "lucide-react";
-import ChartTitle from "../components/chart-title";
 import {
   overviewSelectedMetricAtom,
   type OverviewMetricKey,
