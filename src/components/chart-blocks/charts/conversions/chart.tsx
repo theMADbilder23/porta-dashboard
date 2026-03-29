@@ -27,7 +27,6 @@ export default function Chart({
     type: "circlePacking",
     categoryField: "name",
     valueField: "value",
-    colorField: "color",
     drill: true,
     padding: 0,
     layoutPadding: 5,
