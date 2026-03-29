@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAtom, useAtomValue } from "jotai";
-import { TrendingDown, TrendingUp, WalletCards, HandCoins } from "lucide-react";
+import {
+  TrendingDown,
+  TrendingUp,
+  WalletCards,
+  HandCoins,
+} from "lucide-react";
 import Container from "@/components/container";
 import OverviewTimeframeTabs from "@/components/overview-timeframe-tabs";
 import {
@@ -17,19 +22,21 @@ type OverviewApiResponse = {
   passive_income: number | null;
   realized_gains: number | null;
   realized_losses: number | null;
-  total_portfolio_value_change_pct?: number | null;
-  passive_income_change_pct?: number | null;
-  realized_gains_change_pct?: number | null;
-  realized_losses_change_pct?: number | null;
+  total_portfolio_value_change_pct: number | null;
+  passive_income_change_pct: number | null;
+  realized_gains_change_pct: number | null;
+  realized_losses_change_pct: number | null;
 };
 
 function formatCurrency(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "N/A";
 
-  return `$${Number(value).toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 3,
-  })}`;
+  return `$${
+    Number(value).toLocaleString(undefined, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 3,
+    })
+  }`;
 }
 
 function toMetricChange(value: number | null | undefined) {
@@ -65,7 +72,9 @@ export default function Metrics() {
 
     async function fetchData() {
       try {
-        const res = await fetch(`/api/overview?timeframe=${apiTimeframe}`);
+        const res = await fetch(`/api/overview?timeframe=${apiTimeframe}`, {
+          cache: "no-store",
+        });
         const data = await res.json();
 
         if (!cancelled) {
@@ -112,6 +121,9 @@ export default function Metrics() {
             <p className="text-sm text-muted-foreground">
               MMII portfolio intelligence across your selected timeframe
             </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              All values displayed in USD
+            </p>
           </div>
 
           <OverviewTimeframeTabs />
@@ -126,7 +138,7 @@ export default function Metrics() {
             onClick={() => setSelectedMetric("totalPortfolioValue")}
             className="min-w-0"
             icon={<WalletCards size={16} />}
-            helperText="vs selected period"
+            helperText="vs selected period range"
           />
 
           <MetricCard
@@ -159,7 +171,7 @@ export default function Metrics() {
             onClick={() => setSelectedMetric("totalPassiveIncome")}
             className="min-w-0"
             icon={<HandCoins size={16} />}
-            helperText="vs selected period"
+            helperText="vs selected period range"
           />
         </div>
       </Container>

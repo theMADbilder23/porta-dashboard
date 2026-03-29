@@ -59,49 +59,120 @@ function hasEnoughTimeCoverage(snapshots, timeframe) {
 
   if (!Number.isFinite(first) || !Number.isFinite(last)) return false;
 
-  const span = last - first;
-  return span >= (MIN_TIME_SPAN_MS[timeframe] || MIN_TIME_SPAN_MS.daily);
+  return last - first >= (MIN_TIME_SPAN_MS[timeframe] || MIN_TIME_SPAN_MS.daily);
+}
+
+function getBucketKey(dateString, timeframe) {
+  const d = new Date(dateString);
+
+  if (timeframe === "daily") {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    const hour = String(d.getUTCHours()).padStart(2, "0");
+    const minuteBucket = d.getUTCMinutes() < 30 ? "00" : "30";
+    return `${year}-${month}-${day}T${hour}:${minuteBucket}:00Z`;
+  }
+
+  if (timeframe === "weekly" || timeframe === "monthly") {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  if (timeframe === "quarterly") {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+    return `${year}-${month}`;
+  }
+
+  const year = d.getUTCFullYear();
+  const quarter = Math.floor(d.getUTCMonth() / 3) + 1;
+  return `${year}-Q${quarter}`;
 }
 
 function getPortfolioSnapshotValue(snapshot) {
-  if (!snapshot) return 0;
-
-  return (
-    safeNumber(snapshot.total_value_usd) +
-    safeNumber(snapshot.total_claimable_usd)
-  );
+  return safeNumber(snapshot.total_value_usd) + safeNumber(snapshot.total_claimable_usd);
 }
 
-function getClaimableValue(snapshot) {
-  if (!snapshot) return 0;
+function getClaimableSnapshotValue(snapshot) {
   return safeNumber(snapshot.total_claimable_usd);
 }
 
-function getPositiveClaimableAccrual(snapshots) {
-  if (!Array.isArray(snapshots) || snapshots.length === 0) return 0;
-  if (snapshots.length === 1) return getClaimableValue(snapshots[0]);
+function buildLatestPerWallet(snapshots) {
+  const latestPerWallet = new Map();
 
-  let totalAccrued = 0;
+  for (const snapshot of snapshots) {
+    const existing = latestPerWallet.get(snapshot.wallet_id);
 
-  for (let i = 1; i < snapshots.length; i += 1) {
-    const previous = getClaimableValue(snapshots[i - 1]);
-    const current = getClaimableValue(snapshots[i]);
-
-    if (current > previous) {
-      totalAccrued += current - previous;
+    if (
+      !existing ||
+      new Date(snapshot.snapshot_time).getTime() >
+        new Date(existing.snapshot_time).getTime()
+    ) {
+      latestPerWallet.set(snapshot.wallet_id, snapshot);
     }
   }
 
-  return totalAccrued;
+  return latestPerWallet;
 }
 
-function getChangePct(currentValue, previousValue) {
-  const current = safeNumber(currentValue);
-  const previous = safeNumber(previousValue);
+function buildBucketTotals(snapshots, timeframe) {
+  const latestPerWalletPerBucket = new Map();
 
-  if (previous <= 0) return null;
+  for (const snapshot of snapshots) {
+    const bucketKey = getBucketKey(snapshot.snapshot_time, timeframe);
+    const compositeKey = `${bucketKey}__${snapshot.wallet_id}`;
+    const existing = latestPerWalletPerBucket.get(compositeKey);
 
-  return (current - previous) / previous;
+    if (
+      !existing ||
+      new Date(snapshot.snapshot_time).getTime() >
+        new Date(existing.snapshot_time).getTime()
+    ) {
+      latestPerWalletPerBucket.set(compositeKey, snapshot);
+    }
+  }
+
+  const bucketTotals = new Map();
+
+  for (const [compositeKey, snapshot] of latestPerWalletPerBucket.entries()) {
+    const bucketKey = compositeKey.split("__")[0];
+
+    if (!bucketTotals.has(bucketKey)) {
+      bucketTotals.set(bucketKey, {
+        bucket_key: bucketKey,
+        portfolio_total_usd: 0,
+        claimable_total_usd: 0,
+      });
+    }
+
+    const bucket = bucketTotals.get(bucketKey);
+    bucket.portfolio_total_usd += getPortfolioSnapshotValue(snapshot);
+    bucket.claimable_total_usd += getClaimableSnapshotValue(snapshot);
+  }
+
+  return Array.from(bucketTotals.values()).sort((a, b) =>
+    a.bucket_key.localeCompare(b.bucket_key)
+  );
+}
+
+function getMinValue(values, { ignoreZero = false } = {}) {
+  const filtered = (values || [])
+    .map((v) => safeNumber(v))
+    .filter((v) => (ignoreZero ? v > 0 : true));
+
+  if (filtered.length === 0) return 0;
+  return Math.min(...filtered);
+}
+
+function getChangePctFromMin(current, min) {
+  const currentValue = safeNumber(current);
+  const minValue = safeNumber(min);
+
+  if (minValue <= 0) return null;
+  return (currentValue - minValue) / minValue;
 }
 
 module.exports = async function handler(req, res) {
@@ -111,13 +182,15 @@ module.exports = async function handler(req, res) {
 
     const { data: wallets, error: walletsError } = await supabase
       .from("Wallets")
-      .select("id, name, role, is_active")
+      .select("id, role, is_active")
       .eq("is_active", true);
 
-    if (walletsError) throw walletsError;
+    if (walletsError) {
+      throw walletsError;
+    }
 
     const activeWallets = Array.isArray(wallets) ? wallets : [];
-    const walletIds = activeWallets.map((w) => w.id);
+    const walletIds = activeWallets.map((wallet) => wallet.id);
 
     if (walletIds.length === 0) {
       return res.status(200).json({
@@ -140,7 +213,6 @@ module.exports = async function handler(req, res) {
     const { data: snapshots, error: snapshotsError } = await supabase
       .from("wallet_snapshots")
       .select(`
-        id,
         wallet_id,
         total_value_usd,
         total_claimable_usd,
@@ -150,127 +222,106 @@ module.exports = async function handler(req, res) {
       .gte("snapshot_time", timeframeStart)
       .order("snapshot_time", { ascending: true });
 
-    if (snapshotsError) throw snapshotsError;
-
-    const snapshotsByWallet = new Map();
-
-    for (const snapshot of snapshots || []) {
-      if (!snapshotsByWallet.has(snapshot.wallet_id)) {
-        snapshotsByWallet.set(snapshot.wallet_id, []);
-      }
-      snapshotsByWallet.get(snapshot.wallet_id).push(snapshot);
+    if (snapshotsError) {
+      throw snapshotsError;
     }
 
+    const allSnapshots = Array.isArray(snapshots) ? snapshots : [];
+
+    if (allSnapshots.length === 0) {
+      return res.status(200).json({
+        timeframe,
+        total_portfolio_value: null,
+        stable_value: null,
+        yield_value: null,
+        growth_value: null,
+        swing_value: null,
+        realized_gains: null,
+        realized_losses: null,
+        passive_income: null,
+        total_portfolio_value_change_pct: null,
+        passive_income_change_pct: null,
+        realized_gains_change_pct: null,
+        realized_losses_change_pct: null,
+      });
+    }
+
+    if (timeframe !== "daily" && !hasEnoughTimeCoverage(allSnapshots, timeframe)) {
+      return res.status(200).json({
+        timeframe,
+        total_portfolio_value: null,
+        stable_value: null,
+        yield_value: null,
+        growth_value: null,
+        swing_value: null,
+        realized_gains: null,
+        realized_losses: null,
+        passive_income: null,
+        total_portfolio_value_change_pct: null,
+        passive_income_change_pct: null,
+        realized_gains_change_pct: null,
+        realized_losses_change_pct: null,
+      });
+    }
+
+    const latestPerWallet = buildLatestPerWallet(allSnapshots);
+    const bucketTotals = buildBucketTotals(allSnapshots, timeframe);
+
     let totalPortfolioValue = 0;
+    let passiveIncome = 0;
+
     let stableValue = 0;
     let yieldValue = 0;
     let growthValue = 0;
     let swingValue = 0;
-    let passiveIncome = 0;
 
-    let totalPreviousPortfolioValue = 0;
-    let totalPreviousPassiveIncome = 0;
+    const walletRoleMap = new Map(
+      activeWallets.map((wallet) => [wallet.id, String(wallet.role || "").toLowerCase()])
+    );
 
-    let portfolioWalletsUsed = 0;
-    let passiveWalletsUsed = 0;
-    let portfolioChangeWalletsUsed = 0;
-    let passiveChangeWalletsUsed = 0;
+    for (const [walletId, latestSnapshot] of latestPerWallet.entries()) {
+      const portfolioValue = getPortfolioSnapshotValue(latestSnapshot);
+      const claimableValue = getClaimableSnapshotValue(latestSnapshot);
+      const role = walletRoleMap.get(walletId) || "";
 
-    for (const wallet of activeWallets) {
-      const walletSnapshots = snapshotsByWallet.get(wallet.id) || [];
-      const role = String(wallet.role || "").toLowerCase();
-
-      const hasCoverage =
-        timeframe === "daily"
-          ? walletSnapshots.length >= 1
-          : hasEnoughTimeCoverage(walletSnapshots, timeframe);
-
-      if (!hasCoverage) {
-        continue;
-      }
-
-      const latestSnapshot = walletSnapshots[walletSnapshots.length - 1];
-
-      let portfolioValueForTimeframe = 0;
-      let passiveIncomeForTimeframe = 0;
-      let previousPortfolioValueForTimeframe = null;
-      let previousPassiveIncomeForTimeframe = null;
-
-      if (timeframe === "daily") {
-        portfolioValueForTimeframe = getPortfolioSnapshotValue(latestSnapshot);
-        passiveIncomeForTimeframe = getClaimableValue(latestSnapshot);
-
-        if (walletSnapshots.length >= 2) {
-          const previousSnapshot = walletSnapshots[walletSnapshots.length - 2];
-          previousPortfolioValueForTimeframe = getPortfolioSnapshotValue(previousSnapshot);
-          previousPassiveIncomeForTimeframe = getClaimableValue(previousSnapshot);
-        }
-      } else {
-        let portfolioSum = 0;
-
-        for (const snapshot of walletSnapshots) {
-          portfolioSum += getPortfolioSnapshotValue(snapshot);
-        }
-
-        portfolioValueForTimeframe = portfolioSum / walletSnapshots.length;
-        passiveIncomeForTimeframe = getPositiveClaimableAccrual(walletSnapshots);
-
-        const firstSnapshot = walletSnapshots[0];
-        previousPortfolioValueForTimeframe = getPortfolioSnapshotValue(firstSnapshot);
-        previousPassiveIncomeForTimeframe = getClaimableValue(firstSnapshot);
-      }
-
-      totalPortfolioValue += portfolioValueForTimeframe;
-      passiveIncome += passiveIncomeForTimeframe;
-
-      portfolioWalletsUsed += 1;
-      passiveWalletsUsed += 1;
-
-      if (previousPortfolioValueForTimeframe != null) {
-        totalPreviousPortfolioValue += previousPortfolioValueForTimeframe;
-        portfolioChangeWalletsUsed += 1;
-      }
-
-      if (previousPassiveIncomeForTimeframe != null) {
-        totalPreviousPassiveIncome += previousPassiveIncomeForTimeframe;
-        passiveChangeWalletsUsed += 1;
-      }
+      totalPortfolioValue += portfolioValue;
+      passiveIncome += claimableValue;
 
       if (role === "hub") {
-        stableValue += portfolioValueForTimeframe;
+        stableValue += portfolioValue;
       } else if (role === "yield") {
-        yieldValue += portfolioValueForTimeframe;
-      } else if (role === "core") {
-        growthValue += portfolioValueForTimeframe;
+        yieldValue += portfolioValue;
       } else if (role === "swing") {
-        swingValue += portfolioValueForTimeframe;
+        swingValue += portfolioValue;
       } else {
-        growthValue += portfolioValueForTimeframe;
+        growthValue += portfolioValue;
       }
     }
 
-    const totalPortfolioValueChangePct =
-      portfolioChangeWalletsUsed > 0
-        ? getChangePct(totalPortfolioValue, totalPreviousPortfolioValue)
-        : null;
+    const portfolioBucketValues = bucketTotals.map((bucket) => bucket.portfolio_total_usd);
+    const claimableBucketValues = bucketTotals.map((bucket) => bucket.claimable_total_usd);
 
-    const passiveIncomeChangePct =
-      passiveChangeWalletsUsed > 0
-        ? getChangePct(passiveIncome, totalPreviousPassiveIncome)
-        : null;
+    const minPortfolioValue = getMinValue(portfolioBucketValues);
+    const minPassiveIncome = getMinValue(claimableBucketValues, { ignoreZero: true });
 
     return res.status(200).json({
       timeframe,
-      total_portfolio_value: portfolioWalletsUsed > 0 ? totalPortfolioValue : null,
-      stable_value: portfolioWalletsUsed > 0 ? stableValue : null,
-      yield_value: portfolioWalletsUsed > 0 ? yieldValue : null,
-      growth_value: portfolioWalletsUsed > 0 ? growthValue : null,
-      swing_value: portfolioWalletsUsed > 0 ? swingValue : null,
+      total_portfolio_value: totalPortfolioValue,
+      stable_value: stableValue,
+      yield_value: yieldValue,
+      growth_value: growthValue,
+      swing_value: swingValue,
       realized_gains: null,
       realized_losses: null,
-      passive_income: passiveWalletsUsed > 0 ? passiveIncome : null,
-      total_portfolio_value_change_pct: totalPortfolioValueChangePct,
-      passive_income_change_pct: passiveIncomeChangePct,
+      passive_income: passiveIncome,
+      total_portfolio_value_change_pct: getChangePctFromMin(
+        totalPortfolioValue,
+        minPortfolioValue
+      ),
+      passive_income_change_pct: getChangePctFromMin(
+        passiveIncome,
+        minPassiveIncome
+      ),
       realized_gains_change_pct: null,
       realized_losses_change_pct: null,
     });

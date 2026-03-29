@@ -22,17 +22,8 @@ export default function MetricCard({
   active?: boolean;
   onClick?: () => void;
 }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex flex-col rounded-lg border border-transparent p-2 -m-2 text-left transition-all",
-        "hover:border-[#7C3AED]/40 hover:bg-[#7C3AED]/5",
-        active && "border-[#7C3AED]/60 bg-[#7C3AED]/10 shadow-[0_0_0_1px_rgba(124,58,237,0.25)]",
-        className
-      )}
-    >
+  const content = (
+    <>
       <h2
         className={cn(
           chartTitle({ color: "mute", size: "sm" }),
@@ -51,8 +42,28 @@ export default function MetricCard({
       </div>
 
       <div className="text-xs text-muted-foreground">{helperText}</div>
-    </button>
+    </>
   );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          "flex flex-col rounded-lg border border-transparent p-2 -m-2 text-left transition-all",
+          "hover:border-[#7C3AED]/40 hover:bg-[#7C3AED]/5",
+          active &&
+            "border-[#7C3AED]/60 bg-[#7C3AED]/10 shadow-[0_0_0_1px_rgba(124,58,237,0.25)]",
+          className
+        )}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return <section className={cn("flex flex-col", className)}>{content}</section>;
 }
 
 function ChangeIndicator({ change }: { change: number }) {

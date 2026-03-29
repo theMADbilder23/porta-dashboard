@@ -43,34 +43,34 @@ function getTimeframeStart(timeframe) {
   }
 }
 
-function getTrendBucketKey(dateString, timeframe) {
+function getBucketKey(dateString, timeframe) {
   const d = new Date(dateString);
 
-  switch (timeframe) {
-    case "weekly": {
-      const yyyy = d.getUTCFullYear();
-      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-      const dd = String(d.getUTCDate()).padStart(2, "0");
-      return `${yyyy}-${mm}-${dd}`;
-    }
-    case "monthly": {
-      const yyyy = d.getUTCFullYear();
-      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-      const dd = String(d.getUTCDate()).padStart(2, "0");
-      return `${yyyy}-${mm}-${dd}`;
-    }
-    case "quarterly": {
-      const yyyy = d.getUTCFullYear();
-      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-      return `${yyyy}-${mm}`;
-    }
-    case "yearly":
-    default: {
-      const yyyy = d.getUTCFullYear();
-      const quarter = Math.floor(d.getUTCMonth() / 3) + 1;
-      return `${yyyy}-Q${quarter}`;
-    }
+  if (timeframe === "daily") {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    const hour = String(d.getUTCHours()).padStart(2, "0");
+    const minuteBucket = d.getUTCMinutes() < 30 ? "00" : "30";
+    return `${year}-${month}-${day}T${hour}:${minuteBucket}:00Z`;
   }
+
+  if (timeframe === "weekly" || timeframe === "monthly") {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  if (timeframe === "quarterly") {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+    return `${year}-${month}`;
+  }
+
+  const year = d.getUTCFullYear();
+  const quarter = Math.floor(d.getUTCMonth() / 3) + 1;
+  return `${year}-Q${quarter}`;
 }
 
 function makeTrendBucketLabel(bucketKey, timeframe) {
@@ -93,21 +93,6 @@ function makeTrendBucketLabel(bucketKey, timeframe) {
   return bucketKey;
 }
 
-function getPercentChange(current, previous) {
-  if (!Number.isFinite(previous) || previous === 0) return 0;
-  return ((current - previous) / previous) * 100;
-}
-
-function getStdDev(values) {
-  if (!Array.isArray(values) || values.length < 2) return 0;
-
-  const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
-  const variance =
-    values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / values.length;
-
-  return Math.sqrt(variance);
-}
-
 function formatDailyLabel(snapshotTime) {
   const d = new Date(snapshotTime);
   return d.toLocaleDateString("en-US", {
@@ -116,61 +101,15 @@ function formatDailyLabel(snapshotTime) {
   });
 }
 
-function getThirtyMinuteBucket(dateString) {
-  const d = new Date(dateString);
-  const year = d.getUTCFullYear();
-  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  const hour = String(d.getUTCHours()).padStart(2, "0");
-  const minuteBucket = d.getUTCMinutes() < 30 ? "00" : "30";
-  return `${year}-${month}-${day}T${hour}:${minuteBucket}:00Z`;
+function getPortfolioValue(snapshot) {
+  return safeNumber(snapshot.total_value_usd) + safeNumber(snapshot.total_claimable_usd);
 }
 
-function buildDailyBucketSeries(snapshots) {
-  const latestPerWalletPerBucket = new Map();
-
-  for (const snapshot of snapshots) {
-    const bucket = getThirtyMinuteBucket(snapshot.snapshot_time);
-    const compositeKey = `${bucket}__${snapshot.wallet_id}`;
-    const existing = latestPerWalletPerBucket.get(compositeKey);
-
-    if (
-      !existing ||
-      new Date(snapshot.snapshot_time).getTime() >
-        new Date(existing.snapshot_time).getTime()
-    ) {
-      latestPerWalletPerBucket.set(compositeKey, {
-        bucket,
-        wallet_id: snapshot.wallet_id,
-        snapshot_time: snapshot.snapshot_time,
-        total_value_usd: safeNumber(snapshot.total_value_usd),
-        total_claimable_usd: safeNumber(snapshot.total_claimable_usd),
-      });
-    }
-  }
-
-  const bucketTotals = new Map();
-
-  for (const entry of latestPerWalletPerBucket.values()) {
-    if (!bucketTotals.has(entry.bucket)) {
-      bucketTotals.set(entry.bucket, {
-        snapshot_time: entry.bucket,
-        total_value_usd: 0,
-        total_claimable_usd: 0,
-      });
-    }
-
-    const bucket = bucketTotals.get(entry.bucket);
-    bucket.total_value_usd += entry.total_value_usd;
-    bucket.total_claimable_usd += entry.total_claimable_usd;
-  }
-
-  return Array.from(bucketTotals.values()).sort(
-    (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
-  );
+function getClaimableValue(snapshot) {
+  return safeNumber(snapshot.total_claimable_usd);
 }
 
-function buildLatestCurrentTotals(snapshots) {
+function buildLatestPerWallet(snapshots) {
   const latestPerWallet = new Map();
 
   for (const snapshot of snapshots) {
@@ -181,82 +120,134 @@ function buildLatestCurrentTotals(snapshots) {
       new Date(snapshot.snapshot_time).getTime() >
         new Date(existing.snapshot_time).getTime()
     ) {
-      latestPerWallet.set(snapshot.wallet_id, {
-        wallet_id: snapshot.wallet_id,
-        snapshot_time: snapshot.snapshot_time,
-        total_value_usd: safeNumber(snapshot.total_value_usd),
-        total_claimable_usd: safeNumber(snapshot.total_claimable_usd),
-      });
+      latestPerWallet.set(snapshot.wallet_id, snapshot);
     }
   }
 
-  let total_value_usd = 0;
-  let total_claimable_usd = 0;
-  let latest_snapshot_time = null;
+  return latestPerWallet;
+}
 
-  for (const row of latestPerWallet.values()) {
-    total_value_usd += row.total_value_usd;
-    total_claimable_usd += row.total_claimable_usd;
+function buildLatestCurrentTotals(snapshots) {
+  const latestPerWallet = buildLatestPerWallet(snapshots);
+
+  let totalPortfolioValue = 0;
+  let totalClaimableValue = 0;
+  let latestSnapshotTime = null;
+
+  for (const snapshot of latestPerWallet.values()) {
+    totalPortfolioValue += getPortfolioValue(snapshot);
+    totalClaimableValue += getClaimableValue(snapshot);
 
     if (
-      !latest_snapshot_time ||
-      new Date(row.snapshot_time).getTime() > new Date(latest_snapshot_time).getTime()
+      !latestSnapshotTime ||
+      new Date(snapshot.snapshot_time).getTime() > new Date(latestSnapshotTime).getTime()
     ) {
-      latest_snapshot_time = row.snapshot_time;
+      latestSnapshotTime = snapshot.snapshot_time;
     }
   }
 
   return {
-    snapshot_time: latest_snapshot_time,
-    total_value_usd,
-    total_claimable_usd,
+    snapshot_time: latestSnapshotTime,
+    total_value_usd: totalPortfolioValue,
+    total_claimable_usd: totalClaimableValue,
   };
 }
 
+function buildBucketSeries(snapshots, timeframe) {
+  const latestPerWalletPerBucket = new Map();
+
+  for (const snapshot of snapshots) {
+    const bucketKey = getBucketKey(snapshot.snapshot_time, timeframe);
+    const compositeKey = `${bucketKey}__${snapshot.wallet_id}`;
+    const existing = latestPerWalletPerBucket.get(compositeKey);
+
+    if (
+      !existing ||
+      new Date(snapshot.snapshot_time).getTime() >
+        new Date(existing.snapshot_time).getTime()
+    ) {
+      latestPerWalletPerBucket.set(compositeKey, snapshot);
+    }
+  }
+
+  const bucketTotals = new Map();
+
+  for (const [compositeKey, snapshot] of latestPerWalletPerBucket.entries()) {
+    const bucketKey = compositeKey.split("__")[0];
+
+    if (!bucketTotals.has(bucketKey)) {
+      bucketTotals.set(bucketKey, {
+        bucketKey,
+        snapshot_time: snapshot.snapshot_time,
+        total_value_usd: 0,
+        total_claimable_usd: 0,
+      });
+    }
+
+    const bucket = bucketTotals.get(bucketKey);
+    bucket.total_value_usd += getPortfolioValue(snapshot);
+    bucket.total_claimable_usd += getClaimableValue(snapshot);
+
+    if (
+      new Date(snapshot.snapshot_time).getTime() >
+      new Date(bucket.snapshot_time).getTime()
+    ) {
+      bucket.snapshot_time = snapshot.snapshot_time;
+    }
+  }
+
+  return Array.from(bucketTotals.values()).sort(
+    (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
+  );
+}
+
+function getAverage(values) {
+  const clean = (values || []).map((v) => safeNumber(v));
+  if (clean.length === 0) return 0;
+  return clean.reduce((sum, value) => sum + value, 0) / clean.length;
+}
+
+function getMin(values, { ignoreZero = false } = {}) {
+  const clean = (values || [])
+    .map((v) => safeNumber(v))
+    .filter((v) => (ignoreZero ? v > 0 : true));
+
+  if (clean.length === 0) return 0;
+  return Math.min(...clean);
+}
+
+function getMax(values) {
+  const clean = (values || []).map((v) => safeNumber(v));
+  if (clean.length === 0) return 0;
+  return Math.max(...clean);
+}
+
+function getPctChange(fromValue, toValue) {
+  const from = safeNumber(fromValue);
+  const to = safeNumber(toValue);
+
+  if (from <= 0) return 0;
+  return ((to - from) / from) * 100;
+}
+
 function buildDailySummary(snapshots) {
-  const bucketSeries = buildDailyBucketSeries(snapshots);
+  const bucketSeries = buildBucketSeries(snapshots, "daily");
   const currentTotals = buildLatestCurrentTotals(snapshots);
 
-  const portfolioValues = bucketSeries.map((p) => safeNumber(p.total_value_usd));
-  const passiveValues = bucketSeries.map((p) => safeNumber(p.total_claimable_usd));
+  const portfolioValues = bucketSeries.map((row) => safeNumber(row.total_value_usd));
+  const claimableValues = bucketSeries.map((row) => safeNumber(row.total_claimable_usd));
+  const nonZeroClaimableValues = claimableValues.filter((value) => value > 0);
 
-  const firstPortfolio = portfolioValues[0] || 0;
-  const firstPassive = passiveValues[0] || 0;
+  const avgPortfolio = getAverage(portfolioValues);
+  const minPortfolio = getMin(portfolioValues);
+  const maxPortfolio = getMax(portfolioValues);
 
-  const avgPortfolio =
-    portfolioValues.length > 0
-      ? portfolioValues.reduce((sum, v) => sum + v, 0) / portfolioValues.length
-      : 0;
+  const claimableAverageSource =
+    nonZeroClaimableValues.length > 0 ? nonZeroClaimableValues : claimableValues;
 
-  const avgPassive =
-    passiveValues.length > 0
-      ? passiveValues.reduce((sum, v) => sum + v, 0) / passiveValues.length
-      : 0;
-
-  const portfolioPctChanges = [];
-  const passivePctChanges = [];
-
-  for (let i = 1; i < portfolioValues.length; i += 1) {
-    portfolioPctChanges.push(
-      getPercentChange(portfolioValues[i], portfolioValues[i - 1])
-    );
-  }
-
-  for (let i = 1; i < passiveValues.length; i += 1) {
-    passivePctChanges.push(
-      getPercentChange(passiveValues[i], passiveValues[i - 1])
-    );
-  }
-
-  const avgPortfolioPctChange =
-    portfolioPctChanges.length > 0
-      ? portfolioPctChanges.reduce((sum, v) => sum + v, 0) / portfolioPctChanges.length
-      : 0;
-
-  const avgPassivePctChange =
-    passivePctChanges.length > 0
-      ? passivePctChanges.reduce((sum, v) => sum + v, 0) / passivePctChanges.length
-      : 0;
+  const avgClaimable = getAverage(claimableAverageSource);
+  const minClaimable = getMin(claimableValues, { ignoreZero: true });
+  const maxClaimable = getMax(claimableValues);
 
   return {
     mode: "daily_summary",
@@ -267,21 +258,22 @@ function buildDailySummary(snapshots) {
     total_claimable_usd: currentTotals.total_claimable_usd,
 
     avg_total_value_usd: avgPortfolio,
-    min_total_value_usd: portfolioValues.length ? Math.min(...portfolioValues) : 0,
-    max_total_value_usd: portfolioValues.length ? Math.max(...portfolioValues) : 0,
-    net_change_total_value_usd: currentTotals.total_value_usd - firstPortfolio,
-    avg_change_total_value_pct: avgPortfolioPctChange,
-    volatility_total_value_usd: getStdDev(portfolioValues),
+    min_total_value_usd: minPortfolio,
+    max_total_value_usd: maxPortfolio,
+    range_min_to_max_total_value_pct: getPctChange(minPortfolio, maxPortfolio),
+    range_current_to_max_total_value_pct: getPctChange(
+      currentTotals.total_value_usd,
+      maxPortfolio
+    ),
 
-    avg_total_claimable_usd: avgPassive,
-    min_total_claimable_usd: (() => {
-      const nonZeroPassiveValues = passiveValues.filter((v) => v > 0);
-      return nonZeroPassiveValues.length ? Math.min(...nonZeroPassiveValues) : 0;
-    })(),
-    max_total_claimable_usd: passiveValues.length ? Math.max(...passiveValues) : 0,
-    net_change_total_claimable_usd: currentTotals.total_claimable_usd - firstPassive,
-    avg_change_total_claimable_pct: avgPassivePctChange,
-    volatility_total_claimable_usd: getStdDev(passiveValues),
+    avg_total_claimable_usd: avgClaimable,
+    min_total_claimable_usd: minClaimable,
+    max_total_claimable_usd: maxClaimable,
+    range_min_to_max_total_claimable_pct: getPctChange(minClaimable, maxClaimable),
+    range_current_to_max_total_claimable_pct: getPctChange(
+      currentTotals.total_claimable_usd,
+      maxClaimable
+    ),
 
     snapshot_count: bucketSeries.length,
   };
@@ -301,7 +293,7 @@ module.exports = async function handler(req, res) {
       throw walletsError;
     }
 
-    const walletIds = Array.isArray(wallets) ? wallets.map((w) => w.id) : [];
+    const walletIds = Array.isArray(wallets) ? wallets.map((wallet) => wallet.id) : [];
 
     if (walletIds.length === 0) {
       return res.status(200).json([]);
@@ -318,73 +310,25 @@ module.exports = async function handler(req, res) {
       throw snapshotsError;
     }
 
-    if (!Array.isArray(snapshots) || snapshots.length === 0) {
+    const allSnapshots = Array.isArray(snapshots) ? snapshots : [];
+
+    if (allSnapshots.length === 0) {
       return res.status(200).json([]);
     }
 
     if (timeframe === "daily") {
-      const dailySummary = buildDailySummary(snapshots);
-      return res.status(200).json([dailySummary]);
+      return res.status(200).json([buildDailySummary(allSnapshots)]);
     }
 
-    const latestPerWalletPerBucket = new Map();
+    const bucketSeries = buildBucketSeries(allSnapshots, timeframe);
 
-    for (const snapshot of snapshots) {
-      const bucketKey = getTrendBucketKey(snapshot.snapshot_time, timeframe);
-      const compositeKey = `${bucketKey}__${snapshot.wallet_id}`;
-      const existing = latestPerWalletPerBucket.get(compositeKey);
-
-      if (
-        !existing ||
-        new Date(snapshot.snapshot_time).getTime() >
-          new Date(existing.snapshot_time).getTime()
-      ) {
-        latestPerWalletPerBucket.set(compositeKey, {
-          bucketKey,
-          wallet_id: snapshot.wallet_id,
-          snapshot_time: snapshot.snapshot_time,
-          total_value_usd: safeNumber(snapshot.total_value_usd),
-          total_claimable_usd: safeNumber(snapshot.total_claimable_usd),
-        });
-      }
-    }
-
-    const bucketTotals = new Map();
-
-    for (const entry of latestPerWalletPerBucket.values()) {
-      if (!bucketTotals.has(entry.bucketKey)) {
-        bucketTotals.set(entry.bucketKey, {
-          bucketKey: entry.bucketKey,
-          snapshot_time: entry.snapshot_time,
-          total_value_usd: 0,
-          total_claimable_usd: 0,
-        });
-      }
-
-      const bucket = bucketTotals.get(entry.bucketKey);
-      bucket.total_value_usd += entry.total_value_usd;
-      bucket.total_claimable_usd += entry.total_claimable_usd;
-
-      if (
-        new Date(entry.snapshot_time).getTime() >
-        new Date(bucket.snapshot_time).getTime()
-      ) {
-        bucket.snapshot_time = entry.snapshot_time;
-      }
-    }
-
-    const result = Array.from(bucketTotals.values())
-      .sort(
-        (a, b) =>
-          new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
-      )
-      .map((bucket) => ({
-        mode: "trend",
-        snapshot_time: bucket.snapshot_time,
-        label: makeTrendBucketLabel(bucket.bucketKey, timeframe),
-        total_value_usd: bucket.total_value_usd,
-        total_claimable_usd: bucket.total_claimable_usd,
-      }));
+    const result = bucketSeries.map((row) => ({
+      mode: "trend",
+      snapshot_time: row.snapshot_time,
+      label: makeTrendBucketLabel(row.bucketKey, timeframe),
+      total_value_usd: row.total_value_usd,
+      total_claimable_usd: row.total_claimable_usd,
+    }));
 
     return res.status(200).json(result);
   } catch (err) {

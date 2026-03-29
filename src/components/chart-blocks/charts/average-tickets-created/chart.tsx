@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useAtomValue } from "jotai";
 import { VChart } from "@visactor/react-vchart";
 import type { IBarChartSpec, ILineChartSpec } from "@visactor/vchart";
+import { TrendingUp } from "lucide-react";
+import ChartTitle from "../components/chart-title";
 import {
   overviewSelectedMetricAtom,
   type OverviewMetricKey,
@@ -21,18 +23,12 @@ type PerformanceApiRow = {
   avg_total_value_usd?: number;
   min_total_value_usd?: number;
   max_total_value_usd?: number;
-  net_change_total_value_usd?: number;
-  avg_change_total_value_pct?: number;
-  volatility_total_value_usd?: number;
 
   avg_total_claimable_usd?: number;
   min_total_claimable_usd?: number;
   max_total_claimable_usd?: number;
-  net_change_total_claimable_usd?: number;
-  avg_change_total_claimable_pct?: number;
-  volatility_total_claimable_usd?: number;
 
-  snapshot_count?: number;
+  min_non_zero_total_claimable_usd?: number;
 };
 
 type ChartSeriesName =
@@ -57,7 +53,16 @@ type LineStyleDatum = {
   series?: ChartSeriesName;
 };
 
-function formatUsdCompact(value: number) {
+type PerformanceStats = {
+  current: number;
+  min: number;
+  avg: number;
+  max: number;
+  rangePct: number;
+  upsidePct: number;
+};
+
+function formatUsd(value: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -73,6 +78,16 @@ function formatAxisUsd(value: number) {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(value);
+}
+
+function formatStatUsd(value: number) {
+  if (!Number.isFinite(value)) return "$0.00";
+  return formatUsd(value);
+}
+
+function formatPct(value: number) {
+  if (!Number.isFinite(value)) return "0.00%";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
 function getSeriesName(metric: OverviewMetricKey): ChartSeriesName {
@@ -120,35 +135,97 @@ function getTrendValue(row: PerformanceApiRow, metric: OverviewMetricKey) {
   }
 }
 
+function getDailyStats(
+  row: PerformanceApiRow,
+  metric: OverviewMetricKey
+): PerformanceStats {
+  if (metric === "totalPortfolioValue") {
+    const current = Number(row.total_value_usd || 0);
+    const min = Number(row.min_total_value_usd ?? current);
+    const avg = Number(row.avg_total_value_usd ?? current);
+    const max = Number(row.max_total_value_usd ?? current);
+
+    return {
+      current,
+      min,
+      avg,
+      max,
+      rangePct: min > 0 ? ((max - min) / min) * 100 : 0,
+      upsidePct: current > 0 ? ((max - current) / current) * 100 : 0,
+    };
+  }
+
+  if (metric === "totalPassiveIncome") {
+    const current = Number(row.total_claimable_usd || 0);
+    const min = Number(
+      row.min_non_zero_total_claimable_usd ??
+        row.min_total_claimable_usd ??
+        current
+    );
+    const avg = Number(row.avg_total_claimable_usd ?? current);
+    const max = Number(row.max_total_claimable_usd ?? current);
+
+    return {
+      current,
+      min,
+      avg,
+      max,
+      rangePct: min > 0 ? ((max - min) / min) * 100 : 0,
+      upsidePct: current > 0 ? ((max - current) / current) * 100 : 0,
+    };
+  }
+
+  return {
+    current: 0,
+    min: 0,
+    avg: 0,
+    max: 0,
+    rangePct: 0,
+    upsidePct: 0,
+  };
+}
+
+function getTrendStats(points: TrendPoint[]): PerformanceStats {
+  if (!points.length) {
+    return {
+      current: 0,
+      min: 0,
+      avg: 0,
+      max: 0,
+      rangePct: 0,
+      upsidePct: 0,
+    };
+  }
+
+  const values = points.map((point) => Number(point.value || 0));
+  const current = values[values.length - 1] ?? 0;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const avg =
+    values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
+
+  return {
+    current,
+    min,
+    avg,
+    max,
+    rangePct: min > 0 ? ((max - min) / min) * 100 : 0,
+    upsidePct: current > 0 ? ((max - current) / current) * 100 : 0,
+  };
+}
+
 function buildDailySummaryBars(
   row: PerformanceApiRow,
   metric: OverviewMetricKey
 ): DailyBarPoint[] {
+  const stats = getDailyStats(row, metric);
   const series = getSeriesName(metric);
 
-  if (metric === "totalPortfolioValue") {
-    return [
-      { label: "Min", value: Number(row.min_total_value_usd || 0), series },
-      { label: "Avg", value: Number(row.avg_total_value_usd || 0), series },
-      { label: "Current", value: Number(row.total_value_usd || 0), series },
-      { label: "Max", value: Number(row.max_total_value_usd || 0), series },
-    ];
-  }
-
-  if (metric === "totalPassiveIncome") {
-    return [
-      { label: "Min", value: Number(row.min_total_claimable_usd || 0), series },
-      { label: "Avg", value: Number(row.avg_total_claimable_usd || 0), series },
-      { label: "Current", value: Number(row.total_claimable_usd || 0), series },
-      { label: "Max", value: Number(row.max_total_claimable_usd || 0), series },
-    ];
-  }
-
   return [
-    { label: "Min", value: 0, series },
-    { label: "Avg", value: 0, series },
-    { label: "Current", value: 0, series },
-    { label: "Max", value: 0, series },
+    { label: "Min", value: stats.min, series },
+    { label: "Avg", value: stats.avg, series },
+    { label: "Current", value: stats.current, series },
+    { label: "Max", value: stats.max, series },
   ];
 }
 
@@ -187,10 +264,7 @@ function generateLineSpec(
       {
         orient: "left",
         label: {
-          formatMethod: (text) => {
-            const numericValue = Number(text);
-            return formatAxisUsd(numericValue);
-          },
+          formatMethod: (text) => formatAxisUsd(Number(text)),
           style: {
             fill: "#A78BFA",
           },
@@ -255,7 +329,7 @@ function generateLineSpec(
         content: [
           {
             key: (datum) => String(datum?.series ?? ""),
-            value: (datum) => formatUsdCompact(Number(datum?.value ?? 0)),
+            value: (datum) => formatUsd(Number(datum?.value ?? 0)),
           },
         ],
       },
@@ -311,10 +385,7 @@ function generateBarSpec(
       {
         orient: "left",
         label: {
-          formatMethod: (text) => {
-            const numericValue = Number(text);
-            return formatAxisUsd(numericValue);
-          },
+          formatMethod: (text) => formatAxisUsd(Number(text)),
           style: {
             fill: "#A78BFA",
           },
@@ -365,13 +436,34 @@ function generateBarSpec(
         content: [
           {
             key: (datum) => String(datum?.series ?? ""),
-            value: (datum) => formatUsdCompact(Number(datum?.value ?? 0)),
+            value: (datum) => formatUsd(Number(datum?.value ?? 0)),
           },
         ],
       },
     },
     background: "transparent",
   };
+}
+
+function StatPill({
+  label,
+  value,
+  isPercent = false,
+}: {
+  label: string;
+  value: number;
+  isPercent?: boolean;
+}) {
+  return (
+    <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 min-w-[110px]">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 text-sm font-medium text-foreground">
+        {isPercent ? formatPct(value) : formatStatUsd(value)}
+      </div>
+    </div>
+  );
 }
 
 export default function Chart() {
@@ -399,11 +491,9 @@ export default function Chart() {
           return;
         }
 
-        const firstRow = rows[0];
-
-        if (timeframe === "daily" && firstRow.mode === "daily_summary") {
+        if (timeframe === "daily" && rows[0]?.mode === "daily_summary") {
           if (!cancelled) {
-            setDailySummary(firstRow);
+            setDailySummary(rows[0]);
             setTrendData([]);
           }
           return;
@@ -436,6 +526,14 @@ export default function Chart() {
     };
   }, [timeframe, selectedMetric]);
 
+  const stats = useMemo(() => {
+    if (timeframe === "daily" && dailySummary) {
+      return getDailyStats(dailySummary, selectedMetric);
+    }
+
+    return getTrendStats(trendData);
+  }, [timeframe, dailySummary, trendData, selectedMetric]);
+
   const spec = useMemo(() => {
     if (timeframe === "daily" && dailySummary) {
       return generateBarSpec(
@@ -447,5 +545,24 @@ export default function Chart() {
     return generateLineSpec(trendData, selectedMetric);
   }, [timeframe, dailySummary, trendData, selectedMetric]);
 
-  return <VChart spec={spec} />;
+  return (
+    <section className="flex h-full flex-col gap-3">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <ChartTitle title="Portfolio Performance" icon={TrendingUp} />
+
+        <div className="flex flex-wrap gap-2 md:justify-end">
+          <StatPill label="Current" value={stats.current} />
+          <StatPill label="Min" value={stats.min} />
+          <StatPill label="Avg" value={stats.avg} />
+          <StatPill label="Max" value={stats.max} />
+          <StatPill label="Min → Max" value={stats.rangePct} isPercent />
+          <StatPill label="Current → Max" value={stats.upsidePct} isPercent />
+        </div>
+      </div>
+
+      <div className="relative h-[360px] w-full flex-1">
+        <VChart spec={spec} />
+      </div>
+    </section>
+  );
 }
