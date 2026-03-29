@@ -326,13 +326,19 @@ function classifyYieldHolding({ role, tokenSymbol, category, protocol }) {
   return null;
 }
 
-function calculateDailyYieldFromPreviousDayClose(currentSnapshot, previousDayCloseSnapshot) {
-  if (!currentSnapshot || !previousDayCloseSnapshot) return 0;
+function calculateDailyYieldFromSnapshots(currentSnapshot, previousSnapshot) {
+  if (!currentSnapshot || !previousSnapshot) return 0;
 
-  const currentFlow = getYieldFlowBasis(currentSnapshot);
-  const previousDayCloseFlow = getYieldFlowBasis(previousDayCloseSnapshot);
+  const currentClaimable = safeNumber(currentSnapshot.total_claimable_usd);
+  const previousClaimable = safeNumber(previousSnapshot.total_claimable_usd);
 
-  return Math.max(0, currentFlow - previousDayCloseFlow);
+  // NORMAL CASE → rewards growing
+  if (currentClaimable >= previousClaimable) {
+    return currentClaimable - previousClaimable;
+  }
+
+  // RESET CASE → rewards claimed/reset → treat current as fresh accumulation
+  return currentClaimable;
 }
 
 function calculateSimpleApy(dailyYield, principalValue) {
@@ -482,7 +488,7 @@ module.exports = async function handler(req, res) {
       const portfolioValue = getPortfolioSnapshotValue(snapshot);
 
       const previousDayCloseSnapshot = previousDayClosePerWallet.get(walletId);
-      const walletDailyYield = calculateDailyYieldFromPreviousDayClose(
+      const walletDailyYield = calculateDailyYieldFromSnapshots(
         snapshot,
         previousDayCloseSnapshot
       );
