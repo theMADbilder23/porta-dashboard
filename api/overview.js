@@ -118,6 +118,13 @@ function getClaimableSnapshotValue(snapshot) {
   return safeNumber(snapshot.total_claimable_usd);
 }
 
+function getYieldFlowBasis(snapshot) {
+  return (
+    safeNumber(snapshot.total_claimable_usd) +
+    safeNumber(snapshot.total_claimed_usd)
+  );
+}
+
 function buildLatestPerWallet(snapshots) {
   const latestPerWallet = new Map();
 
@@ -134,6 +141,32 @@ function buildLatestPerWallet(snapshots) {
   }
 
   return latestPerWallet;
+}
+
+function buildPreviousPerWallet(snapshots) {
+  const grouped = new Map();
+
+  for (const snapshot of snapshots) {
+    if (!grouped.has(snapshot.wallet_id)) {
+      grouped.set(snapshot.wallet_id, []);
+    }
+    grouped.get(snapshot.wallet_id).push(snapshot);
+  }
+
+  const previousPerWallet = new Map();
+
+  for (const [walletId, walletSnapshots] of grouped.entries()) {
+    const sorted = [...walletSnapshots].sort(
+      (a, b) =>
+        new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
+    );
+
+    if (sorted.length >= 2) {
+      previousPerWallet.set(walletId, sorted[sorted.length - 2]);
+    }
+  }
+
+  return previousPerWallet;
 }
 
 function buildBucketTotals(snapshots, timeframe) {
@@ -163,12 +196,14 @@ function buildBucketTotals(snapshots, timeframe) {
         bucket_key: bucketKey,
         portfolio_total_usd: 0,
         claimable_total_usd: 0,
+        yield_flow_total_usd: 0,
       });
     }
 
     const bucket = bucketTotals.get(bucketKey);
     bucket.portfolio_total_usd += getPortfolioSnapshotValue(snapshot);
     bucket.claimable_total_usd += getClaimableSnapshotValue(snapshot);
+    bucket.yield_flow_total_usd += getYieldFlowBasis(snapshot);
   }
 
   return Array.from(bucketTotals.values()).sort((a, b) =>
@@ -209,6 +244,17 @@ function getEmptyResponse(timeframe) {
     realized_gains_change_pct: null,
     realized_losses_change_pct: null,
     allocation_scope_label: "Tracked dashboard assets only",
+    stable_yield_value: null,
+    growth_risk_yield_value: null,
+    hard_asset_yield_value: 0,
+    total_value_distributed: null,
+    stable_daily_yield: null,
+    growth_risk_daily_yield: null,
+    hard_asset_daily_yield: 0,
+    total_daily_yield: null,
+    stable_avg_apy: null,
+    growth_risk_avg_apy: null,
+    hard_asset_avg_apy: null,
   };
 }
 
@@ -217,12 +263,10 @@ function classifyHolding({ role, tokenSymbol, category, protocol }) {
   const normalizedCategory = normalizeRole(category);
   const hasProtocol = normalizeText(protocol).length > 0;
 
-  // Step 1: Swing wins first
   if (normalizedRole === "swing") {
     return "swing";
   }
 
-  // Step 2: Stable Core next
   if (
     isStableSymbol(tokenSymbol) &&
     normalizedCategory === "protocol" &&
@@ -231,17 +275,54 @@ function classifyHolding({ role, tokenSymbol, category, protocol }) {
     return "stable";
   }
 
-  // Step 3: Growth next
   if (normalizedRole === "yield" || normalizedRole === "hub") {
     return "growth";
   }
 
-  // Step 4: Rotational Core fallback
   if (normalizedRole === "core") {
     return "rotational";
   }
 
   return "growth";
+}
+
+function classifyYieldHolding({ role, tokenSymbol, category, protocol }) {
+  const normalizedRole = normalizeRole(role);
+  const normalizedCategory = normalizeRole(category);
+  const hasProtocol = normalizeText(protocol).length > 0;
+  const stableLike = isStableSymbol(tokenSymbol);
+
+  const isProtocolPosition =
+    normalizedCategory === "protocol" && hasProtocol;
+
+  if (!isProtocolPosition) return null;
+
+  if (normalizedRole === "core" && stableLike) {
+    return "stable_yield";
+  }
+
+  if (normalizedRole === "yield" || normalizedRole === "hub") {
+    return "growth_risk_yield";
+  }
+
+  return null;
+}
+
+function calculateDailyYield(latestSnapshot, previousSnapshot) {
+  if (!latestSnapshot || !previousSnapshot) return 0;
+
+  const latestFlow = getYieldFlowBasis(latestSnapshot);
+  const previousFlow = getYieldFlowBasis(previousSnapshot);
+
+  return Math.max(0, latestFlow - previousFlow);
+}
+
+function calculateSimpleApy(dailyYield, principalValue) {
+  const daily = safeNumber(dailyYield);
+  const principal = safeNumber(principalValue);
+
+  if (principal <= 0) return 0;
+  return (daily * 365 * 100) / principal;
 }
 
 module.exports = async function handler(req, res) {
@@ -270,6 +351,7 @@ module.exports = async function handler(req, res) {
         wallet_id,
         total_value_usd,
         total_claimable_usd,
+        total_claimed_usd,
         snapshot_time
       `)
       .in("wallet_id", walletIds)
@@ -289,6 +371,7 @@ module.exports = async function handler(req, res) {
     }
 
     const latestPerWallet = buildLatestPerWallet(allSnapshots);
+    const previousPerWallet = buildPreviousPerWallet(allSnapshots);
     const latestSnapshots = Array.from(latestPerWallet.values());
     const latestSnapshotIds = latestSnapshots.map((snapshot) => snapshot.id);
 
@@ -336,17 +419,30 @@ module.exports = async function handler(req, res) {
     let growthValue = 0;
     let swingValue = 0;
 
+    let stableYieldValue = 0;
+    let growthRiskYieldValue = 0;
+    const hardAssetYieldValue = 0;
+
+    let stableDailyYield = 0;
+    let growthRiskDailyYield = 0;
+    const hardAssetDailyYield = 0;
+
     for (const snapshot of latestSnapshots) {
       const walletId = snapshot.wallet_id;
       const role = walletRoleMap.get(walletId) || "";
       const portfolioValue = getPortfolioSnapshotValue(snapshot);
-      const claimableValue = getClaimableSnapshotValue(snapshot);
+
+      const previousSnapshot = previousPerWallet.get(walletId);
+      const walletDailyYield = calculateDailyYield(snapshot, previousSnapshot);
 
       totalPortfolioValue += portfolioValue;
-      passiveIncome += claimableValue;
+      passiveIncome += walletDailyYield;
 
       const holdings = holdingsBySnapshotId.get(snapshot.id) || [];
       let classifiedWalletValue = 0;
+
+      let walletStableYieldValue = 0;
+      let walletGrowthRiskYieldValue = 0;
 
       for (const holding of holdings) {
         const value = safeNumber(holding.value_usd);
@@ -365,9 +461,23 @@ module.exports = async function handler(req, res) {
         else if (bucket === "rotational") rotationalValue += value;
         else if (bucket === "growth") growthValue += value;
         else if (bucket === "swing") swingValue += value;
+
+        const yieldBucket = classifyYieldHolding({
+          role,
+          tokenSymbol: holding.token_symbol,
+          category: holding.category,
+          protocol: holding.protocol,
+        });
+
+        if (yieldBucket === "stable_yield") {
+          stableYieldValue += value;
+          walletStableYieldValue += value;
+        } else if (yieldBucket === "growth_risk_yield") {
+          growthRiskYieldValue += value;
+          walletGrowthRiskYieldValue += value;
+        }
       }
 
-      // Remainder fallback so totals still reconcile to current tracked dashboard value.
       const remainder = Math.max(0, portfolioValue - classifiedWalletValue);
 
       if (remainder > 0) {
@@ -383,13 +493,29 @@ module.exports = async function handler(req, res) {
         else if (fallbackBucket === "growth") growthValue += remainder;
         else if (fallbackBucket === "swing") swingValue += remainder;
       }
+
+      const walletYieldBase = walletStableYieldValue + walletGrowthRiskYieldValue;
+
+      if (walletYieldBase > 0 && walletDailyYield > 0) {
+        const stableWeight = walletStableYieldValue / walletYieldBase;
+        const growthWeight = walletGrowthRiskYieldValue / walletYieldBase;
+
+        stableDailyYield += walletDailyYield * stableWeight;
+        growthRiskDailyYield += walletDailyYield * growthWeight;
+      }
     }
 
+    const totalDailyYield =
+      stableDailyYield + growthRiskDailyYield + hardAssetDailyYield;
+
+    const totalValueDistributed =
+      stableYieldValue + growthRiskYieldValue + hardAssetYieldValue;
+
     const portfolioBucketValues = bucketTotals.map((bucket) => bucket.portfolio_total_usd);
-    const claimableBucketValues = bucketTotals.map((bucket) => bucket.claimable_total_usd);
+    const yieldFlowBucketValues = bucketTotals.map((bucket) => bucket.yield_flow_total_usd);
 
     const minPortfolioValue = getMinValue(portfolioBucketValues);
-    const minPassiveIncome = getMinValue(claimableBucketValues, { ignoreZero: true });
+    const minPassiveIncome = getMinValue(yieldFlowBucketValues, { ignoreZero: true });
 
     return res.status(200).json({
       timeframe,
@@ -400,18 +526,35 @@ module.exports = async function handler(req, res) {
       swing_value: swingValue,
       realized_gains: null,
       realized_losses: null,
-      passive_income: passiveIncome,
+      passive_income: totalDailyYield,
       total_portfolio_value_change_pct: getChangePctFromMin(
         totalPortfolioValue,
         minPortfolioValue
       ),
       passive_income_change_pct: getChangePctFromMin(
-        passiveIncome,
+        totalDailyYield,
         minPassiveIncome
       ),
       realized_gains_change_pct: null,
       realized_losses_change_pct: null,
       allocation_scope_label: "Tracked dashboard assets only",
+      stable_yield_value: stableYieldValue,
+      growth_risk_yield_value: growthRiskYieldValue,
+      hard_asset_yield_value: hardAssetYieldValue,
+      total_value_distributed: totalValueDistributed,
+      stable_daily_yield: stableDailyYield,
+      growth_risk_daily_yield: growthRiskDailyYield,
+      hard_asset_daily_yield: hardAssetDailyYield,
+      total_daily_yield: totalDailyYield,
+      stable_avg_apy: calculateSimpleApy(stableDailyYield, stableYieldValue),
+      growth_risk_avg_apy: calculateSimpleApy(
+        growthRiskDailyYield,
+        growthRiskYieldValue
+      ),
+      hard_asset_avg_apy: calculateSimpleApy(
+        hardAssetDailyYield,
+        hardAssetYieldValue
+      ),
     });
   } catch (err) {
     console.error("[api/overview] error:", err);

@@ -25,6 +25,17 @@ export type OverviewResponse = {
   realized_gains_change_pct: null;
   realized_losses_change_pct: null;
   allocation_scope_label?: string | null;
+  stable_yield_value: number | null;
+  growth_risk_yield_value: number | null;
+  hard_asset_yield_value: number | null;
+  total_value_distributed: number | null;
+  stable_daily_yield: number | null;
+  growth_risk_daily_yield: number | null;
+  hard_asset_daily_yield: number | null;
+  total_daily_yield: number | null;
+  stable_avg_apy: number | null;
+  growth_risk_avg_apy: number | null;
+  hard_asset_avg_apy: number | null;
 };
 
 export type ConversionBucketName =
@@ -37,4 +48,13 @@ export type ConversionBucket = {
   name: ConversionBucketName;
   value: number;
   color: string;
+};
+
+export type YieldSummarySource = {
+  label: "Stable Yield" | "Hard Asset Yield" | "Growth / Risk Yield";
+  color: string;
+  value: number;
+  avgYield: number;
+  distributionPercentage: number;
+  dailyYield: number;
 };

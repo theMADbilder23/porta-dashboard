@@ -1,14 +1,18 @@
 "use client";
 
+import * as React from "react";
 import { VChart } from "@visactor/react-vchart";
 import type { ILinearProgressChartSpec } from "@visactor/vchart";
 import type { Datum } from "@visactor/vchart/esm/typings";
-import { addThousandsSeparator, numberToPercentage } from "@/lib/utils";
+import { formatPercent, formatUsdRounded, formatUsdPrecise } from "@/lib/utils";
 
 const getSpec = (
   label: string,
   color: string,
   percentage: number,
+  value: number,
+  dailyYield: number,
+  avgYield: number
 ): ILinearProgressChartSpec => {
   return {
     type: "linearProgress",
@@ -35,7 +39,7 @@ const getSpec = (
       },
     },
     color: [color],
-    bandWidth: 10,
+    bandwidth: 10,
     padding: 0,
     tooltip: {
       trigger: ["click", "hover"],
@@ -46,8 +50,10 @@ const getSpec = (
         content: [
           {
             key: label,
-            value: (datum: Datum | undefined) =>
-              datum ? `${numberToPercentage(percentage)}` : "",
+            value: (_datum: Datum | undefined) =>
+              `${formatUsdRounded(value)} • ${formatPercent(percentage, 2)} • ${formatUsdPrecise(
+                dailyYield
+              )}/day • ${formatPercent(avgYield, 2)} avg. APY`,
           },
         ],
       },
@@ -59,10 +65,10 @@ const getSpec = (
         domainLine: { visible: false },
         tick: { visible: false },
         label: {
-          formatMethod: () => numberToPercentage(percentage),
+          formatMethod: () => formatPercent(percentage, 0),
         },
-        maxWidth: "60%",
-        width: 36,
+        maxWidth: "68%",
+        width: 40,
       },
     ],
   };
@@ -74,6 +80,7 @@ export default function LinearProgress({
   value,
   avgYield,
   distributionPercentage,
+  dailyYield,
   icon,
 }: {
   label: string;
@@ -81,6 +88,7 @@ export default function LinearProgress({
   value: number;
   avgYield: number;
   distributionPercentage: number;
+  dailyYield: number;
   icon: React.ReactNode;
 }) {
   return (
@@ -90,17 +98,27 @@ export default function LinearProgress({
         <div className="min-w-0">
           <div className="text-xs text-muted-foreground">{label}</div>
           <div className="flex items-baseline gap-x-2">
-            <div className="text-xl font-medium">
-              ${addThousandsSeparator(value)}
-            </div>
+            <div className="text-xl font-medium">{formatUsdRounded(value)}</div>
             <div className="text-sm text-muted-foreground">
-              {avgYield}% avg. APY
+              {formatPercent(avgYield, 1)} avg. APY
             </div>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {formatUsdPrecise(dailyYield)}/day
           </div>
         </div>
       </div>
       <div className="relative">
-        <VChart spec={getSpec(label, color, distributionPercentage)} />
+        <VChart
+          spec={getSpec(
+            label,
+            color,
+            distributionPercentage,
+            value,
+            dailyYield,
+            avgYield
+          )}
+        />
       </div>
     </div>
   );
