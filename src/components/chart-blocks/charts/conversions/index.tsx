@@ -1,5 +1,5 @@
 import { Layers3 } from "lucide-react";
-import ChartTitle from "@/../components/chart-title";
+import ChartTitle from "../../components/chart-title";
 import Chart from "./chart";
 import { buildConversionsFromOverview } from "@/data/conversions";
 import { useOverview } from "@/hooks/use-overview";
