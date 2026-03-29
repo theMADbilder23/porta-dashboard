@@ -39,7 +39,7 @@ const getSpec = (
       },
     },
     color: [color],
-    bandwidth: 10,
+    bandWidth: 10,
     padding: 0,
     tooltip: {
       trigger: ["click", "hover"],
