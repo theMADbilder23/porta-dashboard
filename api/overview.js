@@ -121,7 +121,8 @@ function getClaimableSnapshotValue(snapshot) {
 function getYieldFlowBasis(snapshot) {
   return (
     safeNumber(snapshot.total_claimable_usd) +
-    safeNumber(snapshot.total_claimed_usd)
+    safeNumber(snapshot.total_claimed_usd) +
+    safeNumber(snapshot.total_pending_usd)
   );
 }
 
@@ -143,8 +144,16 @@ function buildLatestPerWallet(snapshots) {
   return latestPerWallet;
 }
 
-function buildPreviousPerWallet(snapshots) {
+function getStartOfCurrentUtcDay() {
+  const now = new Date();
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
+  );
+}
+
+function buildPreviousDayClosePerWallet(snapshots) {
   const grouped = new Map();
+  const startOfTodayMs = getStartOfCurrentUtcDay().getTime();
 
   for (const snapshot of snapshots) {
     if (!grouped.has(snapshot.wallet_id)) {
@@ -153,20 +162,27 @@ function buildPreviousPerWallet(snapshots) {
     grouped.get(snapshot.wallet_id).push(snapshot);
   }
 
-  const previousPerWallet = new Map();
+  const previousDayClosePerWallet = new Map();
 
   for (const [walletId, walletSnapshots] of grouped.entries()) {
-    const sorted = [...walletSnapshots].sort(
-      (a, b) =>
-        new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
-    );
+    const eligibleSnapshots = walletSnapshots
+      .filter(
+        (snapshot) => new Date(snapshot.snapshot_time).getTime() < startOfTodayMs
+      )
+      .sort(
+        (a, b) =>
+          new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
+      );
 
-    if (sorted.length >= 2) {
-      previousPerWallet.set(walletId, sorted[sorted.length - 2]);
+    if (eligibleSnapshots.length > 0) {
+      previousDayClosePerWallet.set(
+        walletId,
+        eligibleSnapshots[eligibleSnapshots.length - 1]
+      );
     }
   }
 
-  return previousPerWallet;
+  return previousDayClosePerWallet;
 }
 
 function buildBucketTotals(snapshots, timeframe) {
@@ -308,13 +324,13 @@ function classifyYieldHolding({ role, tokenSymbol, category, protocol }) {
   return null;
 }
 
-function calculateDailyYield(latestSnapshot, previousSnapshot) {
-  if (!latestSnapshot || !previousSnapshot) return 0;
+function calculateDailyYieldFromPreviousDayClose(currentSnapshot, previousDayCloseSnapshot) {
+  if (!currentSnapshot || !previousDayCloseSnapshot) return 0;
 
-  const latestFlow = getYieldFlowBasis(latestSnapshot);
-  const previousFlow = getYieldFlowBasis(previousSnapshot);
+  const currentFlow = getYieldFlowBasis(currentSnapshot);
+  const previousDayCloseFlow = getYieldFlowBasis(previousDayCloseSnapshot);
 
-  return Math.max(0, latestFlow - previousFlow);
+  return Math.max(0, currentFlow - previousDayCloseFlow);
 }
 
 function calculateSimpleApy(dailyYield, principalValue) {
@@ -352,6 +368,7 @@ module.exports = async function handler(req, res) {
         total_value_usd,
         total_claimable_usd,
         total_claimed_usd,
+        total_pending_usd,
         snapshot_time
       `)
       .in("wallet_id", walletIds)
@@ -371,7 +388,7 @@ module.exports = async function handler(req, res) {
     }
 
     const latestPerWallet = buildLatestPerWallet(allSnapshots);
-    const previousPerWallet = buildPreviousPerWallet(allSnapshots);
+    const previousDayClosePerWallet = buildPreviousDayClosePerWallet(allSnapshots);
     const latestSnapshots = Array.from(latestPerWallet.values());
     const latestSnapshotIds = latestSnapshots.map((snapshot) => snapshot.id);
 
@@ -432,8 +449,11 @@ module.exports = async function handler(req, res) {
       const role = walletRoleMap.get(walletId) || "";
       const portfolioValue = getPortfolioSnapshotValue(snapshot);
 
-      const previousSnapshot = previousPerWallet.get(walletId);
-      const walletDailyYield = calculateDailyYield(snapshot, previousSnapshot);
+      const previousDayCloseSnapshot = previousDayClosePerWallet.get(walletId);
+      const walletDailyYield = calculateDailyYieldFromPreviousDayClose(
+        snapshot,
+        previousDayCloseSnapshot
+      );
 
       totalPortfolioValue += portfolioValue;
       passiveIncome += walletDailyYield;
