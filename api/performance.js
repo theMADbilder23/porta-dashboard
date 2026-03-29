@@ -10,6 +10,11 @@ function safeNumber(value) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function capitalizeTimeframe(timeframe) {
+  const value = String(timeframe || "daily").toLowerCase();
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 function getTimeframeStart(timeframe) {
   const now = new Date();
 
@@ -230,6 +235,12 @@ function getPctChange(fromValue, toValue) {
   return ((to - from) / from) * 100;
 }
 
+function getRangeFlow(maxValue, minValue) {
+  const max = safeNumber(maxValue);
+  const min = safeNumber(minValue);
+  return Math.max(0, max - min);
+}
+
 function buildDailySummary(snapshots) {
   const bucketSeries = buildBucketSeries(snapshots, "daily");
   const currentTotals = buildLatestCurrentTotals(snapshots);
@@ -248,14 +259,18 @@ function buildDailySummary(snapshots) {
   const avgClaimable = getAverage(claimableAverageSource);
   const minClaimable = getMin(claimableValues, { ignoreZero: true });
   const maxClaimable = getMax(claimableValues);
+  const currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
 
   return {
     mode: "daily_summary",
     snapshot_time: currentTotals.snapshot_time,
     label: formatDailyLabel(currentTotals.snapshot_time),
 
+    metric_label: `${capitalizeTimeframe("daily")} Yield Flow`,
+
     total_value_usd: currentTotals.total_value_usd,
     total_claimable_usd: currentTotals.total_claimable_usd,
+    current_yield_flow_usd: currentYieldFlow,
 
     avg_total_value_usd: avgPortfolio,
     min_total_value_usd: minPortfolio,
@@ -306,7 +321,7 @@ module.exports = async function handler(req, res) {
       .gte(
         "snapshot_time",
         new Date(new Date(timeframeStart).getTime() - 48 * 60 * 60 * 1000).toISOString()
-      ) 
+      )
       .order("snapshot_time", { ascending: true });
 
     if (snapshotsError) {
@@ -329,6 +344,7 @@ module.exports = async function handler(req, res) {
       mode: "trend",
       snapshot_time: row.snapshot_time,
       label: makeTrendBucketLabel(row.bucketKey, timeframe),
+      metric_label: `${capitalizeTimeframe(timeframe)} Yield Flow`,
       total_value_usd: row.total_value_usd,
       total_claimable_usd: row.total_claimable_usd,
     }));
