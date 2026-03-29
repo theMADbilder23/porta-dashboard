@@ -57,7 +57,6 @@ function buildHealthResult(input: {
   const swingPct = swing / total;
 
   let score = 0;
-
   score += Math.min(stablePct / 0.4, 1) * 35;
   score += Math.min(rotationalPct / 0.3, 1) * 25;
   score += Math.max(0, 1 - Math.max(0, growthPct - 0.35) / 0.65) * 25;
@@ -149,17 +148,40 @@ function getHealthColor(index: number, active: boolean) {
   return active ? activeColors[index] ?? "#581C87" : inactiveColor;
 }
 
+function InfoTooltip({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="group relative inline-flex">
+      <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground transition-colors group-hover:text-foreground" />
+      <div className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-64 -translate-x-1/2 rounded-md border border-border bg-background/95 p-3 text-left opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+        <div className="text-xs font-medium text-foreground">{title}</div>
+        <div className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+          {description}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AllocationPill({
   label,
   value,
+  description,
 }: {
   label: string;
   value: number;
+  description: string;
 }) {
   return (
     <div className="rounded-xl border border-border/60 bg-muted/10 px-3 py-2">
-      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-        {label}
+      <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+        <span>{label}</span>
+        <InfoTooltip title={label} description={description} />
       </div>
       <div className="mt-1 text-sm font-medium text-foreground">
         {formatPercent(value * 100, 1)}
@@ -192,7 +214,7 @@ export default function Chart() {
     const active = index < activeSegments;
 
     return {
-      path: describeArc(160, 150, 92, startAngle, endAngle),
+      path: describeArc(160, 150, 96, startAngle, endAngle),
       color: getHealthColor(index, active),
       key: `segment-${index}`,
     };
@@ -230,10 +252,18 @@ export default function Chart() {
         </div>
       </div>
 
-      <div className="grid grid-cols-[minmax(120px,1fr)_minmax(280px,340px)_minmax(120px,1fr)] items-center gap-4">
+      <div className="grid grid-cols-[110px_minmax(280px,340px)_110px] items-center justify-center gap-4">
         <div className="flex flex-col gap-3">
-          <AllocationPill label="Stable Core" value={health.stablePct} />
-          <AllocationPill label="Growth" value={health.growthPct} />
+          <AllocationPill
+            label="Stable Core"
+            value={health.stablePct}
+            description="Defensive stable-yield allocation. Higher Stable Core generally improves overall portfolio health."
+          />
+          <AllocationPill
+            label="Growth"
+            value={health.growthPct}
+            description="Higher-upside growth allocation used to build liquidity during expansion phases."
+          />
         </div>
 
         <div className="flex justify-center">
@@ -274,14 +304,26 @@ export default function Chart() {
         </div>
 
         <div className="flex flex-col gap-3">
-          <AllocationPill label="Rotational Core" value={health.rotationalPct} />
-          <AllocationPill label="Swing" value={health.swingPct} />
+          <AllocationPill
+            label="Rotational Core"
+            value={health.rotationalPct}
+            description="Secondary core bucket used to rebalance between defensive capital and higher-growth allocations."
+          />
+          <AllocationPill
+            label="Swing"
+            value={health.swingPct}
+            description="Highest-risk tactical sleeve. Larger swing exposure tends to weaken portfolio health."
+          />
         </div>
       </div>
 
       <div className="mx-auto w-full max-w-[340px] rounded-xl border border-border/60 bg-muted/10 px-4 py-3 text-center">
-        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-          Current tracked defensive base
+        <div className="flex items-center justify-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+          <span>Current tracked defensive base</span>
+          <InfoTooltip
+            title="Current Tracked Defensive Base"
+            description="Combined tracked Stable Core + Rotational Core value. This is the currently visible defensive base inside the dashboard."
+          />
         </div>
         <div className="mt-1 text-sm font-medium text-foreground">
           {formatUsdRounded(defensiveBase)}

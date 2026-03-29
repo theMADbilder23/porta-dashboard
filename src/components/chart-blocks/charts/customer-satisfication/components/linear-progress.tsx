@@ -1,10 +1,30 @@
 "use client";
 
 import * as React from "react";
-import { VChart } from "@visactor/react-vchart";
+import { Info, VChart } from "@visactor/react-vchart";
 import type { ILinearProgressChartSpec } from "@visactor/vchart";
 import type { Datum } from "@visactor/vchart/esm/typings";
 import { formatPercent, formatUsdRounded, formatUsdPrecise } from "@/lib/utils";
+
+function InfoTooltip({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="group relative inline-flex">
+      <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground transition-colors group-hover:text-foreground" />
+      <div className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-64 -translate-x-1/2 rounded-md border border-border bg-background/95 p-3 text-left opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+        <div className="text-xs font-medium text-foreground">{title}</div>
+        <div className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+          {description}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const getSpec = (
   label: string,
@@ -18,7 +38,7 @@ const getSpec = (
     type: "linearProgress",
     data: [
       {
-        id: "id0",
+        id: "i0",
         values: [
           {
             type: label,
@@ -50,9 +70,13 @@ const getSpec = (
           {
             key: label,
             value: (_datum: Datum | undefined) =>
-              `${formatUsdRounded(value)} • ${formatPercent(percentage, 2)} • ${formatUsdPrecise(
-                dailyYield
-              )}/day • ${formatPercent(avgYield, 2)} avg. APY`,
+              `${formatUsdRounded(value)} • ${formatPercent(
+                percentage,
+                2
+              )} • ${formatUsdPrecise(dailyYield)}/day • ${formatPercent(
+                avgYield,
+                2
+              )} avg. APY`,
           },
         ],
       },
@@ -75,6 +99,7 @@ const getSpec = (
 
 export default function LinearProgress({
   label,
+  description,
   color,
   value,
   avgYield,
@@ -83,6 +108,7 @@ export default function LinearProgress({
   icon,
 }: {
   label: string;
+  description: string;
   color: string;
   value: number;
   avgYield: number;
@@ -91,15 +117,20 @@ export default function LinearProgress({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-      <div className="flex items-start gap-2">
+    <div className="grid grid-cols-[1fr_300px] items-center gap-6">
+      <div className="flex items-start gap-3">
         <div className="mt-1">{icon}</div>
 
         <div className="min-w-0">
-          <div className="text-xs text-muted-foreground">{label}</div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>{label}</span>
+            <InfoTooltip title={label} description={description} />
+          </div>
 
-          <div className="mt-0.5 flex items-baseline gap-2">
-            <div className="text-3xl font-semibold leading-none">{formatUsdRounded(value)}</div>
+          <div className="mt-1 flex items-baseline gap-2">
+            <div className="text-2xl font-semibold leading-none">
+              {formatUsdRounded(value)}
+            </div>
             <div className="text-sm text-muted-foreground">
               {formatPercent(avgYield, 1)} avg. APY
             </div>
@@ -113,14 +144,7 @@ export default function LinearProgress({
 
       <div className="w-[300px] max-w-full">
         <VChart
-          spec={getSpec(
-            label,
-            color,
-            distributionPercentage,
-            value,
-            dailyYield,
-            avgYield
-          )}
+          spec={getSpec(label, color, distributionPercentage, value, dailyYield, avgYield)}
         />
       </div>
     </div>
