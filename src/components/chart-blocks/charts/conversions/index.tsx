@@ -44,6 +44,13 @@ function AlignmentMeter({ conversions }: { conversions: ConversionBucket[] }) {
         ? "Moderate Alignment"
         : "Low Alignment";
 
+  const insight = buildAlignmentInsight({
+    stable,
+    rotational,
+    growth,
+    swing,
+  });
+
   return (
     <div className="mt-4 space-y-2">
       <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -58,9 +65,9 @@ function AlignmentMeter({ conversions }: { conversions: ConversionBucket[] }) {
         />
       </div>
 
-      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+      <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
         <span>{label}</span>
-        <span>Stable &gt; Rotational &gt; Growth &gt; Swing</span>
+        <span className="text-right">{insight}</span>
       </div>
     </div>
   );
@@ -72,4 +79,36 @@ function getValueByName(
 ) {
   const item = conversions.find((entry) => entry.name === name);
   return Number(item?.value) || 0;
+}
+
+function buildAlignmentInsight(values: {
+  stable: number;
+  rotational: number;
+  growth: number;
+  swing: number;
+}) {
+  const entries = [
+    { name: "Stable Core", value: values.stable },
+    { name: "Rotational Core", value: values.rotational },
+    { name: "Growth", value: values.growth },
+    { name: "Swing", value: values.swing },
+  ].sort((a, b) => b.value - a.value);
+
+  const dominant = entries[0];
+  const total = entries.reduce((sum, entry) => sum + entry.value, 0);
+  const dominantPct = total > 0 ? Math.round((dominant.value / total) * 100) : 0;
+
+  if (dominant.name === "Growth") {
+    return `Portfolio heavily allocated toward growth exposure (${dominantPct}%)`;
+  }
+
+  if (dominant.name === "Stable Core") {
+    return `Portfolio currently prioritizing capital preservation (${dominantPct}%)`;
+  }
+
+  if (dominant.name === "Rotational Core") {
+    return `Portfolio tilted toward rotational core positioning (${dominantPct}%)`;
+  }
+
+  return `Portfolio carrying elevated swing exposure (${dominantPct}%)`;
 }

@@ -2,8 +2,12 @@
 
 import { VChart } from "@visactor/react-vchart";
 import type { ICirclePackingChartSpec } from "@visactor/vchart";
-import { addThousandsSeparator } from "@/lib/utils";
+import { formatUsdRounded } from "@/lib/utils";
 import type { ConversionBucket } from "@/types/types";
+
+type ConversionDatum = ConversionBucket & {
+  percentage: number;
+};
 
 export default function Chart({
   conversions,
@@ -12,7 +16,7 @@ export default function Chart({
 }) {
   const totalAllocation = conversions.reduce((sum, item) => sum + item.value, 0);
 
-  const conversionData = conversions.map((item) => ({
+  const conversionData: ConversionDatum[] = conversions.map((item) => ({
     ...item,
     percentage: totalAllocation > 0 ? (item.value / totalAllocation) * 100 : 0,
   }));
@@ -36,19 +40,12 @@ export default function Chart({
         stroke: false,
         visible: (d) => d.depth === 0,
         text: (d) => {
-          const node = d as {
-            name?: string;
-            value?: number;
-            percentage?: number;
-          };
-
-          return `${node.name}\n$${addThousandsSeparator(node.value ?? 0)}\n${Math.round(
-            node.percentage ?? 0
-          )}%`;
+          const node = d as { percentage?: number };
+          return `${Math.round(node.percentage ?? 0)}%`;
         },
-        fontSize: (d) => Math.max(10, d.radius / 4.25),
+        fontSize: (d) => Math.max(12, d.radius / 3.8),
         lineHeight: 14,
-        limit: 120,
+        limit: 80,
         dy: 0,
       },
     },
@@ -75,7 +72,7 @@ export default function Chart({
                 percentage?: number;
               };
 
-              return `$${addThousandsSeparator(datum.value ?? 0)} • ${(
+              return `${formatUsdRounded(datum.value ?? 0)} • ${(
                 datum.percentage ?? 0
               ).toFixed(2)}%`;
             },
@@ -85,12 +82,15 @@ export default function Chart({
     },
     animationEnter: {
       easing: "cubicInOut",
+      duration: 800,
     },
     animationExit: {
       easing: "cubicInOut",
+      duration: 400,
     },
     animationUpdate: {
       easing: "cubicInOut",
+      duration: 500,
     },
   };
 

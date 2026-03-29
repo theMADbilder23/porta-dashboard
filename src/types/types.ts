@@ -27,8 +27,14 @@ export type OverviewResponse = {
   allocation_scope_label?: string | null;
 };
 
+export type ConversionBucketName =
+  | "Stable Core"
+  | "Rotational Core"
+  | "Growth"
+  | "Swing";
+
 export type ConversionBucket = {
-  name: "Stable Core" | "Rotational Core" | "Growth" | "Swing";
+  name: ConversionBucketName;
   value: number;
   color: string;
 };
