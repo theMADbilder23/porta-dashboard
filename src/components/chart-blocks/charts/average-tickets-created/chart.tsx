@@ -66,6 +66,7 @@ type PerformanceStats = {
 
 type StatMeta = {
   label: string;
+  tooltipTitle?: string;
   description: string;
   value: number;
   isPercent?: boolean;
