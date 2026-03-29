@@ -5,9 +5,27 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+const STABLE_SYMBOLS = new Set(["USDC", "USDT", "USDM", "DAI"]);
+
 function safeNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
+function normalizeSymbol(value) {
+  return normalizeText(value).toUpperCase();
+}
+
+function normalizeRole(value) {
+  return normalizeText(value).toLowerCase();
+}
+
+function isStableSymbol(symbol) {
+  return STABLE_SYMBOLS.has(normalizeSymbol(symbol));
 }
 
 function getTimeframeStart(timeframe) {
@@ -175,6 +193,57 @@ function getChangePctFromMin(current, min) {
   return (currentValue - minValue) / minValue;
 }
 
+function getEmptyResponse(timeframe) {
+  return {
+    timeframe,
+    total_portfolio_value: null,
+    stable_value: null,
+    rotational_value: null,
+    growth_value: null,
+    swing_value: null,
+    realized_gains: null,
+    realized_losses: null,
+    passive_income: null,
+    total_portfolio_value_change_pct: null,
+    passive_income_change_pct: null,
+    realized_gains_change_pct: null,
+    realized_losses_change_pct: null,
+    allocation_scope_label: "Tracked dashboard assets only",
+  };
+}
+
+function classifyHolding({ role, tokenSymbol, category, protocol }) {
+  const normalizedRole = normalizeRole(role);
+  const normalizedCategory = normalizeRole(category);
+  const hasProtocol = normalizeText(protocol).length > 0;
+
+  // Step 1: Swing wins first
+  if (normalizedRole === "swing") {
+    return "swing";
+  }
+
+  // Step 2: Stable Core next
+  if (
+    isStableSymbol(tokenSymbol) &&
+    normalizedCategory === "protocol" &&
+    hasProtocol
+  ) {
+    return "stable";
+  }
+
+  // Step 3: Growth next
+  if (normalizedRole === "yield" || normalizedRole === "hub") {
+    return "growth";
+  }
+
+  // Step 4: Rotational Core fallback
+  if (normalizedRole === "core") {
+    return "rotational";
+  }
+
+  return "growth";
+}
+
 module.exports = async function handler(req, res) {
   try {
     const timeframe = String(req.query.timeframe || "daily").toLowerCase();
@@ -185,34 +254,19 @@ module.exports = async function handler(req, res) {
       .select("id, role, is_active")
       .eq("is_active", true);
 
-    if (walletsError) {
-      throw walletsError;
-    }
+    if (walletsError) throw walletsError;
 
     const activeWallets = Array.isArray(wallets) ? wallets : [];
     const walletIds = activeWallets.map((wallet) => wallet.id);
 
     if (walletIds.length === 0) {
-      return res.status(200).json({
-        timeframe,
-        total_portfolio_value: null,
-        stable_value: null,
-        yield_value: null,
-        growth_value: null,
-        swing_value: null,
-        realized_gains: null,
-        realized_losses: null,
-        passive_income: null,
-        total_portfolio_value_change_pct: null,
-        passive_income_change_pct: null,
-        realized_gains_change_pct: null,
-        realized_losses_change_pct: null,
-      });
+      return res.status(200).json(getEmptyResponse(timeframe));
     }
 
     const { data: snapshots, error: snapshotsError } = await supabase
       .from("wallet_snapshots")
       .select(`
+        id,
         wallet_id,
         total_value_usd,
         total_claimable_usd,
@@ -222,79 +276,112 @@ module.exports = async function handler(req, res) {
       .gte("snapshot_time", timeframeStart)
       .order("snapshot_time", { ascending: true });
 
-    if (snapshotsError) {
-      throw snapshotsError;
-    }
+    if (snapshotsError) throw snapshotsError;
 
     const allSnapshots = Array.isArray(snapshots) ? snapshots : [];
 
     if (allSnapshots.length === 0) {
-      return res.status(200).json({
-        timeframe,
-        total_portfolio_value: null,
-        stable_value: null,
-        yield_value: null,
-        growth_value: null,
-        swing_value: null,
-        realized_gains: null,
-        realized_losses: null,
-        passive_income: null,
-        total_portfolio_value_change_pct: null,
-        passive_income_change_pct: null,
-        realized_gains_change_pct: null,
-        realized_losses_change_pct: null,
-      });
+      return res.status(200).json(getEmptyResponse(timeframe));
     }
 
     if (timeframe !== "daily" && !hasEnoughTimeCoverage(allSnapshots, timeframe)) {
-      return res.status(200).json({
-        timeframe,
-        total_portfolio_value: null,
-        stable_value: null,
-        yield_value: null,
-        growth_value: null,
-        swing_value: null,
-        realized_gains: null,
-        realized_losses: null,
-        passive_income: null,
-        total_portfolio_value_change_pct: null,
-        passive_income_change_pct: null,
-        realized_gains_change_pct: null,
-        realized_losses_change_pct: null,
-      });
+      return res.status(200).json(getEmptyResponse(timeframe));
     }
 
     const latestPerWallet = buildLatestPerWallet(allSnapshots);
+    const latestSnapshots = Array.from(latestPerWallet.values());
+    const latestSnapshotIds = latestSnapshots.map((snapshot) => snapshot.id);
+
     const bucketTotals = buildBucketTotals(allSnapshots, timeframe);
+
+    const walletRoleMap = new Map(
+      activeWallets.map((wallet) => [wallet.id, normalizeRole(wallet.role)])
+    );
+
+    let latestHoldings = [];
+
+    if (latestSnapshotIds.length > 0) {
+      const { data: holdings, error: holdingsError } = await supabase
+        .from("wallet_holdings")
+        .select(`
+          wallet_id,
+          snapshot_id,
+          token_symbol,
+          value_usd,
+          category,
+          protocol
+        `)
+        .in("snapshot_id", latestSnapshotIds);
+
+      if (holdingsError) throw holdingsError;
+
+      latestHoldings = Array.isArray(holdings) ? holdings : [];
+    }
+
+    const holdingsBySnapshotId = new Map();
+
+    for (const holding of latestHoldings) {
+      const snapshotId = holding.snapshot_id;
+      if (!holdingsBySnapshotId.has(snapshotId)) {
+        holdingsBySnapshotId.set(snapshotId, []);
+      }
+      holdingsBySnapshotId.get(snapshotId).push(holding);
+    }
 
     let totalPortfolioValue = 0;
     let passiveIncome = 0;
 
     let stableValue = 0;
-    let yieldValue = 0;
+    let rotationalValue = 0;
     let growthValue = 0;
     let swingValue = 0;
 
-    const walletRoleMap = new Map(
-      activeWallets.map((wallet) => [wallet.id, String(wallet.role || "").toLowerCase()])
-    );
-
-    for (const [walletId, latestSnapshot] of latestPerWallet.entries()) {
-      const portfolioValue = getPortfolioSnapshotValue(latestSnapshot);
-      const claimableValue = getClaimableSnapshotValue(latestSnapshot);
+    for (const snapshot of latestSnapshots) {
+      const walletId = snapshot.wallet_id;
       const role = walletRoleMap.get(walletId) || "";
+      const portfolioValue = getPortfolioSnapshotValue(snapshot);
+      const claimableValue = getClaimableSnapshotValue(snapshot);
 
       totalPortfolioValue += portfolioValue;
       passiveIncome += claimableValue;
 
-      if (role === "hub") {
-        stableValue += portfolioValue;
-      } else if (role === "yield") {
-        yieldValue += portfolioValue;
-      } else if (role === "swing") {
-        swingValue += portfolioValue;
-      } else {
-        growthValue += portfolioValue;
+      const holdings = holdingsBySnapshotId.get(snapshot.id) || [];
+      let classifiedWalletValue = 0;
+
+      for (const holding of holdings) {
+        const value = safeNumber(holding.value_usd);
+        if (value <= 0) continue;
+
+        const bucket = classifyHolding({
+          role,
+          tokenSymbol: holding.token_symbol,
+          category: holding.category,
+          protocol: holding.protocol,
+        });
+
+        classifiedWalletValue += value;
+
+        if (bucket === "stable") stableValue += value;
+        else if (bucket === "rotational") rotationalValue += value;
+        else if (bucket === "growth") growthValue += value;
+        else if (bucket === "swing") swingValue += value;
+      }
+
+      // Remainder fallback so totals still reconcile to current tracked dashboard value.
+      const remainder = Math.max(0, portfolioValue - classifiedWalletValue);
+
+      if (remainder > 0) {
+        const fallbackBucket = classifyHolding({
+          role,
+          tokenSymbol: null,
+          category: null,
+          protocol: null,
+        });
+
+        if (fallbackBucket === "stable") stableValue += remainder;
+        else if (fallbackBucket === "rotational") rotationalValue += remainder;
+        else if (fallbackBucket === "growth") growthValue += remainder;
+        else if (fallbackBucket === "swing") swingValue += remainder;
       }
     }
 
@@ -308,7 +395,7 @@ module.exports = async function handler(req, res) {
       timeframe,
       total_portfolio_value: totalPortfolioValue,
       stable_value: stableValue,
-      yield_value: yieldValue,
+      rotational_value: rotationalValue,
       growth_value: growthValue,
       swing_value: swingValue,
       realized_gains: null,
@@ -324,6 +411,7 @@ module.exports = async function handler(req, res) {
       ),
       realized_gains_change_pct: null,
       realized_losses_change_pct: null,
+      allocation_scope_label: "Tracked dashboard assets only",
     });
   } catch (err) {
     console.error("[api/overview] error:", err);
