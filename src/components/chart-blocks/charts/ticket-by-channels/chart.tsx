@@ -56,8 +56,6 @@ function buildHealthResult(input: {
   const growthPct = growth / total;
   const swingPct = swing / total;
 
-  // Transitional MMII-aware health score:
-  // Stable helps most, rotational helps next, excess growth lowers, excess swing lowers harder.
   let score = 0;
 
   score += Math.min(stablePct / 0.4, 1) * 35;
@@ -76,7 +74,8 @@ function buildHealthResult(input: {
   if (stablePct >= 0.3 && rotationalPct >= 0.15) {
     summary = "Stable Core and Rotational Core are supporting a healthier MMII structure.";
   } else if (growthPct >= 0.7) {
-    summary = "Portfolio is heavily weighted toward Growth exposure with limited Stable Core and Rotational balance.";
+    summary =
+      "Portfolio is heavily weighted toward Growth exposure with limited Stable Core and Rotational balance.";
   } else if (swingPct >= 0.15) {
     summary = "Swing exposure is elevated, which weakens overall portfolio health.";
   } else if (stablePct < 0.1 && rotationalPct < 0.1) {
@@ -135,19 +134,38 @@ function describeArc(
 
 function getHealthColor(index: number, active: boolean) {
   const activeColors = [
-    "#EDE9FE", // very light
-    "#DDD6FE",
-    "#C4B5FD",
-    "#A78BFA",
-    "#8B5CF6",
-    "#7C3AED",
+    "#E9D5FF",
+    "#D8B4FE",
+    "#C084FC",
+    "#A855F7",
+    "#9333EA",
+    "#7E22CE",
     "#6D28D9",
-    "#5B21B6", // deep
+    "#581C87",
   ];
 
-  const inactiveColor = "#F5F3FF"; // slightly visible (not invisible)
+  const inactiveColor = "#F3E8FF";
 
-  return active ? activeColors[index] ?? "#5B21B6" : inactiveColor;
+  return active ? activeColors[index] ?? "#581C87" : inactiveColor;
+}
+
+function AllocationPill({
+  label,
+  value,
+}: {
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="rounded-xl border border-border/60 bg-muted/10 px-3 py-2">
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 text-sm font-medium text-foreground">
+        {formatPercent(value * 100, 1)}
+      </div>
+    </div>
+  );
 }
 
 export default function Chart() {
@@ -174,34 +192,17 @@ export default function Chart() {
     const active = index < activeSegments;
 
     return {
-      path: describeArc(160, 150, 96, startAngle, endAngle),
+      path: describeArc(160, 150, 92, startAngle, endAngle),
       color: getHealthColor(index, active),
-      active,
       key: `segment-${index}`,
     };
   });
 
-  const allocationRows = [
-    {
-      label: "Stable Core",
-      value: health.stablePct,
-    },
-    {
-      label: "Rotational Core",
-      value: health.rotationalPct,
-    },
-    {
-      label: "Growth",
-      value: health.growthPct,
-    },
-    {
-      label: "Swing",
-      value: health.swingPct,
-    },
-  ];
+  const defensiveBase =
+    safeNumber(overview?.stable_value) + safeNumber(overview?.rotational_value);
 
   return (
-   <div className="flex h-full flex-col justify-between gap-5">
+    <div className="flex h-full flex-col justify-between gap-5">
       <div className="rounded-2xl border border-border/60 bg-muted/10 p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -229,67 +230,61 @@ export default function Chart() {
         </div>
       </div>
 
-      <div className="flex flex-col items-center justify-center">
-        <div className="relative h-[220px] w-full max-w-[380px]">
-          <svg viewBox="0 0 320 220" className="h-full w-full overflow-visible">
-            {meterSegments.map((segment) => (
-              <path
-                key={segment.key}
-                d={segment.path}
-                fill="none"
-                stroke={segment.color}
-                strokeWidth="18"
-                strokeLinecap="round"
-              />
-            ))}
+      <div className="grid grid-cols-[minmax(120px,1fr)_minmax(280px,340px)_minmax(120px,1fr)] items-center gap-4">
+        <div className="flex flex-col gap-3">
+          <AllocationPill label="Stable Core" value={health.stablePct} />
+          <AllocationPill label="Growth" value={health.growthPct} />
+        </div>
 
-            <text
-              x="160"
-              y="145"
-              textAnchor="middle"
-              className="fill-foreground"
-              style={{ fontSize: 16, fontWeight: 500 }}
-            >
-              Portfolio Health
-            </text>
+        <div className="flex justify-center">
+          <div className="relative h-[220px] w-full max-w-[340px]">
+            <svg viewBox="0 0 320 220" className="h-full w-full overflow-visible">
+              {meterSegments.map((segment) => (
+                <path
+                  key={segment.key}
+                  d={segment.path}
+                  fill="none"
+                  stroke={segment.color}
+                  strokeWidth="18"
+                  strokeLinecap="round"
+                />
+              ))}
 
-            <text
-              x="160"
-              y="170"
-              textAnchor="middle"
-              className="fill-foreground"
-              style={{ fontSize: 22, fontWeight: 700 }}
-            >
-              {health.score}/100
-            </text>
-          </svg>
+              <text
+                x="160"
+                y="145"
+                textAnchor="middle"
+                className="fill-foreground"
+                style={{ fontSize: 16, fontWeight: 500 }}
+              >
+                Portfolio Health
+              </text>
+
+              <text
+                x="160"
+                y="170"
+                textAnchor="middle"
+                className="fill-foreground"
+                style={{ fontSize: 22, fontWeight: 700 }}
+              >
+                {health.score}/100
+              </text>
+            </svg>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <AllocationPill label="Rotational Core" value={health.rotationalPct} />
+          <AllocationPill label="Swing" value={health.swingPct} />
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        {allocationRows.map((row) => (
-          <div
-            key={row.label}
-            className="rounded-xl border border-border/60 bg-muted/10 px-3 py-2"
-          >
-            <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-              {row.label}
-            </div>
-            <div className="mt-1 text-sm font-medium text-foreground">
-              {formatPercent(row.value * 100, 1)}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="rounded-xl border border-border/60 bg-muted/10 px-4 py-3">
+      <div className="mx-auto w-full max-w-[340px] rounded-xl border border-border/60 bg-muted/10 px-4 py-3 text-center">
         <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
           Current tracked defensive base
         </div>
         <div className="mt-1 text-sm font-medium text-foreground">
-          {formatUsdRounded(
-            safeNumber(overview?.stable_value) + safeNumber(overview?.rotational_value)
-          )}
+          {formatUsdRounded(defensiveBase)}
         </div>
       </div>
     </div>

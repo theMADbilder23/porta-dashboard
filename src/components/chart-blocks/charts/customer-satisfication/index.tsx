@@ -1,7 +1,7 @@
 "use client";
 
 import { Coins, Landmark, TrendingUp, Zap } from "lucide-react";
-import ChartTitle from "../../components/chart-title";
+import ChartTitle from "../../../components/chart-title";
 import LinearProgress from "./components/linear-progress";
 import { useOverview } from "@/hooks/use-overview";
 import { formatUsdRounded } from "@/lib/utils";
@@ -23,10 +23,12 @@ export default function CustomerSatisfaction() {
     <section className="flex h-full flex-col gap-2">
       <ChartTitle title="Yield Summary" icon={Coins} />
 
-      <div className="my-4 flex h-full items-center justify-between">
-        <div className="mx-auto grid w-full grid-cols-2 gap-6">
+      <div className="mt-3 flex h-full flex-col justify-between gap-5">
+        <div>
           <TotalDistributed value={totalDistributed} />
+        </div>
 
+        <div className="grid gap-4">
           {yieldSources.map((source) => (
             <LinearProgress
               key={source.label}
@@ -49,7 +51,7 @@ function TotalDistributed({ value }: { value: number }) {
   return (
     <div className="flex flex-col items-start justify-center">
       <div className="text-xs text-muted-foreground">Total Value Distributed</div>
-      <div className="text-2xl font-medium">{formatUsdRounded(value)}</div>
+      <div className="text-4xl font-semibold leading-none">{formatUsdRounded(value)}</div>
     </div>
   );
 }

@@ -35,11 +35,10 @@ const getSpec = (
     cornerRadius: 10,
     progress: {
       style: {
-        cornerRadius: 0,
+        cornerRadius: 10,
       },
     },
     color: [color],
-    bandWidth: 10,
     padding: 0,
     tooltip: {
       trigger: ["click", "hover"],
@@ -92,23 +91,27 @@ export default function LinearProgress({
   icon: React.ReactNode;
 }) {
   return (
-    <div>
-      <div className="mb-2 flex items-start gap-x-2">
-        {icon}
+    <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+      <div className="flex items-start gap-2">
+        <div className="mt-1">{icon}</div>
+
         <div className="min-w-0">
           <div className="text-xs text-muted-foreground">{label}</div>
-          <div className="flex items-baseline gap-x-2">
-            <div className="text-xl font-medium">{formatUsdRounded(value)}</div>
+
+          <div className="mt-0.5 flex items-baseline gap-2">
+            <div className="text-3xl font-semibold leading-none">{formatUsdRounded(value)}</div>
             <div className="text-sm text-muted-foreground">
               {formatPercent(avgYield, 1)} avg. APY
             </div>
           </div>
-          <div className="text-xs text-muted-foreground">
+
+          <div className="mt-1 text-xs text-muted-foreground">
             {formatUsdPrecise(dailyYield)}/day
           </div>
         </div>
       </div>
-      <div className="relative">
+
+      <div className="w-[300px] max-w-full">
         <VChart
           spec={getSpec(
             label,
