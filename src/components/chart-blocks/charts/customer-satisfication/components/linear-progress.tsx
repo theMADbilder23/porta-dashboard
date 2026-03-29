@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Info, VChart } from "@visactor/react-vchart";
+import { Info } from "lucide-react";
+import { VChart } from "@visactor/react-vchart";
 import type { ILinearProgressChartSpec } from "@visactor/vchart";
 import type { Datum } from "@visactor/vchart/esm/typings";
 import { formatPercent, formatUsdRounded, formatUsdPrecise } from "@/lib/utils";
