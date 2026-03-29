@@ -547,8 +547,7 @@ export default function Chart() {
   return (
     <section className="flex h-full flex-col gap-3">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <ChartTitle title="Portfolio Performance" icon={TrendingUp} />
-
+      
         <div className="flex flex-wrap gap-2 md:justify-end">
           <StatPill label="Current" value={stats.current} />
           <StatPill label="Min" value={stats.min} />
