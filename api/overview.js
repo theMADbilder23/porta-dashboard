@@ -118,14 +118,6 @@ function getClaimableSnapshotValue(snapshot) {
   return safeNumber(snapshot.total_claimable_usd);
 }
 
-function getYieldFlowBasis(snapshot) {
-  return (
-    safeNumber(snapshot.total_claimable_usd) +
-    safeNumber(snapshot.total_claimed_usd) +
-    safeNumber(snapshot.total_pending_usd)
-  );
-}
-
 function buildLatestPerWallet(snapshots) {
   const latestPerWallet = new Map();
 
@@ -142,48 +134,6 @@ function buildLatestPerWallet(snapshots) {
   }
 
   return latestPerWallet;
-}
-
-function getStartOfCurrentUtcDay() {
-  const now = new Date();
-
-  return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
-  );
-}
-
-function buildPreviousDayClosePerWallet(snapshots) {
-  const grouped = new Map();
-  const startOfTodayMs = getStartOfCurrentUtcDay().getTime();
-
-  for (const snapshot of snapshots) {
-    if (!grouped.has(snapshot.wallet_id)) {
-      grouped.set(snapshot.wallet_id, []);
-    }
-    grouped.get(snapshot.wallet_id).push(snapshot);
-  }
-
-  const previousDayClosePerWallet = new Map();
-
-  for (const [walletId, walletSnapshots] of grouped.entries()) {
-    const eligibleSnapshots = walletSnapshots
-      .filter(
-        (snapshot) => new Date(snapshot.snapshot_time).getTime() < startOfTodayMs
-      )
-      .sort(
-        (a, b) =>
-          new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
-      );
-
-    if (eligibleSnapshots.length > 0) {
-      previousDayClosePerWallet.set(
-        walletId,
-        eligibleSnapshots[eligibleSnapshots.length - 1]
-      );
-    }
-  }
-
-  return previousDayClosePerWallet;
 }
 
 function buildBucketTotals(snapshots, timeframe) {
@@ -213,14 +163,12 @@ function buildBucketTotals(snapshots, timeframe) {
         bucket_key: bucketKey,
         portfolio_total_usd: 0,
         claimable_total_usd: 0,
-        yield_flow_total_usd: 0,
       });
     }
 
     const bucket = bucketTotals.get(bucketKey);
     bucket.portfolio_total_usd += getPortfolioSnapshotValue(snapshot);
     bucket.claimable_total_usd += getClaimableSnapshotValue(snapshot);
-    bucket.yield_flow_total_usd += getYieldFlowBasis(snapshot);
   }
 
   return Array.from(bucketTotals.values()).sort((a, b) =>
@@ -237,12 +185,25 @@ function getMinValue(values, { ignoreZero = false } = {}) {
   return Math.min(...filtered);
 }
 
+function getMaxValue(values) {
+  const filtered = (values || []).map((v) => safeNumber(v));
+
+  if (filtered.length === 0) return 0;
+  return Math.max(...filtered);
+}
+
 function getChangePctFromMin(current, min) {
   const currentValue = safeNumber(current);
   const minValue = safeNumber(min);
 
   if (minValue <= 0) return null;
   return (currentValue - minValue) / minValue;
+}
+
+function getRangeFlow(maxValue, minValue) {
+  const max = safeNumber(maxValue);
+  const min = safeNumber(minValue);
+  return Math.max(0, max - min);
 }
 
 function getEmptyResponse(timeframe) {
@@ -256,6 +217,7 @@ function getEmptyResponse(timeframe) {
     realized_gains: null,
     realized_losses: null,
     passive_income: null,
+    passive_income_label: `${capitalizeTimeframe(timeframe)} Yield Flow`,
     total_portfolio_value_change_pct: null,
     passive_income_change_pct: null,
     realized_gains_change_pct: null,
@@ -326,35 +288,30 @@ function classifyYieldHolding({ role, tokenSymbol, category, protocol }) {
   return null;
 }
 
-function calculateDailyYieldFromSnapshots(currentSnapshot, previousSnapshot) {
-  if (!currentSnapshot || !previousSnapshot) return 0;
-
-  const currentClaimable = safeNumber(currentSnapshot.total_claimable_usd);
-  const previousClaimable = safeNumber(previousSnapshot.total_claimable_usd);
-
-  // NORMAL CASE → rewards growing
-  if (currentClaimable >= previousClaimable) {
-    return currentClaimable - previousClaimable;
-  }
-
-  // RESET CASE → rewards claimed/reset → treat current as fresh accumulation
-  return currentClaimable;
-}
-
-function calculateSimpleApy(dailyYield, principalValue) {
-  const daily = safeNumber(dailyYield);
+function calculateSimpleApy(flowValue, principalValue, timeframe) {
+  const flow = safeNumber(flowValue);
   const principal = safeNumber(principalValue);
 
-  if (principal <= 0) return 0;
-  return (daily * 365 * 100) / principal;
+  if (principal <= 0 || flow <= 0) return 0;
+
+  const annualization = {
+    daily: 365,
+    weekly: 52,
+    monthly: 12,
+    quarterly: 4,
+    yearly: 1,
+  };
+
+  return (flow * (annualization[timeframe] || 365) * 100) / principal;
 }
 
 function buildWalletYieldDebug({
   walletId,
   role,
   latestSnapshot,
-  previousDayCloseSnapshot,
-  walletDailyYield,
+  walletClaimableMin,
+  walletClaimableMax,
+  walletYieldFlow,
   walletStableYieldValue,
   walletGrowthRiskYieldValue,
 }) {
@@ -362,16 +319,20 @@ function buildWalletYieldDebug({
     wallet_id: walletId,
     role,
     latest_snapshot_time: latestSnapshot?.snapshot_time ?? null,
-    previous_day_close_snapshot_time:
-      previousDayCloseSnapshot?.snapshot_time ?? null,
-    latest_flow_basis: latestSnapshot ? getYieldFlowBasis(latestSnapshot) : null,
-    previous_day_close_flow_basis: previousDayCloseSnapshot
-      ? getYieldFlowBasis(previousDayCloseSnapshot)
+    latest_claimable: latestSnapshot
+      ? safeNumber(latestSnapshot.total_claimable_usd)
       : null,
-    wallet_daily_yield: walletDailyYield,
+    wallet_claimable_min: walletClaimableMin,
+    wallet_claimable_max: walletClaimableMax,
+    wallet_yield_flow: walletYieldFlow,
     wallet_stable_yield_value: walletStableYieldValue,
     wallet_growth_risk_yield_value: walletGrowthRiskYieldValue,
   };
+}
+
+function capitalizeTimeframe(timeframe) {
+  const value = String(timeframe || "daily").toLowerCase();
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 module.exports = async function handler(req, res) {
@@ -424,7 +385,6 @@ module.exports = async function handler(req, res) {
     }
 
     const latestPerWallet = buildLatestPerWallet(allSnapshots);
-    const previousDayClosePerWallet = buildPreviousDayClosePerWallet(allSnapshots);
     const latestSnapshots = Array.from(latestPerWallet.values());
     const latestSnapshotIds = latestSnapshots.map((snapshot) => snapshot.id);
 
@@ -464,9 +424,26 @@ module.exports = async function handler(req, res) {
       holdingsBySnapshotId.get(snapshotId).push(holding);
     }
 
-    let totalPortfolioValue = 0;
-    let passiveIncome = 0;
+    const walletClaimableStats = new Map();
 
+    for (const snapshot of allSnapshots) {
+      const walletId = snapshot.wallet_id;
+      const claimable = safeNumber(snapshot.total_claimable_usd);
+
+      if (!walletClaimableStats.has(walletId)) {
+        walletClaimableStats.set(walletId, {
+          min: claimable,
+          max: claimable,
+        });
+        continue;
+      }
+
+      const stats = walletClaimableStats.get(walletId);
+      stats.min = Math.min(stats.min, claimable);
+      stats.max = Math.max(stats.max, claimable);
+    }
+
+    let totalPortfolioValue = 0;
     let stableValue = 0;
     let rotationalValue = 0;
     let growthValue = 0;
@@ -476,9 +453,9 @@ module.exports = async function handler(req, res) {
     let growthRiskYieldValue = 0;
     const hardAssetYieldValue = 0;
 
-    let stableDailyYield = 0;
-    let growthRiskDailyYield = 0;
-    const hardAssetDailyYield = 0;
+    let stableYieldFlow = 0;
+    let growthRiskYieldFlow = 0;
+    const hardAssetYieldFlow = 0;
 
     const walletYieldDebug = [];
 
@@ -487,14 +464,7 @@ module.exports = async function handler(req, res) {
       const role = walletRoleMap.get(walletId) || "";
       const portfolioValue = getPortfolioSnapshotValue(snapshot);
 
-      const previousDayCloseSnapshot = previousDayClosePerWallet.get(walletId);
-      const walletDailyYield = calculateDailyYieldFromSnapshots(
-        snapshot,
-        previousDayCloseSnapshot
-      );
-
       totalPortfolioValue += portfolioValue;
-      passiveIncome += walletDailyYield;
 
       const holdings = holdingsBySnapshotId.get(snapshot.id) || [];
       let classifiedWalletValue = 0;
@@ -552,14 +522,16 @@ module.exports = async function handler(req, res) {
         else if (fallbackBucket === "swing") swingValue += remainder;
       }
 
+      const walletStats = walletClaimableStats.get(walletId) || { min: 0, max: 0 };
+      const walletYieldFlow = getRangeFlow(walletStats.max, walletStats.min);
       const walletYieldBase = walletStableYieldValue + walletGrowthRiskYieldValue;
 
-      if (walletYieldBase > 0 && walletDailyYield > 0) {
+      if (walletYieldBase > 0 && walletYieldFlow > 0) {
         const stableWeight = walletStableYieldValue / walletYieldBase;
         const growthWeight = walletGrowthRiskYieldValue / walletYieldBase;
 
-        stableDailyYield += walletDailyYield * stableWeight;
-        growthRiskDailyYield += walletDailyYield * growthWeight;
+        stableYieldFlow += walletYieldFlow * stableWeight;
+        growthRiskYieldFlow += walletYieldFlow * growthWeight;
       }
 
       walletYieldDebug.push(
@@ -567,25 +539,28 @@ module.exports = async function handler(req, res) {
           walletId,
           role,
           latestSnapshot: snapshot,
-          previousDayCloseSnapshot,
-          walletDailyYield,
+          walletClaimableMin: walletStats.min,
+          walletClaimableMax: walletStats.max,
+          walletYieldFlow,
           walletStableYieldValue,
           walletGrowthRiskYieldValue,
         })
       );
     }
 
-    const totalDailyYield =
-      stableDailyYield + growthRiskDailyYield + hardAssetDailyYield;
+    const totalYieldFlow =
+      stableYieldFlow + growthRiskYieldFlow + hardAssetYieldFlow;
 
     const totalValueDistributed =
       stableYieldValue + growthRiskYieldValue + hardAssetYieldValue;
 
     const portfolioBucketValues = bucketTotals.map((bucket) => bucket.portfolio_total_usd);
-    const yieldFlowBucketValues = bucketTotals.map((bucket) => bucket.yield_flow_total_usd);
+    const claimableBucketValues = bucketTotals.map((bucket) => bucket.claimable_total_usd);
 
     const minPortfolioValue = getMinValue(portfolioBucketValues);
-    const minPassiveIncome = getMinValue(yieldFlowBucketValues, { ignoreZero: true });
+    const minClaimableValue = getMinValue(claimableBucketValues, { ignoreZero: true });
+    const maxClaimableValue = getMaxValue(claimableBucketValues);
+    const claimableFlowRange = getRangeFlow(maxClaimableValue, minClaimableValue);
 
     return res.status(200).json({
       timeframe,
@@ -596,14 +571,15 @@ module.exports = async function handler(req, res) {
       swing_value: swingValue,
       realized_gains: null,
       realized_losses: null,
-      passive_income: totalDailyYield,
+      passive_income: totalYieldFlow,
+      passive_income_label: `${capitalizeTimeframe(timeframe)} Yield Flow`,
       total_portfolio_value_change_pct: getChangePctFromMin(
         totalPortfolioValue,
         minPortfolioValue
       ),
       passive_income_change_pct: getChangePctFromMin(
-        totalDailyYield,
-        minPassiveIncome
+        totalYieldFlow,
+        claimableFlowRange
       ),
       realized_gains_change_pct: null,
       realized_losses_change_pct: null,
@@ -612,18 +588,20 @@ module.exports = async function handler(req, res) {
       growth_risk_yield_value: growthRiskYieldValue,
       hard_asset_yield_value: hardAssetYieldValue,
       total_value_distributed: totalValueDistributed,
-      stable_daily_yield: stableDailyYield,
-      growth_risk_daily_yield: growthRiskDailyYield,
-      hard_asset_daily_yield: hardAssetDailyYield,
-      total_daily_yield: totalDailyYield,
-      stable_avg_apy: calculateSimpleApy(stableDailyYield, stableYieldValue),
+      stable_daily_yield: stableYieldFlow,
+      growth_risk_daily_yield: growthRiskYieldFlow,
+      hard_asset_daily_yield: hardAssetYieldFlow,
+      total_daily_yield: totalYieldFlow,
+      stable_avg_apy: calculateSimpleApy(stableYieldFlow, stableYieldValue, timeframe),
       growth_risk_avg_apy: calculateSimpleApy(
-        growthRiskDailyYield,
-        growthRiskYieldValue
+        growthRiskYieldFlow,
+        growthRiskYieldValue,
+        timeframe
       ),
       hard_asset_avg_apy: calculateSimpleApy(
-        hardAssetDailyYield,
-        hardAssetYieldValue
+        hardAssetYieldFlow,
+        hardAssetYieldValue,
+        timeframe
       ),
       wallet_yield_debug: walletYieldDebug,
     });
