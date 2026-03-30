@@ -123,6 +123,14 @@ function getClaimableSnapshotValue(snapshot) {
   return safeNumber(snapshot.total_claimable_usd);
 }
 
+function getPendingSnapshotValue(snapshot) {
+  return safeNumber(snapshot.total_pending_usd);
+}
+
+function getEffectiveYieldSnapshotValue(snapshot) {
+  return getClaimableSnapshotValue(snapshot) + getPendingSnapshotValue(snapshot);
+}
+
 function buildLatestPerWallet(snapshots) {
   const latestPerWallet = new Map();
 
@@ -168,12 +176,16 @@ function buildBucketTotals(snapshots, timeframe) {
         bucket_key: bucketKey,
         portfolio_total_usd: 0,
         claimable_total_usd: 0,
+        pending_total_usd: 0,
+        effective_yield_total_usd: 0,
       });
     }
 
     const bucket = bucketTotals.get(bucketKey);
     bucket.portfolio_total_usd += getPortfolioSnapshotValue(snapshot);
     bucket.claimable_total_usd += getClaimableSnapshotValue(snapshot);
+    bucket.pending_total_usd += getPendingSnapshotValue(snapshot);
+    bucket.effective_yield_total_usd += getEffectiveYieldSnapshotValue(snapshot);
   }
 
   return Array.from(bucketTotals.values()).sort((a, b) =>
@@ -314,8 +326,8 @@ function buildWalletYieldDebug({
   walletId,
   role,
   latestSnapshot,
-  walletClaimableMin,
-  walletClaimableMax,
+  walletEffectiveYieldMin,
+  walletEffectiveYieldMax,
   walletYieldFlow,
   walletStableYieldValue,
   walletGrowthRiskYieldValue,
@@ -329,8 +341,14 @@ function buildWalletYieldDebug({
     latest_claimable: latestSnapshot
       ? safeNumber(latestSnapshot.total_claimable_usd)
       : null,
-    wallet_claimable_min: walletClaimableMin,
-    wallet_claimable_max: walletClaimableMax,
+    latest_pending: latestSnapshot
+      ? safeNumber(latestSnapshot.total_pending_usd)
+      : null,
+    latest_effective_yield: latestSnapshot
+      ? getEffectiveYieldSnapshotValue(latestSnapshot)
+      : null,
+    wallet_effective_yield_min: walletEffectiveYieldMin,
+    wallet_effective_yield_max: walletEffectiveYieldMax,
     wallet_yield_flow: walletYieldFlow,
     wallet_stable_yield_value: walletStableYieldValue,
     wallet_growth_risk_yield_value: walletGrowthRiskYieldValue,
@@ -428,23 +446,23 @@ module.exports = async function handler(req, res) {
       holdingsBySnapshotId.get(snapshotId).push(holding);
     }
 
-    const walletClaimableStats = new Map();
+    const walletEffectiveYieldStats = new Map();
 
     for (const snapshot of allSnapshots) {
       const walletId = snapshot.wallet_id;
-      const claimable = safeNumber(snapshot.total_claimable_usd);
+      const effectiveYield = getEffectiveYieldSnapshotValue(snapshot);
 
-      if (!walletClaimableStats.has(walletId)) {
-        walletClaimableStats.set(walletId, {
-          min: claimable,
-          max: claimable,
+      if (!walletEffectiveYieldStats.has(walletId)) {
+        walletEffectiveYieldStats.set(walletId, {
+          min: effectiveYield,
+          max: effectiveYield,
         });
         continue;
       }
 
-      const stats = walletClaimableStats.get(walletId);
-      stats.min = Math.min(stats.min, claimable);
-      stats.max = Math.max(stats.max, claimable);
+      const stats = walletEffectiveYieldStats.get(walletId);
+      stats.min = Math.min(stats.min, effectiveYield);
+      stats.max = Math.max(stats.max, effectiveYield);
     }
 
     let totalPortfolioValue = 0;
@@ -522,7 +540,7 @@ module.exports = async function handler(req, res) {
         else if (fallbackBucket === "swing") swingValue += remainder;
       }
 
-      const walletStats = walletClaimableStats.get(walletId) || { min: 0, max: 0 };
+      const walletStats = walletEffectiveYieldStats.get(walletId) || { min: 0, max: 0 };
       const walletYieldFlow = getRangeFlow(walletStats.max, walletStats.min);
       const walletYieldBase = walletStableYieldValue + walletGrowthRiskYieldValue;
 
@@ -536,8 +554,8 @@ module.exports = async function handler(req, res) {
           walletId,
           role,
           latestSnapshot: snapshot,
-          walletClaimableMin: walletStats.min,
-          walletClaimableMax: walletStats.max,
+          walletEffectiveYieldMin: walletStats.min,
+          walletEffectiveYieldMax: walletStats.max,
           walletYieldFlow,
           walletStableYieldValue,
           walletGrowthRiskYieldValue,
@@ -551,13 +569,17 @@ module.exports = async function handler(req, res) {
       stableYieldValue + growthRiskYieldValue + hardAssetYieldValue;
 
     const portfolioBucketValues = bucketTotals.map((bucket) => bucket.portfolio_total_usd);
-    const claimableBucketValues = bucketTotals.map((bucket) => bucket.claimable_total_usd);
+    const effectiveYieldBucketValues = bucketTotals.map(
+      (bucket) => bucket.effective_yield_total_usd
+    );
 
     const minPortfolioValue = getMinValue(portfolioBucketValues);
-    const minClaimableValue = getMinValue(claimableBucketValues, { ignoreZero: true });
-    const maxClaimableValue = getMaxValue(claimableBucketValues);
+    const minEffectiveYieldValue = getMinValue(effectiveYieldBucketValues, {
+      ignoreZero: true,
+    });
+    const maxEffectiveYieldValue = getMaxValue(effectiveYieldBucketValues);
 
-    const totalYieldFlow = getRangeFlow(maxClaimableValue, minClaimableValue);
+    const totalYieldFlow = getRangeFlow(maxEffectiveYieldValue, minEffectiveYieldValue);
 
     const stableFlowWeight =
       totalValueDistributed > 0 ? stableYieldValue / totalValueDistributed : 0;
@@ -586,8 +608,8 @@ module.exports = async function handler(req, res) {
         minPortfolioValue
       ),
       passive_income_change_pct: getChangePctFromMin(
-        minClaimableValue,
-        maxClaimableValue
+        maxEffectiveYieldValue,
+        minEffectiveYieldValue
       ),
       realized_gains_change_pct: null,
       realized_losses_change_pct: null,
