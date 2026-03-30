@@ -183,7 +183,6 @@ function buildNormalizedClaimableBySnapshotId(snapshots, { suppressRollover = fa
     );
 
     let prev = null;
-    let prevNormalizedClaimable = null;
     let frozenClaimable = null;
 
     for (const snapshot of walletSnapshots) {
@@ -191,16 +190,16 @@ function buildNormalizedClaimableBySnapshotId(snapshots, { suppressRollover = fa
       const currentPending = getPendingSnapshotValue(snapshot);
 
       if (suppressRollover && prev && isPendingToClaimableRollover(prev, snapshot)) {
-        frozenClaimable =
-          prevNormalizedClaimable !== null
-            ? prevNormalizedClaimable
-            : getClaimableSnapshotValue(prev);
+        frozenClaimable = getClaimableSnapshotValue(prev);
       }
 
       let normalizedClaimable = rawClaimable;
 
       if (suppressRollover && frozenClaimable !== null) {
-        if (currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD) {
+        if (
+          currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
+          rawClaimable >= frozenClaimable
+        ) {
           normalizedClaimable = frozenClaimable;
         } else {
           frozenClaimable = null;
@@ -210,7 +209,6 @@ function buildNormalizedClaimableBySnapshotId(snapshots, { suppressRollover = fa
 
       normalized.set(snapshot.id, normalizedClaimable);
       prev = snapshot;
-      prevNormalizedClaimable = normalizedClaimable;
     }
   }
 

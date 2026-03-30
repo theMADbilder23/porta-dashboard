@@ -350,10 +350,6 @@ function buildDailySummary(snapshots) {
     "daily",
     normalizedClaimableBySnapshotKey
   );
-  const currentTotals = buildLatestCurrentTotals(
-    snapshots,
-    normalizedClaimableBySnapshotKey
-  );
   const currentTotals = buildLatestCurrentTotals(snapshots);
 
   const portfolioValues = bucketSeries.map((row) => safeNumber(row.total_value_usd));
