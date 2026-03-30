@@ -179,6 +179,7 @@ function buildNormalizedClaimableMap(snapshots, { suppressRollover = false } = {
     );
 
     let prev = null;
+    let prevNormalizedClaimable = null;
     let frozenClaimable = null;
 
     for (const snapshot of walletSnapshots) {
@@ -186,16 +187,16 @@ function buildNormalizedClaimableMap(snapshots, { suppressRollover = false } = {
       const currentPending = getPendingValue(snapshot);
 
       if (suppressRollover && prev && isPendingToClaimableRollover(prev, snapshot)) {
-        frozenClaimable = getClaimableValue(prev);
+        frozenClaimable =
+          prevNormalizedClaimable !== null
+            ? prevNormalizedClaimable
+            : getClaimableValue(prev);
       }
 
       let normalizedClaimable = rawClaimable;
 
       if (suppressRollover && frozenClaimable !== null) {
-        if (
-          currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
-          rawClaimable >= frozenClaimable
-        ) {
+        if (currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD) {
           normalizedClaimable = frozenClaimable;
         } else {
           frozenClaimable = null;
@@ -205,13 +206,17 @@ function buildNormalizedClaimableMap(snapshots, { suppressRollover = false } = {
 
       normalized.set(makeSnapshotKey(snapshot), normalizedClaimable);
       prev = snapshot;
+      prevNormalizedClaimable = normalizedClaimable;
     }
   }
 
   return normalized;
 }
 
-function buildLatestCurrentTotals(snapshots) {
+function buildLatestCurrentTotals(
+  snapshots,
+  normalizedClaimableBySnapshotKey = new Map()
+) {
   const latestPerWallet = buildLatestPerWallet(snapshots);
 
   let totalPortfolioValue = 0;
@@ -220,7 +225,13 @@ function buildLatestCurrentTotals(snapshots) {
 
   for (const snapshot of latestPerWallet.values()) {
     totalPortfolioValue += getPortfolioValue(snapshot);
-    totalClaimableValue += getClaimableValue(snapshot);
+
+    const snapshotKey = makeSnapshotKey(snapshot);
+    const normalizedClaimable = normalizedClaimableBySnapshotKey.has(snapshotKey)
+      ? safeNumber(normalizedClaimableBySnapshotKey.get(snapshotKey))
+      : getClaimableValue(snapshot);
+
+    totalClaimableValue += normalizedClaimable;
 
     if (
       !latestSnapshotTime ||
@@ -337,6 +348,10 @@ function buildDailySummary(snapshots) {
   const bucketSeries = buildBucketSeries(
     snapshots,
     "daily",
+    normalizedClaimableBySnapshotKey
+  );
+  const currentTotals = buildLatestCurrentTotals(
+    snapshots,
     normalizedClaimableBySnapshotKey
   );
   const currentTotals = buildLatestCurrentTotals(snapshots);
