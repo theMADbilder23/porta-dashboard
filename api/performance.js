@@ -5,6 +5,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+const ROLLOVER_PENDING_HIGH_THRESHOLD = 5;
+const ROLLOVER_PENDING_LOW_THRESHOLD = 2;
+
 function safeNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
@@ -118,10 +121,6 @@ function getPendingValue(snapshot) {
   return safeNumber(snapshot.total_pending_usd);
 }
 
-function getEffectiveYieldValue(snapshot) {
-  return getClaimableValue(snapshot) + getPendingValue(snapshot);
-}
-
 function buildLatestPerWallet(snapshots) {
   const latestPerWallet = new Map();
 
@@ -140,20 +139,88 @@ function buildLatestPerWallet(snapshots) {
   return latestPerWallet;
 }
 
+function makeSnapshotKey(snapshot) {
+  return `${snapshot.wallet_id}__${snapshot.snapshot_time}`;
+}
+
+function isPendingToClaimableRollover(prevSnapshot, currentSnapshot) {
+  const prevPending = getPendingValue(prevSnapshot);
+  const currentPending = getPendingValue(currentSnapshot);
+  const prevClaimable = getClaimableValue(prevSnapshot);
+  const currentClaimable = getClaimableValue(currentSnapshot);
+
+  const pendingDrop = prevPending - currentPending;
+  const claimableRise = currentClaimable - prevClaimable;
+
+  if (prevPending <= ROLLOVER_PENDING_HIGH_THRESHOLD) return false;
+  if (currentPending > ROLLOVER_PENDING_LOW_THRESHOLD) return false;
+  if (pendingDrop <= 0) return false;
+  if (claimableRise <= 0) return false;
+
+  const tolerance = Math.max(2, pendingDrop * 0.35);
+
+  return Math.abs(claimableRise - pendingDrop) <= tolerance;
+}
+
+function buildNormalizedClaimableMap(snapshots, { suppressRollover = false } = {}) {
+  const normalized = new Map();
+  const snapshotsByWallet = new Map();
+
+  for (const snapshot of snapshots) {
+    if (!snapshotsByWallet.has(snapshot.wallet_id)) {
+      snapshotsByWallet.set(snapshot.wallet_id, []);
+    }
+    snapshotsByWallet.get(snapshot.wallet_id).push(snapshot);
+  }
+
+  for (const walletSnapshots of snapshotsByWallet.values()) {
+    walletSnapshots.sort(
+      (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
+    );
+
+    let prev = null;
+    let frozenClaimable = null;
+
+    for (const snapshot of walletSnapshots) {
+      const rawClaimable = getClaimableValue(snapshot);
+      const currentPending = getPendingValue(snapshot);
+
+      if (suppressRollover && prev && isPendingToClaimableRollover(prev, snapshot)) {
+        frozenClaimable = getClaimableValue(prev);
+      }
+
+      let normalizedClaimable = rawClaimable;
+
+      if (suppressRollover && frozenClaimable !== null) {
+        if (
+          currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
+          rawClaimable >= frozenClaimable
+        ) {
+          normalizedClaimable = frozenClaimable;
+        } else {
+          frozenClaimable = null;
+          normalizedClaimable = rawClaimable;
+        }
+      }
+
+      normalized.set(makeSnapshotKey(snapshot), normalizedClaimable);
+      prev = snapshot;
+    }
+  }
+
+  return normalized;
+}
+
 function buildLatestCurrentTotals(snapshots) {
   const latestPerWallet = buildLatestPerWallet(snapshots);
 
   let totalPortfolioValue = 0;
   let totalClaimableValue = 0;
-  let totalPendingValue = 0;
-  let totalEffectiveYieldValue = 0;
   let latestSnapshotTime = null;
 
   for (const snapshot of latestPerWallet.values()) {
     totalPortfolioValue += getPortfolioValue(snapshot);
     totalClaimableValue += getClaimableValue(snapshot);
-    totalPendingValue += getPendingValue(snapshot);
-    totalEffectiveYieldValue += getEffectiveYieldValue(snapshot);
 
     if (
       !latestSnapshotTime ||
@@ -167,12 +234,14 @@ function buildLatestCurrentTotals(snapshots) {
     snapshot_time: latestSnapshotTime,
     total_value_usd: totalPortfolioValue,
     total_claimable_usd: totalClaimableValue,
-    total_pending_usd: totalPendingValue,
-    total_effective_yield_usd: totalEffectiveYieldValue,
   };
 }
 
-function buildBucketSeries(snapshots, timeframe) {
+function buildBucketSeries(
+  snapshots,
+  timeframe,
+  normalizedClaimableBySnapshotKey = new Map()
+) {
   const latestPerWalletPerBucket = new Map();
 
   for (const snapshot of snapshots) {
@@ -200,16 +269,17 @@ function buildBucketSeries(snapshots, timeframe) {
         snapshot_time: snapshot.snapshot_time,
         total_value_usd: 0,
         total_claimable_usd: 0,
-        total_pending_usd: 0,
-        total_effective_yield_usd: 0,
       });
     }
 
     const bucket = bucketTotals.get(bucketKey);
+    const snapshotKey = makeSnapshotKey(snapshot);
+    const normalizedClaimable = normalizedClaimableBySnapshotKey.has(snapshotKey)
+      ? safeNumber(normalizedClaimableBySnapshotKey.get(snapshotKey))
+      : getClaimableValue(snapshot);
+
     bucket.total_value_usd += getPortfolioValue(snapshot);
-    bucket.total_claimable_usd += getClaimableValue(snapshot);
-    bucket.total_pending_usd += getPendingValue(snapshot);
-    bucket.total_effective_yield_usd += getEffectiveYieldValue(snapshot);
+    bucket.total_claimable_usd += normalizedClaimable;
 
     if (
       new Date(snapshot.snapshot_time).getTime() >
@@ -260,28 +330,32 @@ function getRangeFlow(maxValue, minValue) {
 }
 
 function buildDailySummary(snapshots) {
-  const bucketSeries = buildBucketSeries(snapshots, "daily");
+  const normalizedClaimableBySnapshotKey = buildNormalizedClaimableMap(snapshots, {
+    suppressRollover: true,
+  });
+
+  const bucketSeries = buildBucketSeries(
+    snapshots,
+    "daily",
+    normalizedClaimableBySnapshotKey
+  );
   const currentTotals = buildLatestCurrentTotals(snapshots);
 
   const portfolioValues = bucketSeries.map((row) => safeNumber(row.total_value_usd));
-  const effectiveYieldValues = bucketSeries.map((row) =>
-    safeNumber(row.total_effective_yield_usd)
-  );
-  const nonZeroEffectiveYieldValues = effectiveYieldValues.filter((value) => value > 0);
+  const claimableValues = bucketSeries.map((row) => safeNumber(row.total_claimable_usd));
+  const nonZeroClaimableValues = claimableValues.filter((value) => value > 0);
 
   const avgPortfolio = getAverage(portfolioValues);
   const minPortfolio = getMin(portfolioValues);
   const maxPortfolio = getMax(portfolioValues);
 
-  const effectiveYieldAverageSource =
-    nonZeroEffectiveYieldValues.length > 0
-      ? nonZeroEffectiveYieldValues
-      : effectiveYieldValues;
+  const claimableAverageSource =
+    nonZeroClaimableValues.length > 0 ? nonZeroClaimableValues : claimableValues;
 
-  const avgEffectiveYield = getAverage(effectiveYieldAverageSource);
-  const minEffectiveYield = getMin(effectiveYieldValues, { ignoreZero: true });
-  const maxEffectiveYield = getMax(effectiveYieldValues);
-  const currentYieldFlow = getRangeFlow(maxEffectiveYield, minEffectiveYield);
+  const avgClaimable = getAverage(claimableAverageSource);
+  const minClaimable = getMin(claimableValues, { ignoreZero: true });
+  const maxClaimable = getMax(claimableValues);
+  const currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
 
   return {
     mode: "daily_summary",
@@ -292,8 +366,6 @@ function buildDailySummary(snapshots) {
 
     total_value_usd: currentTotals.total_value_usd,
     total_claimable_usd: currentTotals.total_claimable_usd,
-    total_pending_usd: currentTotals.total_pending_usd,
-    total_effective_yield_usd: currentTotals.total_effective_yield_usd,
     current_yield_flow_usd: currentYieldFlow,
 
     avg_total_value_usd: avgPortfolio,
@@ -305,16 +377,13 @@ function buildDailySummary(snapshots) {
       maxPortfolio
     ),
 
-    avg_total_claimable_usd: avgEffectiveYield,
-    min_total_claimable_usd: minEffectiveYield,
-    max_total_claimable_usd: maxEffectiveYield,
-    range_min_to_max_total_claimable_pct: getPctChange(
-      minEffectiveYield,
-      maxEffectiveYield
-    ),
+    avg_total_claimable_usd: avgClaimable,
+    min_total_claimable_usd: minClaimable,
+    max_total_claimable_usd: maxClaimable,
+    range_min_to_max_total_claimable_pct: getPctChange(minClaimable, maxClaimable),
     range_current_to_max_total_claimable_pct: getPctChange(
-      currentTotals.total_effective_yield_usd,
-      maxEffectiveYield
+      currentTotals.total_claimable_usd,
+      maxClaimable
     ),
 
     snapshot_count: bucketSeries.length,
@@ -343,9 +412,7 @@ module.exports = async function handler(req, res) {
 
     const { data: snapshots, error: snapshotsError } = await supabase
       .from("wallet_snapshots")
-      .select(
-        "wallet_id, snapshot_time, total_value_usd, total_claimable_usd, total_pending_usd"
-      )
+      .select("wallet_id, snapshot_time, total_value_usd, total_claimable_usd, total_pending_usd")
       .in("wallet_id", walletIds)
       .gte(
         "snapshot_time",
@@ -375,9 +442,7 @@ module.exports = async function handler(req, res) {
       label: makeTrendBucketLabel(row.bucketKey, timeframe),
       metric_label: `${capitalizeTimeframe(timeframe)} Yield Flow`,
       total_value_usd: row.total_value_usd,
-      total_claimable_usd: row.total_effective_yield_usd,
-      total_pending_usd: row.total_pending_usd,
-      total_effective_yield_usd: row.total_effective_yield_usd,
+      total_claimable_usd: row.total_claimable_usd,
     }));
 
     return res.status(200).json(result);
