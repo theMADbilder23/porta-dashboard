@@ -6,8 +6,6 @@ const supabase = createClient(
 );
 
 const STABLE_SYMBOLS = new Set(["USDC", "USDT", "USDM", "DAI"]);
-const ROLLOVER_PENDING_HIGH_THRESHOLD = 5;
-const ROLLOVER_PENDING_LOW_THRESHOLD = 2;
 
 function safeNumber(value) {
   const n = Number(value);
@@ -129,6 +127,10 @@ function getPendingSnapshotValue(snapshot) {
   return safeNumber(snapshot.total_pending_usd);
 }
 
+function getDyfSnapshotValue(snapshot) {
+  return getClaimableSnapshotValue(snapshot) + getPendingSnapshotValue(snapshot);
+}
+
 function buildLatestPerWallet(snapshots) {
   const latestPerWallet = new Map();
 
@@ -147,79 +149,7 @@ function buildLatestPerWallet(snapshots) {
   return latestPerWallet;
 }
 
-function isPendingToClaimableRollover(prevSnapshot, currentSnapshot) {
-  const prevPending = getPendingSnapshotValue(prevSnapshot);
-  const currentPending = getPendingSnapshotValue(currentSnapshot);
-  const prevClaimable = getClaimableSnapshotValue(prevSnapshot);
-  const currentClaimable = getClaimableSnapshotValue(currentSnapshot);
-
-  const pendingDrop = prevPending - currentPending;
-  const claimableRise = currentClaimable - prevClaimable;
-
-  if (prevPending <= ROLLOVER_PENDING_HIGH_THRESHOLD) return false;
-  if (currentPending > ROLLOVER_PENDING_LOW_THRESHOLD) return false;
-  if (pendingDrop <= 0) return false;
-  if (claimableRise <= 0) return false;
-
-  const tolerance = Math.max(2, pendingDrop * 0.35);
-
-  return Math.abs(claimableRise - pendingDrop) <= tolerance;
-}
-
-function buildNormalizedClaimableBySnapshotId(snapshots, { suppressRollover = false } = {}) {
-  const normalized = new Map();
-  const snapshotsByWallet = new Map();
-
-  for (const snapshot of snapshots) {
-    if (!snapshotsByWallet.has(snapshot.wallet_id)) {
-      snapshotsByWallet.set(snapshot.wallet_id, []);
-    }
-    snapshotsByWallet.get(snapshot.wallet_id).push(snapshot);
-  }
-
-  for (const walletSnapshots of snapshotsByWallet.values()) {
-    walletSnapshots.sort(
-      (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
-    );
-
-    let prev = null;
-    let frozenClaimable = null;
-
-    for (const snapshot of walletSnapshots) {
-      const rawClaimable = getClaimableSnapshotValue(snapshot);
-      const currentPending = getPendingSnapshotValue(snapshot);
-
-      if (suppressRollover && prev && isPendingToClaimableRollover(prev, snapshot)) {
-        frozenClaimable = getClaimableSnapshotValue(prev);
-      }
-
-      let normalizedClaimable = rawClaimable;
-
-      if (suppressRollover && frozenClaimable !== null) {
-        if (
-          currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
-          rawClaimable >= frozenClaimable
-        ) {
-          normalizedClaimable = frozenClaimable;
-        } else {
-          frozenClaimable = null;
-          normalizedClaimable = rawClaimable;
-        }
-      }
-
-      normalized.set(snapshot.id, normalizedClaimable);
-      prev = snapshot;
-    }
-  }
-
-  return normalized;
-}
-
-function buildBucketTotals(
-  snapshots,
-  timeframe,
-  normalizedClaimableBySnapshotId = new Map()
-) {
+function buildBucketTotals(snapshots, timeframe) {
   const latestPerWalletPerBucket = new Map();
 
   for (const snapshot of snapshots) {
@@ -245,17 +175,18 @@ function buildBucketTotals(
       bucketTotals.set(bucketKey, {
         bucket_key: bucketKey,
         portfolio_total_usd: 0,
+        dyf_total_usd: 0,
         claimable_total_usd: 0,
+        pending_total_usd: 0,
       });
     }
 
     const bucket = bucketTotals.get(bucketKey);
-    const normalizedClaimable = normalizedClaimableBySnapshotId.has(snapshot.id)
-      ? safeNumber(normalizedClaimableBySnapshotId.get(snapshot.id))
-      : getClaimableSnapshotValue(snapshot);
 
     bucket.portfolio_total_usd += getPortfolioSnapshotValue(snapshot);
-    bucket.claimable_total_usd += normalizedClaimable;
+    bucket.dyf_total_usd += getDyfSnapshotValue(snapshot);
+    bucket.claimable_total_usd += getClaimableSnapshotValue(snapshot);
+    bucket.pending_total_usd += getPendingSnapshotValue(snapshot);
   }
 
   return Array.from(bucketTotals.values()).sort((a, b) =>
@@ -396,8 +327,8 @@ function buildWalletYieldDebug({
   walletId,
   role,
   latestSnapshot,
-  walletClaimableMin,
-  walletClaimableMax,
+  walletDyfMin,
+  walletDyfMax,
   walletYieldFlow,
   walletStableYieldValue,
   walletGrowthRiskYieldValue,
@@ -414,8 +345,11 @@ function buildWalletYieldDebug({
     latest_pending: latestSnapshot
       ? safeNumber(latestSnapshot.total_pending_usd)
       : null,
-    wallet_claimable_min: walletClaimableMin,
-    wallet_claimable_max: walletClaimableMax,
+    latest_dyf_value: latestSnapshot
+      ? getDyfSnapshotValue(latestSnapshot)
+      : null,
+    wallet_dyf_min: walletDyfMin,
+    wallet_dyf_max: walletDyfMax,
     wallet_yield_flow: walletYieldFlow,
     wallet_stable_yield_value: walletStableYieldValue,
     wallet_growth_risk_yield_value: walletGrowthRiskYieldValue,
@@ -473,21 +407,11 @@ module.exports = async function handler(req, res) {
       return res.status(200).json(getEmptyResponse(timeframe));
     }
 
-    const suppressRollover = timeframe === "daily";
-    const normalizedClaimableBySnapshotId = buildNormalizedClaimableBySnapshotId(
-      allSnapshots,
-      { suppressRollover }
-    );
-
     const latestPerWallet = buildLatestPerWallet(allSnapshots);
     const latestSnapshots = Array.from(latestPerWallet.values());
     const latestSnapshotIds = latestSnapshots.map((snapshot) => snapshot.id);
 
-    const bucketTotals = buildBucketTotals(
-      allSnapshots,
-      timeframe,
-      normalizedClaimableBySnapshotId
-    );
+    const bucketTotals = buildBucketTotals(allSnapshots, timeframe);
 
     const walletRoleMap = new Map(
       activeWallets.map((wallet) => [wallet.id, normalizeRole(wallet.role)])
@@ -523,25 +447,23 @@ module.exports = async function handler(req, res) {
       holdingsBySnapshotId.get(snapshotId).push(holding);
     }
 
-    const walletClaimableStats = new Map();
+    const walletDyfStats = new Map();
 
     for (const snapshot of allSnapshots) {
       const walletId = snapshot.wallet_id;
-      const normalizedClaimable = normalizedClaimableBySnapshotId.has(snapshot.id)
-        ? safeNumber(normalizedClaimableBySnapshotId.get(snapshot.id))
-        : getClaimableSnapshotValue(snapshot);
+      const dyfValue = getDyfSnapshotValue(snapshot);
 
-      if (!walletClaimableStats.has(walletId)) {
-        walletClaimableStats.set(walletId, {
-          min: normalizedClaimable,
-          max: normalizedClaimable,
+      if (!walletDyfStats.has(walletId)) {
+        walletDyfStats.set(walletId, {
+          min: dyfValue,
+          max: dyfValue,
         });
         continue;
       }
 
-      const stats = walletClaimableStats.get(walletId);
-      stats.min = Math.min(stats.min, normalizedClaimable);
-      stats.max = Math.max(stats.max, normalizedClaimable);
+      const stats = walletDyfStats.get(walletId);
+      stats.min = Math.min(stats.min, dyfValue);
+      stats.max = Math.max(stats.max, dyfValue);
     }
 
     let totalPortfolioValue = 0;
@@ -619,7 +541,7 @@ module.exports = async function handler(req, res) {
         else if (fallbackBucket === "swing") swingValue += remainder;
       }
 
-      const walletStats = walletClaimableStats.get(walletId) || { min: 0, max: 0 };
+      const walletStats = walletDyfStats.get(walletId) || { min: 0, max: 0 };
       const walletYieldFlow = getRangeFlow(walletStats.max, walletStats.min);
       const walletYieldBase = walletStableYieldValue + walletGrowthRiskYieldValue;
 
@@ -633,8 +555,8 @@ module.exports = async function handler(req, res) {
           walletId,
           role,
           latestSnapshot: snapshot,
-          walletClaimableMin: walletStats.min,
-          walletClaimableMax: walletStats.max,
+          walletDyfMin: walletStats.min,
+          walletDyfMax: walletStats.max,
           walletYieldFlow,
           walletStableYieldValue,
           walletGrowthRiskYieldValue,
@@ -648,13 +570,13 @@ module.exports = async function handler(req, res) {
       stableYieldValue + growthRiskYieldValue + hardAssetYieldValue;
 
     const portfolioBucketValues = bucketTotals.map((bucket) => bucket.portfolio_total_usd);
-    const claimableBucketValues = bucketTotals.map((bucket) => bucket.claimable_total_usd);
+    const dyfBucketValues = bucketTotals.map((bucket) => bucket.dyf_total_usd);
 
     const minPortfolioValue = getMinValue(portfolioBucketValues);
-    const minClaimableValue = getMinValue(claimableBucketValues, { ignoreZero: true });
-    const maxClaimableValue = getMaxValue(claimableBucketValues);
+    const minDyfValue = getMinValue(dyfBucketValues, { ignoreZero: true });
+    const maxDyfValue = getMaxValue(dyfBucketValues);
 
-    const totalYieldFlow = getRangeFlow(maxClaimableValue, minClaimableValue);
+    const totalYieldFlow = getRangeFlow(maxDyfValue, minDyfValue);
 
     const stableFlowWeight =
       totalValueDistributed > 0 ? stableYieldValue / totalValueDistributed : 0;
@@ -683,8 +605,8 @@ module.exports = async function handler(req, res) {
         minPortfolioValue
       ),
       passive_income_change_pct: getChangePctFromMin(
-        minClaimableValue,
-        maxClaimableValue
+        minDyfValue,
+        maxDyfValue
       ),
       realized_gains_change_pct: null,
       realized_losses_change_pct: null,
