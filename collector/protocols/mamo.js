@@ -1,4 +1,4 @@
-import { createPublicClient, http } from "viem";
+import { createPublicClient, http, getAddress } from "viem";
 import { base } from "viem/chains";
 
 const client = createPublicClient({
@@ -6,11 +6,15 @@ const client = createPublicClient({
   transport: http(),
 });
 
-const MAMO_STAKING = "0x7855B0821401Ab078f6Cf457dEAFae775fF6c7A3";
-const MAMO_STRATEGY = "0x51c5290167e933fdDB5B27A1690377dB05813FBa";
+// MultiRewards staking contract
+const MAMO_STAKING = getAddress("0x7855B0821401Ab078f6Cf457dEAFae775fF6c7A3");
 
-const MAMO_TOKEN = "0x7300B37DfdAb110d83290A29DfB31B1740219fE";
-const CBBTC_TOKEN = "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf";
+// User strategy contract for your HUB wallet
+const MAMO_STRATEGY = getAddress("0x51c5290167e933fdDB5B27A1690377dB05813FBa");
+
+// Reward / staking tokens
+const MAMO_TOKEN = getAddress("0x7300b37dfdfab110d83290a29dfb31b1740219fe");
+const CBBTC_TOKEN = getAddress("0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf");
 
 const ABI = [
   {
@@ -32,13 +36,13 @@ const ABI = [
   },
 ];
 
-function formatUnits(value, decimals) {
-  return Number(value) / 10 ** decimals;
-}
-
 function safeNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
+}
+
+function formatUnits(value, decimals) {
+  return Number(value) / 10 ** decimals;
 }
 
 function getPriceMapFromDebank(context = {}) {
@@ -58,7 +62,7 @@ function getPriceMapFromDebank(context = {}) {
 
   return {
     MAMO: map.get("MAMO") || 0,
-    CBBTC: map.get("CBBTC") || map.get("CBBTC") || map.get("BTC") || 0,
+    CBBTC: map.get("CBBTC") || map.get("BTC") || 0,
   };
 }
 
