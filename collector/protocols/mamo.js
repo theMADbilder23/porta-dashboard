@@ -1,16 +1,15 @@
 import { createPublicClient, http, getAddress } from "viem";
 import { base } from "viem/chains";
 
-const BASE_RPC_URL = process.env.BASE_RPC_URL || "https://mainnet.base.org";
+const BASE_RPC_URL = process.env.BASE_RPC_URL;
 
 const client = createPublicClient({
   chain: base,
-  transport: http(BASE_RPC_URL),
+  transport: BASE_RPC_URL ? http(BASE_RPC_URL) : http(),
 });
 
-const MAMO_STAKING = getAddress("0x7855B0821401Ab078f6Cf457dEAFae775Ff6c7A3");
+const MAMO_STAKING = getAddress("0x7855B0821401Ab078f6Cf457dEAFae775fF6c7A3");
 const MAMO_STRATEGY = getAddress("0x51c5290167e933fdDB5B27A1690377dB05813FBa");
-
 const MAMO_TOKEN = getAddress("0x7300b37dfdfab110d83290a29dfb31b1740219fe");
 const CBBTC_TOKEN = getAddress("0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf");
 
@@ -43,155 +42,59 @@ function formatUnits(value, decimals) {
   return Number(value) / 10 ** decimals;
 }
 
-function normalizeAddress(value) {
-  try {
-    return value ? getAddress(value) : null;
-  } catch {
-    return null;
-  }
-}
-
-async function getTokenPriceFromDebank(chainId, tokenId) {
-  try {
-    const accessKey = process.env.DEBANK_API_KEY;
-    if (!accessKey) return 0;
-
-    const url = `https://pro-openapi.debank.com/v1/token?chain_id=${chainId}&id=${tokenId}`;
-
-    const res = await fetch(url, {
-      method: "GET",
-      headers: {
-        accept: "application/json",
-        AccessKey: accessKey,
-      },
-    });
-
-    if (!res.ok) return 0;
-
-    const json = await res.json();
-    return safeNumber(json?.price);
-  } catch (e) {
-    console.warn("[mamo] price fetch error", e?.message);
-    return 0;
-  }
-}
-
-async function getPriceMapFromDebank(context = {}) {
+function getPriceMapFromDebank(context = {}) {
   const debankData = context.debankData || {};
   const allTokens = Array.isArray(debankData.allTokens) ? debankData.allTokens : [];
 
-  const bySymbol = new Map();
-  const byAddress = new Map();
+  const map = new Map();
 
   for (const token of allTokens) {
-    const symbol = String(token?.optimized_symbol || token?.symbol || "")
-      .trim()
-      .toUpperCase();
-
+    const symbol = String(token?.optimized_symbol || token?.symbol || "").toUpperCase();
     const price = safeNumber(token?.price);
-    const id = normalizeAddress(token?.id);
-    const address =
-      normalizeAddress(token?.address) ||
-      normalizeAddress(token?.token_address);
 
-    if (symbol && price > 0 && !bySymbol.has(symbol)) {
-      bySymbol.set(symbol, price);
+    if (symbol && price > 0) {
+      map.set(symbol, price);
     }
-
-    if (id && price > 0 && !byAddress.has(id)) {
-      byAddress.set(id, price);
-    }
-
-    if (address && price > 0 && !byAddress.has(address)) {
-      byAddress.set(address, price);
-    }
-  }
-
-  let mamoPrice =
-    byAddress.get(MAMO_TOKEN) ||
-    bySymbol.get("MAMO") ||
-    0;
-
-  let cbBtcPrice =
-    byAddress.get(CBBTC_TOKEN) ||
-    bySymbol.get("CBBTC") ||
-    bySymbol.get("BTC") ||
-    0;
-
-  // 🔥 Fallback to direct DeBank API
-  if (!mamoPrice) {
-    mamoPrice = await getTokenPriceFromDebank("base", MAMO_TOKEN);
-  }
-
-  if (!cbBtcPrice) {
-    cbBtcPrice = await getTokenPriceFromDebank("base", CBBTC_TOKEN);
   }
 
   return {
-    MAMO: mamoPrice,
-    CBBTC: cbBtcPrice,
-  };
-}
-
-  return {
-    MAMO:
-      byAddress.get(MAMO_TOKEN) ||
-      bySymbol.get("MAMO") ||
-      0,
-    CBBTC:
-      byAddress.get(CBBTC_TOKEN) ||
-      bySymbol.get("CBBTC") ||
-      bySymbol.get("CBBTC ") ||
-      bySymbol.get("BTC") ||
-      0,
+    MAMO: map.get("MAMO") || 0,
+    CBBTC: map.get("CBBTC") || map.get("CBBTC ") || map.get("CBBTC.") || map.get("BTC") || 0,
   };
 }
 
 export async function collectMamoProtocol(wallet, context = {}) {
-  const snapshotTime = context.snapshotTime || new Date().toISOString();
-  const prices = await getPriceMapFromDebank(context);
-
   try {
-    const walletAddress =
-      typeof wallet === "string"
-        ? wallet
-        : wallet?.wallet_address || wallet?.address || null;
+    const walletAddress = String(wallet?.wallet_address || "").toLowerCase();
+    const hubAddress = MAMO_STRATEGY.toLowerCase();
 
-    if (!walletAddress) {
-      console.warn("[mamo] missing wallet address", { wallet });
+    if (walletAddress !== hubAddress) {
       return [];
     }
 
-    const normalizedWallet = getAddress(walletAddress);
+    const snapshotTime = context.snapshotTime || new Date().toISOString();
+    const prices = getPriceMapFromDebank(context);
 
-    const [principalResult, mamoRewardResult, cbBtcRewardResult] =
-      await Promise.allSettled([
-        client.readContract({
-          address: MAMO_STAKING,
-          abi: ABI,
-          functionName: "balanceOf",
-          args: [MAMO_STRATEGY],
-        }),
-        client.readContract({
-          address: MAMO_STAKING,
-          abi: ABI,
-          functionName: "earned",
-          args: [MAMO_STRATEGY, MAMO_TOKEN],
-        }),
-        client.readContract({
-          address: MAMO_STAKING,
-          abi: ABI,
-          functionName: "earned",
-          args: [MAMO_STRATEGY, CBBTC_TOKEN],
-        }),
-      ]);
-
-    const rawPrincipal =
-      principalResult.status === "fulfilled" ? principalResult.value : 0n;
-    const rawMamoRewards =
-      mamoRewardResult.status === "fulfilled" ? mamoRewardResult.value : 0n;
-    const rawCbBtcRewards =
-      cbBtcRewardResult.status === "fulfilled" ? cbBtcRewardResult.value : 0n;
+    const [rawPrincipal, rawMamoRewards, rawCbBtcRewards] = await Promise.all([
+      client.readContract({
+        address: MAMO_STAKING,
+        abi: ABI,
+        functionName: "balanceOf",
+        args: [MAMO_STRATEGY],
+      }),
+      client.readContract({
+        address: MAMO_STAKING,
+        abi: ABI,
+        functionName: "earned",
+        args: [MAMO_STRATEGY, MAMO_TOKEN],
+      }),
+      client.readContract({
+        address: MAMO_STAKING,
+        abi: ABI,
+        functionName: "earned",
+        args: [MAMO_STRATEGY, CBBTC_TOKEN],
+      }),
+    ]);
 
     const principalAmount = formatUnits(rawPrincipal, 18);
     const mamoRewardAmount = formatUnits(rawMamoRewards, 18);
@@ -246,7 +149,6 @@ export async function collectMamoProtocol(wallet, context = {}) {
     }
 
     console.log("[mamo] contract-derived data", {
-      wallet: normalizedWallet,
       principalAmount,
       mamoRewardAmount,
       cbBtcRewardAmount,
