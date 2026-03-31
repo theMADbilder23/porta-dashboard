@@ -57,9 +57,35 @@ function getPriceMapFromDebank(context = {}) {
     }
   }
 
+  function getCbBtcPrice(map) {
+    return (
+      map.get("CBBTC") ||
+      map.get("CBBTC ") ||
+      map.get("CBBTC.") ||
+      map.get("CBBTC\n") ||
+      map.get("CBBTC\r") ||
+      map.get("CBBTC\t") ||
+      map.get("CBBTC-") ||
+      map.get("CBBTC_") ||
+      map.get("CBBTCUSD") ||
+      map.get("CBBTCUSDT") ||
+      map.get("CBBTC/USDT") ||
+      map.get("CBBTC/USDC") ||
+      map.get("CBBTC-USDT") ||
+      map.get("CBBTC-USDC") ||
+      map.get("CBBTCUSDC") ||
+      map.get("CB-BTC") ||
+      map.get("CB_BTC") ||
+      map.get("CBBTC") ||
+      map.get("WBTC") ||
+      map.get("BTC") ||
+      0
+    );
+  }
+
   return {
     MAMO: map.get("MAMO") || 0,
-    CBBTC: map.get("CBBTC") || map.get("CBBTC ") || map.get("CBBTC.") || map.get("BTC") || 0,
+    CBBTC: getCbBtcPrice(map),
   };
 }
 
