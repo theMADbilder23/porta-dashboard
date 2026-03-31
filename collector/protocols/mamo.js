@@ -1,5 +1,6 @@
 import { createPublicClient, http, getAddress } from "viem";
 import { base } from "viem/chains";
+import fetch from "node-fetch";
 
 const BASE_RPC_URL = process.env.BASE_RPC_URL || "https://mainnet.base.org";
 
@@ -51,7 +52,32 @@ function normalizeAddress(value) {
   }
 }
 
-function getPriceMapFromDebank(context = {}) {
+async function getTokenPriceFromDebank(chainId, tokenId) {
+  try {
+    const accessKey = process.env.DEBANK_API_KEY;
+    if (!accessKey) return 0;
+
+    const url = `https://pro-openapi.debank.com/v1/token?chain_id=${chainId}&id=${tokenId}`;
+
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        AccessKey: accessKey,
+      },
+    });
+
+    if (!res.ok) return 0;
+
+    const json = await res.json();
+    return safeNumber(json?.price);
+  } catch (e) {
+    console.warn("[mamo] price fetch error", e?.message);
+    return 0;
+  }
+}
+
+async function getPriceMapFromDebank(context = {}) {
   const debankData = context.debankData || {};
   const allTokens = Array.isArray(debankData.allTokens) ? debankData.allTokens : [];
 
@@ -82,6 +108,32 @@ function getPriceMapFromDebank(context = {}) {
     }
   }
 
+  let mamoPrice =
+    byAddress.get(MAMO_TOKEN) ||
+    bySymbol.get("MAMO") ||
+    0;
+
+  let cbBtcPrice =
+    byAddress.get(CBBTC_TOKEN) ||
+    bySymbol.get("CBBTC") ||
+    bySymbol.get("BTC") ||
+    0;
+
+  // 🔥 Fallback to direct DeBank API
+  if (!mamoPrice) {
+    mamoPrice = await getTokenPriceFromDebank("base", MAMO_TOKEN);
+  }
+
+  if (!cbBtcPrice) {
+    cbBtcPrice = await getTokenPriceFromDebank("base", CBBTC_TOKEN);
+  }
+
+  return {
+    MAMO: mamoPrice,
+    CBBTC: cbBtcPrice,
+  };
+}
+
   return {
     MAMO:
       byAddress.get(MAMO_TOKEN) ||
@@ -98,7 +150,7 @@ function getPriceMapFromDebank(context = {}) {
 
 export async function collectMamoProtocol(wallet, context = {}) {
   const snapshotTime = context.snapshotTime || new Date().toISOString();
-  const prices = getPriceMapFromDebank(context);
+  const prices = await getPriceMapFromDebank(context);
 
   try {
     const walletAddress =
