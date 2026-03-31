@@ -10,8 +10,12 @@ const client = createPublicClient({
 
 const DEBANK_API_KEY = process.env.DEBANK_API_KEY || "";
 
+// This is the strategy contract that actually holds the Mamo position
 const MAMO_STAKING = getAddress("0x7855B0821401Ab078f6Cf457dEAFae775fF6c7A3");
 const MAMO_STRATEGY = getAddress("0x51c5290167e933fdDB5B27A1690377dB05813FBa");
+
+// IMPORTANT: only this tracked wallet should emit the Mamo strategy rows
+const MAMO_OWNER_WALLET = getAddress("0x1B6891DB50377c5bE23878c3C83564e5Df881b30");
 
 const MAMO_TOKEN = getAddress("0x7300b37dfdfab110d83290a29dfb31b1740219fe");
 const CBBTC_TOKEN = getAddress("0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf");
@@ -169,6 +173,12 @@ export async function collectMamoProtocol(wallet, context = {}) {
     return [];
   }
 
+  // Prevent duplicate insertion across multiple tracked wallets.
+  // Only the owner wallet should emit this strategy's principal + rewards.
+  if (walletAddress !== MAMO_OWNER_WALLET) {
+    return [];
+  }
+
   const snapshotTime = context.snapshotTime || new Date().toISOString();
 
   try {
@@ -257,6 +267,7 @@ export async function collectMamoProtocol(wallet, context = {}) {
 
     console.log("[mamo] contract-derived data", {
       walletAddress,
+      ownerWallet: MAMO_OWNER_WALLET,
       strategy: MAMO_STRATEGY,
       principalAmount,
       mamoRewardAmount,
