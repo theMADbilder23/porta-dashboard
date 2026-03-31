@@ -28,11 +28,33 @@ function isMamoHolding(holding) {
   const name = normalizeText(holding?.token_name);
   const protocol = normalizeText(holding?.protocol);
 
-  return (
-    symbol === "mamo" ||
-    name.includes("mamo") ||
-    protocol === "mamo"
-  );
+  return symbol === "mamo" || name.includes("mamo") || protocol === "mamo";
+}
+
+function isRewardHolding(holding) {
+  return normalizeText(holding?.category) === "reward";
+}
+
+function sumRewardHoldingsUsd(holdings = []) {
+  return holdings.reduce((sum, holding) => {
+    if (!isRewardHolding(holding)) return sum;
+    return sum + safeNumber(holding?.value_usd || 0);
+  }, 0);
+}
+
+function sumRewardHoldingsAmount(holdings = [], rewardTokenSymbol = null) {
+  const normalizedTarget = normalizeText(rewardTokenSymbol);
+
+  return holdings.reduce((sum, holding) => {
+    if (!isRewardHolding(holding)) return sum;
+
+    if (normalizedTarget) {
+      const symbol = normalizeText(holding?.token_symbol);
+      if (symbol !== normalizedTarget) return sum;
+    }
+
+    return sum + safeNumber(holding?.amount || 0);
+  }, 0);
 }
 
 async function collectOneWallet(wallet) {
@@ -75,11 +97,7 @@ async function collectOneWallet(wallet) {
     25
   );
 
-  const topProtocols = getTopProtocols(
-    debankData.allProtocols,
-    5,
-    25
-  );
+  const topProtocols = getTopProtocols(debankData.allProtocols, 5, 25);
 
   const stkWellHolding = buildStkWellHolding(
     stkWellAmount,
@@ -88,21 +106,6 @@ async function collectOneWallet(wallet) {
   );
 
   const merklMetrics = buildSnapshotMetrics(merklRewards);
-
-  const snapshotPayload = {
-    wallet_id: wallet.id,
-    total_value_usd: totalWalletValue,
-    total_rewards_usd: safeNumber(merklMetrics.total_rewards_usd),
-    total_claimed_usd: safeNumber(merklMetrics.total_claimed_usd),
-    total_pending_usd: safeNumber(merklMetrics.total_pending_usd),
-    total_claimable_usd: safeNumber(merklMetrics.total_claimable_usd),
-    total_claimable_token: safeNumber(merklMetrics.total_claimable_token),
-    rewards_token_symbol: merklMetrics.rewards_token_symbol || null,
-    merkl_rewards_json: merklMetrics.merkl_rewards_json || null,
-    snapshot_time: snapshotTime,
-  };
-
-  const snapshot = await insertSnapshot(snapshotPayload);
 
   const hasCustomMamo = customProtocolHoldings.some(isMamoHolding);
 
@@ -120,6 +123,34 @@ async function collectOneWallet(wallet) {
     ...(stkWellHolding ? [stkWellHolding] : []),
     ...customProtocolHoldings,
   ];
+
+  const customRewardHoldings = customProtocolHoldings.filter(isRewardHolding);
+
+  const customRewardsUsd = sumRewardHoldingsUsd(customRewardHoldings);
+  const customRewardsTokenAmount = sumRewardHoldingsAmount(
+    customRewardHoldings,
+    merklMetrics.rewards_token_symbol || null
+  );
+
+  const snapshotPayload = {
+    wallet_id: wallet.id,
+    total_value_usd: totalWalletValue,
+    total_rewards_usd:
+      safeNumber(merklMetrics.total_rewards_usd) + safeNumber(customRewardsUsd),
+    total_claimed_usd: safeNumber(merklMetrics.total_claimed_usd),
+    total_pending_usd:
+      safeNumber(merklMetrics.total_pending_usd) + safeNumber(customRewardsUsd),
+    total_claimable_usd:
+      safeNumber(merklMetrics.total_claimable_usd) + safeNumber(customRewardsUsd),
+    total_claimable_token:
+      safeNumber(merklMetrics.total_claimable_token) +
+      safeNumber(customRewardsTokenAmount),
+    rewards_token_symbol: merklMetrics.rewards_token_symbol || null,
+    merkl_rewards_json: merklMetrics.merkl_rewards_json || null,
+    snapshot_time: snapshotTime,
+  };
+
+  const snapshot = await insertSnapshot(snapshotPayload);
 
   const holdingRows = allHoldings.map((holding) => ({
     snapshot_id: snapshot.id,
@@ -148,12 +179,14 @@ async function collectOneWallet(wallet) {
         snapshot_id: snapshot.id,
         has_custom_mamo: hasCustomMamo,
         snapshot_metrics: {
-          total_rewards_usd: merklMetrics.total_rewards_usd,
-          total_claimed_usd: merklMetrics.total_claimed_usd,
-          total_pending_usd: merklMetrics.total_pending_usd,
-          total_claimable_usd: merklMetrics.total_claimable_usd,
-          total_claimable_token: merklMetrics.total_claimable_token,
-          rewards_token_symbol: merklMetrics.rewards_token_symbol,
+          total_rewards_usd: snapshotPayload.total_rewards_usd,
+          total_claimed_usd: snapshotPayload.total_claimed_usd,
+          total_pending_usd: snapshotPayload.total_pending_usd,
+          total_claimable_usd: snapshotPayload.total_claimable_usd,
+          total_claimable_token: snapshotPayload.total_claimable_token,
+          rewards_token_symbol: snapshotPayload.rewards_token_symbol,
+          custom_rewards_usd: customRewardsUsd,
+          custom_rewards_token_amount: customRewardsTokenAmount,
         },
         merkl_rewards: {
           token: merklRewards.token,
