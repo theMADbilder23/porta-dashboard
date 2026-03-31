@@ -430,39 +430,6 @@ function buildWalletYieldDebug({
   };
 }
 
-function buildHoldingDedupKey(holding) {
-  return [
-    holding.wallet_id,
-    holding.snapshot_id,
-    normalizeSymbol(holding.token_symbol),
-    normalizeRole(holding.category),
-    normalizeRole(holding.protocol),
-  ].join("::");
-}
-
-function dedupeLatestHoldings(holdings) {
-  const deduped = new Map();
-
-  for (const holding of holdings || []) {
-    const key = buildHoldingDedupKey(holding);
-    const existing = deduped.get(key);
-
-    if (!existing) {
-      deduped.set(key, holding);
-      continue;
-    }
-
-    const existingValue = safeNumber(existing.value_usd);
-    const nextValue = safeNumber(holding.value_usd);
-
-    if (nextValue > existingValue) {
-      deduped.set(key, holding);
-    }
-  }
-
-  return Array.from(deduped.values());
-}
-
 module.exports = async function handler(req, res) {
   try {
     const timeframe = String(req.query.timeframe || "daily").toLowerCase();
@@ -545,7 +512,7 @@ module.exports = async function handler(req, res) {
 
       if (holdingsError) throw holdingsError;
 
-      latestHoldings = dedupeLatestHoldings(Array.isArray(holdings) ? holdings : []);
+      latestHoldings = Array.isArray(holdings) ? holdings : [];
     }
 
     const holdingsBySnapshotId = new Map();
