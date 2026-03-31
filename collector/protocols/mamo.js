@@ -1,6 +1,5 @@
 import { createPublicClient, http, getAddress } from "viem";
 import { base } from "viem/chains";
-import fetch from "node-fetch";
 
 const BASE_RPC_URL = process.env.BASE_RPC_URL || "https://mainnet.base.org";
 
