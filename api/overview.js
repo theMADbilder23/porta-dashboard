@@ -228,8 +228,10 @@ function detectDailyRolloverMeta(bucketTotals) {
     const prev = bucketTotals[i - 1];
     const current = bucketTotals[i];
 
-    const prevClaimable = safeNumber(prev.claimable_total_usd);
-    runningMaxBeforeRollover = Math.max(runningMaxBeforeRollover, prevClaimable);
+    runningMaxBeforeRollover = Math.max(
+      runningMaxBeforeRollover,
+      safeNumber(prev.claimable_total_usd)
+    );
 
     if (isBucketLevelRollover(prev, current)) {
       return {
