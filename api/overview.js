@@ -229,9 +229,10 @@ function detectDailyRolloverMeta(bucketTotals) {
     if (isBucketLevelRollover(prev, current)) {
       return {
         rolloverIndex: i,
+        prevBucket,
         rolloverBucket: current,
         rolloverSnapshotTime: current.snapshot_time,
-        rolloverClaimableUsd: safeNumber(current.claimable_total_usd),
+        resetBaselineClaimableUsd: safeNumber(prev.claimable_total_usd),
       };
     }
   }
@@ -638,11 +639,14 @@ module.exports = async function handler(req, res) {
 
     if (timeframe === "daily" && claimableBucketValues.length > 0 && rolloverMeta) {
       const postRolloverClaimableValues = claimableBucketValues.slice(rolloverMeta.rolloverIndex);
-      const rolloverBaseline = safeNumber(rolloverMeta.rolloverClaimableUsd);
+      const resetSeries = [
+        safeNumber(rolloverMeta.resetBaselineClaimableUsd),
+        ...postRolloverClaimableValues,
+      ];
 
-      minClaimableValue = rolloverBaseline;
-      maxClaimableValue = getMaxValue(postRolloverClaimableValues);
-      avgClaimableValue = getAverageValue(postRolloverClaimableValues, { ignoreZero: false });
+      minClaimableValue = safeNumber(rolloverMeta.resetBaselineClaimableUsd);
+      maxClaimableValue = getMaxValue(resetSeries);
+      avgClaimableValue = getAverageValue(resetSeries, { ignoreZero: false });
       totalYieldFlow = getRangeFlow(maxClaimableValue, minClaimableValue);
     } else if (timeframe === "daily" && claimableBucketValues.length > 0) {
       minClaimableValue = safeNumber(claimableBucketValues[0]);
@@ -710,7 +714,7 @@ module.exports = async function handler(req, res) {
               detected: Boolean(rolloverMeta),
               rollover_index: rolloverMeta?.rolloverIndex ?? null,
               rollover_snapshot_time: rolloverMeta?.rolloverSnapshotTime ?? null,
-              rollover_claimable_usd: rolloverMeta?.rolloverClaimableUsd ?? null,
+              reset_baseline_claimable_usd: rolloverMeta?.resetBaselineClaimableUsd ?? null,
               reset_min_claimable_usd: minClaimableValue,
               max_post_rollover_claimable_usd: maxClaimableValue,
               avg_post_rollover_claimable_usd: avgClaimableValue,

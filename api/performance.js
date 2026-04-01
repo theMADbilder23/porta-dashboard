@@ -281,9 +281,10 @@ function detectDailyRolloverMeta(bucketSeries) {
     if (isBucketLevelRollover(prev, current)) {
       return {
         rolloverIndex: i,
+        prevBucket: prev,
         rolloverBucket: current,
         rolloverSnapshotTime: current.snapshot_time,
-        rolloverClaimableUsd: safeNumber(current.total_claimable_usd),
+        resetBaselineClaimableUsd: safeNumber(prev.total_claimable_usd),
       };
     }
   }
@@ -314,11 +315,14 @@ function buildDailySummary(snapshots) {
 
   if (claimableValues.length > 0 && rolloverMeta) {
     const postRolloverClaimables = claimableValues.slice(rolloverMeta.rolloverIndex);
-    const rolloverBaseline = safeNumber(rolloverMeta.rolloverClaimableUsd);
+    const resetSeries = [
+      safeNumber(rolloverMeta.resetBaselineClaimableUsd),
+      ...postRolloverClaimables,
+    ];
 
-    minClaimable = rolloverBaseline;
-    maxClaimable = getMax(postRolloverClaimables);
-    avgClaimable = getAverage(postRolloverClaimables);
+    minClaimable = safeNumber(rolloverMeta.resetBaselineClaimableUsd);
+    maxClaimable = getMax(resetSeries);
+    avgClaimable = getAverage(resetSeries);
     currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
   } else if (claimableValues.length > 0) {
     minClaimable = safeNumber(claimableValues[0]);
@@ -361,7 +365,7 @@ function buildDailySummary(snapshots) {
       detected: Boolean(rolloverMeta),
       rollover_index: rolloverMeta?.rolloverIndex ?? null,
       rollover_snapshot_time: rolloverMeta?.rolloverSnapshotTime ?? null,
-      rollover_claimable_usd: rolloverMeta?.rolloverClaimableUsd ?? null,
+      reset_baseline_claimable_usd: rolloverMeta?.resetBaselineClaimableUsd ?? null,
       reset_min_claimable_usd: minClaimable,
       max_post_rollover_claimable_usd: maxClaimable,
       avg_post_rollover_claimable_usd: avgClaimable,
