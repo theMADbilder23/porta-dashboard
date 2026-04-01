@@ -229,7 +229,7 @@ function detectDailyRolloverMeta(bucketTotals) {
     if (isBucketLevelRollover(prev, current)) {
       return {
         rolloverIndex: i,
-        prevBucket,
+        prevBucket: prev,
         rolloverBucket: current,
         rolloverSnapshotTime: current.snapshot_time,
         resetBaselineClaimableUsd: safeNumber(prev.claimable_total_usd),
