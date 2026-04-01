@@ -4,12 +4,42 @@ import {
   normalizeQubicUnits,
   buildQubicHoldingRow,
   buildQubicAssetHoldingRow,
+  buildQubicRewardHoldingRow,
 } from "./parser.js";
 import { getQubicPriceMap, getPriceForSymbol } from "./pricing.js";
+import { getLatestHoldingForWalletSymbol } from "../../db.js";
 
 function safeNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
+}
+
+function isWednesdayUtc(snapshotTime) {
+  return new Date(snapshotTime).getUTCDay() === 3;
+}
+
+function detectQcapRewardDelta({
+  snapshotTime,
+  currentQubicAmount,
+  previousQubicAmount,
+}) {
+  const currentAmount = safeNumber(currentQubicAmount);
+  const previousAmount = safeNumber(previousQubicAmount);
+  const delta = currentAmount - previousAmount;
+
+  const MIN_REWARD_QUBIC = 200000;
+  const MAX_REWARD_QUBIC = 10000000;
+
+  const isCandidate =
+    isWednesdayUtc(snapshotTime) &&
+    delta >= MIN_REWARD_QUBIC &&
+    delta <= MAX_REWARD_QUBIC;
+
+  return {
+    delta_qubic: delta,
+    is_detected_reward: isCandidate,
+    detected_reward_qubic: isCandidate ? delta : 0,
+  };
 }
 
 export async function collectQubicHoldings({
@@ -35,11 +65,13 @@ export async function collectQubicHoldings({
     };
   }
 
-  const [balanceResult, ownedAssets, priceMap] = await Promise.all([
-    getQubicBalance(identity),
-    getQubicOwnedAssets(identity),
-    getQubicPriceMap(),
-  ]);
+  const [balanceResult, ownedAssets, priceMap, previousQubicHolding] =
+    await Promise.all([
+      getQubicBalance(identity),
+      getQubicOwnedAssets(identity),
+      getQubicPriceMap(),
+      getLatestHoldingForWalletSymbol(wallet.id, "QUBIC"),
+    ]);
 
   const holdings = [];
 
@@ -85,15 +117,43 @@ export async function collectQubicHoldings({
     }
   }
 
-  const totalValueUsd = holdings.reduce(
-    (sum, holding) => sum + safeNumber(holding?.value_usd || 0),
-    0
-  );
+  const previousQubicAmount = safeNumber(previousQubicHolding?.amount || 0);
+
+  const rewardDetection = detectQcapRewardDelta({
+    snapshotTime,
+    currentQubicAmount: qubicAmount,
+    previousQubicAmount,
+  });
+
+  const detectedRewardQubic = safeNumber(rewardDetection.detected_reward_qubic);
+  const detectedRewardUsd = detectedRewardQubic * qubicPrice;
+
+  if (detectedRewardQubic > 0) {
+    holdings.push(
+      buildQubicRewardHoldingRow({
+        walletId: wallet.id,
+        snapshotId,
+        snapshotTime,
+        identity,
+        amount: detectedRewardQubic,
+        valueUsd: detectedRewardUsd,
+      })
+    );
+  }
+
+  const totalValueUsd = holdings
+    .filter((holding) => holding?.category !== "reward")
+    .reduce((sum, holding) => sum + safeNumber(holding?.value_usd || 0), 0);
 
   console.log("[qubic] collected holdings", {
     wallet_name: wallet?.name,
     identity,
     qubic_amount: qubicAmount,
+    previous_qubic_amount: previousQubicAmount,
+    qubic_delta: rewardDetection.delta_qubic,
+    qcap_reward_detected: rewardDetection.is_detected_reward,
+    detected_reward_qubic: detectedRewardQubic,
+    detected_reward_usd: detectedRewardUsd,
     qubic_price_usd: qubicPrice,
     qcap_amount: qcapAsset
       ? normalizeQubicUnits(qcapAsset.raw_units, qcapAsset.decimal_places)

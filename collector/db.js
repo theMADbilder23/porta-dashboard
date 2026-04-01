@@ -51,3 +51,20 @@ export async function insertHoldings(rows) {
     throw new Error(`Holdings insert failed: ${error.message}`);
   }
 }
+
+export async function getLatestHoldingForWalletSymbol(walletId, tokenSymbol) {
+  const { data, error } = await supabase
+    .from("wallet_holdings")
+    .select("id, wallet_id, token_symbol, token_name, amount, value_usd, snapshot_time, created_at")
+    .eq("wallet_id", walletId)
+    .eq("token_symbol", tokenSymbol)
+    .order("snapshot_time", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to fetch latest holding for ${tokenSymbol}: ${error.message}`);
+  }
+
+  return data || null;
+}

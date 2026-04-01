@@ -59,3 +59,26 @@ export function buildQubicAssetHoldingRow({
     source_address: identity,
   };
 }
+export function buildQubicRewardHoldingRow({
+  walletId,
+  snapshotId,
+  snapshotTime,
+  identity,
+  amount,
+  valueUsd = 0,
+}) {
+  return {
+    wallet_id: walletId,
+    snapshot_id: snapshotId,
+    token_symbol: "QUBIC",
+    token_name: "Qubic Reward",
+    network: "qubic",
+    amount: safeNumber(amount),
+    value_usd: safeNumber(valueUsd),
+    category: "reward",
+    protocol: "QCAP",
+    is_yield_position: true,
+    snapshot_time: snapshotTime,
+    source_address: identity,
+  };
+}
