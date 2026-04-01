@@ -253,6 +253,38 @@ function getRangeFlow(maxValue, minValue) {
   return Math.max(0, max - min);
 }
 
+function splitDailyBucketSeriesForWindow(bucketSeries, timeframeStartIso) {
+  const startMs = new Date(timeframeStartIso).getTime();
+
+  if (!Array.isArray(bucketSeries) || bucketSeries.length === 0) {
+    return {
+      contextBuckets: [],
+      displayBuckets: [],
+      displayStartIndex: -1,
+    };
+  }
+
+  const displayStartIndex = bucketSeries.findIndex(
+    (bucket) => new Date(bucket.snapshot_time).getTime() >= startMs
+  );
+
+  if (displayStartIndex === -1) {
+    return {
+      contextBuckets: bucketSeries.slice(-1),
+      displayBuckets: bucketSeries.slice(-1),
+      displayStartIndex: bucketSeries.length - 1,
+    };
+  }
+
+  const contextStartIndex = Math.max(0, displayStartIndex - 1);
+
+  return {
+    contextBuckets: bucketSeries.slice(contextStartIndex),
+    displayBuckets: bucketSeries.slice(displayStartIndex),
+    displayStartIndex,
+  };
+}
+
 function detectDailyRolloverMeta(bucketSeries) {
   if (!Array.isArray(bucketSeries) || bucketSeries.length < 2) return null;
 
@@ -301,13 +333,18 @@ function detectDailyRolloverMeta(bucketSeries) {
   return null;
 }
 
-function buildDailySummary(snapshots) {
-  const bucketSeries = buildBucketSeries(snapshots, "daily");
+function buildDailySummary(snapshots, timeframeStartIso) {
+  const fullBucketSeries = buildBucketSeries(snapshots, "daily");
   const currentTotals = buildLatestCurrentTotals(snapshots);
-  const rolloverMeta = detectDailyRolloverMeta(bucketSeries);
+  const { contextBuckets, displayBuckets } = splitDailyBucketSeriesForWindow(
+    fullBucketSeries,
+    timeframeStartIso
+  );
 
-  const portfolioValues = bucketSeries.map((row) => safeNumber(row.total_value_usd));
-  const claimableValues = bucketSeries.map((row) => safeNumber(row.total_claimable_usd));
+  const rolloverMeta = detectDailyRolloverMeta(contextBuckets);
+
+  const portfolioValues = displayBuckets.map((row) => safeNumber(row.total_value_usd));
+  const claimableValues = displayBuckets.map((row) => safeNumber(row.total_claimable_usd));
 
   const avgPortfolio = getAverage(portfolioValues);
   const minPortfolio = getMin(portfolioValues);
@@ -318,17 +355,33 @@ function buildDailySummary(snapshots) {
   let maxClaimable = getMax(claimableValues);
   let currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
 
-  if (claimableValues.length > 0 && rolloverMeta) {
-    const postRolloverClaimables = claimableValues.slice(rolloverMeta.rolloverIndex);
-    const resetSeries = [
-      safeNumber(rolloverMeta.resetBaselineClaimableUsd),
-      ...postRolloverClaimables,
-    ];
+  let effectiveRolloverMeta = null;
 
-    minClaimable = safeNumber(rolloverMeta.resetBaselineClaimableUsd);
-    maxClaimable = getMax(resetSeries);
-    avgClaimable = getAverage(resetSeries);
-    currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
+  if (displayBuckets.length > 0 && rolloverMeta) {
+    const rolloverTimeMs = new Date(rolloverMeta.rolloverSnapshotTime).getTime();
+    const startMs = new Date(timeframeStartIso).getTime();
+
+    if (rolloverTimeMs >= startMs) {
+      const postRolloverClaimables = contextBuckets
+        .slice(rolloverMeta.rolloverIndex)
+        .map((row) => safeNumber(row.total_claimable_usd));
+
+      const resetSeries = [
+        safeNumber(rolloverMeta.resetBaselineClaimableUsd),
+        ...postRolloverClaimables,
+      ];
+
+      minClaimable = safeNumber(rolloverMeta.resetBaselineClaimableUsd);
+      maxClaimable = getMax(resetSeries);
+      avgClaimable = getAverage(resetSeries);
+      currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
+      effectiveRolloverMeta = rolloverMeta;
+    } else {
+      minClaimable = safeNumber(claimableValues[0] ?? 0);
+      maxClaimable = getMax(claimableValues);
+      avgClaimable = getAverage(claimableValues);
+      currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
+    }
   } else if (claimableValues.length > 0) {
     minClaimable = safeNumber(claimableValues[0]);
     maxClaimable = getMax(claimableValues);
@@ -365,19 +418,22 @@ function buildDailySummary(snapshots) {
       minClaimable
     ),
 
-    snapshot_count: bucketSeries.length,
+    snapshot_count: displayBuckets.length,
     daily_rollover_debug: {
-      detected: Boolean(rolloverMeta),
-      rollover_index: rolloverMeta?.rolloverIndex ?? null,
-      rollover_snapshot_time: rolloverMeta?.rolloverSnapshotTime ?? null,
-      reset_baseline_claimable_usd: rolloverMeta?.resetBaselineClaimableUsd ?? null,
-      pending_reset_detected: rolloverMeta?.pendingResetDetected ?? false,
-      claimable_reset_detected: rolloverMeta?.claimableResetDetected ?? false,
-      claimable_reset_drop: rolloverMeta?.claimableResetDrop ?? null,
+      detected: Boolean(effectiveRolloverMeta),
+      rollover_index: effectiveRolloverMeta?.rolloverIndex ?? null,
+      rollover_snapshot_time: effectiveRolloverMeta?.rolloverSnapshotTime ?? null,
+      reset_baseline_claimable_usd:
+        effectiveRolloverMeta?.resetBaselineClaimableUsd ?? null,
+      pending_reset_detected: effectiveRolloverMeta?.pendingResetDetected ?? false,
+      claimable_reset_detected: effectiveRolloverMeta?.claimableResetDetected ?? false,
+      claimable_reset_drop: effectiveRolloverMeta?.claimableResetDrop ?? null,
       reset_min_claimable_usd: minClaimable,
       max_post_rollover_claimable_usd: maxClaimable,
       avg_post_rollover_claimable_usd: avgClaimable,
       effective_daily_current_usd: currentYieldFlow,
+      context_bucket_count: contextBuckets.length,
+      display_bucket_count: displayBuckets.length,
     },
   };
 }
@@ -425,7 +481,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (timeframe === "daily") {
-      return res.status(200).json([buildDailySummary(allSnapshots)]);
+      return res.status(200).json([buildDailySummary(allSnapshots, timeframeStart)]);
     }
 
     const bucketSeries = buildBucketSeries(allSnapshots, timeframe);

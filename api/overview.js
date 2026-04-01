@@ -201,6 +201,38 @@ function buildBucketTotals(snapshots, timeframe) {
   );
 }
 
+function splitDailyBucketTotalsForWindow(bucketTotals, timeframeStartIso) {
+  const startMs = new Date(timeframeStartIso).getTime();
+
+  if (!Array.isArray(bucketTotals) || bucketTotals.length === 0) {
+    return {
+      contextBuckets: [],
+      displayBuckets: [],
+      displayStartIndex: -1,
+    };
+  }
+
+  const displayStartIndex = bucketTotals.findIndex(
+    (bucket) => new Date(bucket.snapshot_time).getTime() >= startMs
+  );
+
+  if (displayStartIndex === -1) {
+    return {
+      contextBuckets: bucketTotals.slice(-1),
+      displayBuckets: bucketTotals.slice(-1),
+      displayStartIndex: bucketTotals.length - 1,
+    };
+  }
+
+  const contextStartIndex = Math.max(0, displayStartIndex - 1);
+
+  return {
+    contextBuckets: bucketTotals.slice(contextStartIndex),
+    displayBuckets: bucketTotals.slice(displayStartIndex),
+    displayStartIndex,
+  };
+}
+
 function detectDailyRolloverMeta(bucketTotals) {
   if (!Array.isArray(bucketTotals) || bucketTotals.length < 2) return null;
 
@@ -472,9 +504,22 @@ module.exports = async function handler(req, res) {
     const latestSnapshots = Array.from(latestPerWallet.values());
     const latestSnapshotIds = latestSnapshots.map((snapshot) => snapshot.id);
 
-    const bucketTotals = buildBucketTotals(allSnapshots, timeframe);
+    const fullBucketTotals = buildBucketTotals(allSnapshots, timeframe);
+    const {
+      contextBuckets: dailyContextBucketTotals,
+      displayBuckets: dailyDisplayBucketTotals,
+    } =
+      timeframe === "daily"
+        ? splitDailyBucketTotalsForWindow(fullBucketTotals, timeframeStart)
+        : { contextBuckets: fullBucketTotals, displayBuckets: fullBucketTotals };
+
     const rolloverMeta =
-      timeframe === "daily" ? detectDailyRolloverMeta(bucketTotals) : null;
+      timeframe === "daily"
+        ? detectDailyRolloverMeta(dailyContextBucketTotals)
+        : null;
+
+    const bucketTotalsForStats =
+      timeframe === "daily" ? dailyDisplayBucketTotals : fullBucketTotals;
 
     const walletRoleMap = new Map(
       activeWallets.map((wallet) => [wallet.id, normalizeRole(wallet.role)])
@@ -632,10 +677,10 @@ module.exports = async function handler(req, res) {
     const totalValueDistributed =
       stableYieldValue + growthRiskYieldValue + hardAssetYieldValue;
 
-    const portfolioBucketValues = bucketTotals.map(
+    const portfolioBucketValues = bucketTotalsForStats.map(
       (bucket) => bucket.portfolio_total_usd
     );
-    const claimableBucketValues = bucketTotals.map(
+    const claimableBucketValues = bucketTotalsForStats.map(
       (bucket) => bucket.claimable_total_usd
     );
 
@@ -646,17 +691,35 @@ module.exports = async function handler(req, res) {
     let avgClaimableValue = getAverageValue(claimableBucketValues, { ignoreZero: false });
     let totalYieldFlow = getRangeFlow(maxClaimableValue, minClaimableValue);
 
-    if (timeframe === "daily" && claimableBucketValues.length > 0 && rolloverMeta) {
-      const postRolloverClaimableValues = claimableBucketValues.slice(rolloverMeta.rolloverIndex);
-      const resetSeries = [
-        safeNumber(rolloverMeta.resetBaselineClaimableUsd),
-        ...postRolloverClaimableValues,
-      ];
+    let effectiveRolloverMeta = null;
 
-      minClaimableValue = safeNumber(rolloverMeta.resetBaselineClaimableUsd);
-      maxClaimableValue = getMaxValue(resetSeries);
-      avgClaimableValue = getAverageValue(resetSeries, { ignoreZero: false });
-      totalYieldFlow = getRangeFlow(maxClaimableValue, minClaimableValue);
+    if (timeframe === "daily" && dailyDisplayBucketTotals.length > 0 && rolloverMeta) {
+      const rolloverTimeMs = new Date(rolloverMeta.rolloverSnapshotTime).getTime();
+      const startMs = new Date(timeframeStart).getTime();
+
+      if (rolloverTimeMs >= startMs) {
+        const postRolloverClaimableValues = dailyContextBucketTotals
+          .slice(rolloverMeta.rolloverIndex)
+          .map((bucket) => safeNumber(bucket.claimable_total_usd));
+
+        const resetSeries = [
+          safeNumber(rolloverMeta.resetBaselineClaimableUsd),
+          ...postRolloverClaimableValues,
+        ];
+
+        minClaimableValue = safeNumber(rolloverMeta.resetBaselineClaimableUsd);
+        maxClaimableValue = getMaxValue(resetSeries);
+        avgClaimableValue = getAverageValue(resetSeries, { ignoreZero: false });
+        totalYieldFlow = getRangeFlow(maxClaimableValue, minClaimableValue);
+        effectiveRolloverMeta = rolloverMeta;
+      } else if (claimableBucketValues.length > 0) {
+        minClaimableValue = safeNumber(claimableBucketValues[0]);
+        maxClaimableValue = getMaxValue(claimableBucketValues);
+        avgClaimableValue = getAverageValue(claimableBucketValues, {
+          ignoreZero: false,
+        });
+        totalYieldFlow = getRangeFlow(maxClaimableValue, minClaimableValue);
+      }
     } else if (timeframe === "daily" && claimableBucketValues.length > 0) {
       minClaimableValue = safeNumber(claimableBucketValues[0]);
       maxClaimableValue = getMaxValue(claimableBucketValues);
@@ -720,18 +783,24 @@ module.exports = async function handler(req, res) {
       daily_rollover_debug:
         timeframe === "daily"
           ? {
-              detected: Boolean(rolloverMeta),
-              rollover_index: rolloverMeta?.rolloverIndex ?? null,
-              rollover_snapshot_time: rolloverMeta?.rolloverSnapshotTime ?? null,
-              reset_baseline_claimable_usd: rolloverMeta?.resetBaselineClaimableUsd ?? null,
-              pending_reset_detected: rolloverMeta?.pendingResetDetected ?? false,
-              claimable_reset_detected: rolloverMeta?.claimableResetDetected ?? false,
-              claimable_reset_drop: rolloverMeta?.claimableResetDrop ?? null,
+              detected: Boolean(effectiveRolloverMeta),
+              rollover_index: effectiveRolloverMeta?.rolloverIndex ?? null,
+              rollover_snapshot_time:
+                effectiveRolloverMeta?.rolloverSnapshotTime ?? null,
+              reset_baseline_claimable_usd:
+                effectiveRolloverMeta?.resetBaselineClaimableUsd ?? null,
+              pending_reset_detected:
+                effectiveRolloverMeta?.pendingResetDetected ?? false,
+              claimable_reset_detected:
+                effectiveRolloverMeta?.claimableResetDetected ?? false,
+              claimable_reset_drop:
+                effectiveRolloverMeta?.claimableResetDrop ?? null,
               reset_min_claimable_usd: minClaimableValue,
               max_post_rollover_claimable_usd: maxClaimableValue,
               avg_post_rollover_claimable_usd: avgClaimableValue,
               effective_daily_current_usd: totalYieldFlow,
-              bucket_count: bucketTotals.length,
+              context_bucket_count: dailyContextBucketTotals.length,
+              display_bucket_count: dailyDisplayBucketTotals.length,
             }
           : null,
     });
