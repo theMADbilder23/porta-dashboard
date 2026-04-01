@@ -8,7 +8,6 @@ const supabase = createClient(
 const ROLLOVER_PENDING_HIGH_THRESHOLD = 2.5;
 const ROLLOVER_PENDING_LOW_THRESHOLD = 2.0;
 const ROLLOVER_MIN_PENDING_DROP = 0.75;
-const ROLLOVER_MIN_CLAIMABLE_RISE = 0.75;
 
 function safeNumber(value) {
   const n = Number(value);
@@ -256,19 +255,14 @@ function getRangeFlow(maxValue, minValue) {
 function isBucketLevelRollover(prevBucket, currentBucket) {
   const prevPending = safeNumber(prevBucket?.total_pending_usd);
   const currentPending = safeNumber(currentBucket?.total_pending_usd);
-  const prevClaimable = safeNumber(prevBucket?.total_claimable_usd);
-  const currentClaimable = safeNumber(currentBucket?.total_claimable_usd);
 
   const pendingDrop = prevPending - currentPending;
-  const claimableRise = currentClaimable - prevClaimable;
 
   if (prevPending < ROLLOVER_PENDING_HIGH_THRESHOLD) return false;
   if (currentPending > ROLLOVER_PENDING_LOW_THRESHOLD) return false;
   if (pendingDrop < ROLLOVER_MIN_PENDING_DROP) return false;
-  if (claimableRise < ROLLOVER_MIN_CLAIMABLE_RISE) return false;
 
-  const tolerance = Math.max(1.25, pendingDrop * 0.75);
-  return Math.abs(claimableRise - pendingDrop) <= tolerance;
+  return true;
 }
 
 function detectDailyRolloverMeta(bucketSeries) {
@@ -280,8 +274,10 @@ function detectDailyRolloverMeta(bucketSeries) {
     const prev = bucketSeries[i - 1];
     const current = bucketSeries[i];
 
-    const prevClaimable = safeNumber(prev.total_claimable_usd);
-    runningMaxBeforeRollover = Math.max(runningMaxBeforeRollover, prevClaimable);
+    runningMaxBeforeRollover = Math.max(
+      runningMaxBeforeRollover,
+      safeNumber(prev.total_claimable_usd)
+    );
 
     if (isBucketLevelRollover(prev, current)) {
       return {
@@ -302,12 +298,8 @@ function buildDailySummary(snapshots) {
   const currentTotals = buildLatestCurrentTotals(snapshots);
   const rolloverMeta = detectDailyRolloverMeta(bucketSeries);
 
-  const portfolioValues = bucketSeries.map((row) =>
-    safeNumber(row.total_value_usd)
-  );
-  const claimableValues = bucketSeries.map((row) =>
-    safeNumber(row.total_claimable_usd)
-  );
+  const portfolioValues = bucketSeries.map((row) => safeNumber(row.total_value_usd));
+  const claimableValues = bucketSeries.map((row) => safeNumber(row.total_claimable_usd));
 
   const avgPortfolio = getAverage(portfolioValues);
   const minPortfolio = getMin(portfolioValues);

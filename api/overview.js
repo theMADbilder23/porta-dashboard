@@ -10,7 +10,6 @@ const STABLE_SYMBOLS = new Set(["USDC", "USDT", "USDM", "DAI"]);
 const ROLLOVER_PENDING_HIGH_THRESHOLD = 2.5;
 const ROLLOVER_PENDING_LOW_THRESHOLD = 2.0;
 const ROLLOVER_MIN_PENDING_DROP = 0.75;
-const ROLLOVER_MIN_CLAIMABLE_RISE = 0.75;
 
 function safeNumber(value) {
   const n = Number(value);
@@ -204,19 +203,14 @@ function buildBucketTotals(snapshots, timeframe) {
 function isBucketLevelRollover(prevBucket, currentBucket) {
   const prevPending = safeNumber(prevBucket?.pending_total_usd);
   const currentPending = safeNumber(currentBucket?.pending_total_usd);
-  const prevClaimable = safeNumber(prevBucket?.claimable_total_usd);
-  const currentClaimable = safeNumber(currentBucket?.claimable_total_usd);
 
   const pendingDrop = prevPending - currentPending;
-  const claimableRise = currentClaimable - prevClaimable;
 
   if (prevPending < ROLLOVER_PENDING_HIGH_THRESHOLD) return false;
   if (currentPending > ROLLOVER_PENDING_LOW_THRESHOLD) return false;
   if (pendingDrop < ROLLOVER_MIN_PENDING_DROP) return false;
-  if (claimableRise < ROLLOVER_MIN_CLAIMABLE_RISE) return false;
 
-  const tolerance = Math.max(1.25, pendingDrop * 0.75);
-  return Math.abs(claimableRise - pendingDrop) <= tolerance;
+  return true;
 }
 
 function detectDailyRolloverMeta(bucketTotals) {
