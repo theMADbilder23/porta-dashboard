@@ -268,7 +268,6 @@ function isBucketLevelRollover(prevBucket, currentBucket) {
   if (claimableRise < ROLLOVER_MIN_CLAIMABLE_RISE) return false;
 
   const tolerance = Math.max(1.25, pendingDrop * 0.75);
-
   return Math.abs(claimableRise - pendingDrop) <= tolerance;
 }
 
@@ -365,6 +364,7 @@ function buildDailySummary(snapshots) {
       rollover_claimable_usd: rolloverMeta?.rolloverClaimableUsd ?? null,
       reset_min_claimable_usd: minClaimable,
       max_post_rollover_claimable_usd: maxClaimable,
+      avg_post_rollover_claimable_usd: avgClaimable,
       effective_daily_current_usd: currentYieldFlow,
     },
   };
