@@ -8,6 +8,7 @@ const supabase = createClient(
 const ROLLOVER_PENDING_HIGH_THRESHOLD = 2.5;
 const ROLLOVER_PENDING_LOW_THRESHOLD = 2.0;
 const ROLLOVER_MIN_PENDING_DROP = 0.75;
+const ROLLOVER_MIN_CLAIMABLE_RESET_DROP = 0.35;
 
 function safeNumber(value) {
   const n = Number(value);
@@ -252,19 +253,6 @@ function getRangeFlow(maxValue, minValue) {
   return Math.max(0, max - min);
 }
 
-function isBucketLevelRollover(prevBucket, currentBucket) {
-  const prevPending = safeNumber(prevBucket?.total_pending_usd);
-  const currentPending = safeNumber(currentBucket?.total_pending_usd);
-
-  const pendingDrop = prevPending - currentPending;
-
-  if (prevPending < ROLLOVER_PENDING_HIGH_THRESHOLD) return false;
-  if (currentPending > ROLLOVER_PENDING_LOW_THRESHOLD) return false;
-  if (pendingDrop < ROLLOVER_MIN_PENDING_DROP) return false;
-
-  return true;
-}
-
 function detectDailyRolloverMeta(bucketSeries) {
   if (!Array.isArray(bucketSeries) || bucketSeries.length < 2) return null;
 
@@ -274,20 +262,40 @@ function detectDailyRolloverMeta(bucketSeries) {
     const prev = bucketSeries[i - 1];
     const current = bucketSeries[i];
 
-    runningMaxBeforeRollover = Math.max(
-      runningMaxBeforeRollover,
-      safeNumber(prev.total_claimable_usd)
-    );
+    const prevPending = safeNumber(prev.total_pending_usd);
+    const currentPending = safeNumber(current.total_pending_usd);
+    const pendingDrop = prevPending - currentPending;
 
-    if (isBucketLevelRollover(prev, current)) {
+    const currentClaimable = safeNumber(current.total_claimable_usd);
+    const claimableResetDrop = runningMaxBeforeRollover - currentClaimable;
+
+    const pendingResetDetected =
+      prevPending >= ROLLOVER_PENDING_HIGH_THRESHOLD &&
+      currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
+      pendingDrop >= ROLLOVER_MIN_PENDING_DROP;
+
+    const claimableResetDetected =
+      currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
+      claimableResetDrop >= ROLLOVER_MIN_CLAIMABLE_RESET_DROP;
+
+    if (pendingResetDetected || claimableResetDetected) {
       return {
         rolloverIndex: i,
         prevBucket: prev,
         rolloverBucket: current,
         rolloverSnapshotTime: current.snapshot_time,
         resetBaselineClaimableUsd: runningMaxBeforeRollover,
+        pendingResetDetected,
+        claimableResetDetected,
+        claimableResetDrop,
       };
     }
+
+    runningMaxBeforeRollover = Math.max(
+      runningMaxBeforeRollover,
+      safeNumber(prev.total_claimable_usd),
+      currentClaimable
+    );
   }
 
   return null;
@@ -363,6 +371,9 @@ function buildDailySummary(snapshots) {
       rollover_index: rolloverMeta?.rolloverIndex ?? null,
       rollover_snapshot_time: rolloverMeta?.rolloverSnapshotTime ?? null,
       reset_baseline_claimable_usd: rolloverMeta?.resetBaselineClaimableUsd ?? null,
+      pending_reset_detected: rolloverMeta?.pendingResetDetected ?? false,
+      claimable_reset_detected: rolloverMeta?.claimableResetDetected ?? false,
+      claimable_reset_drop: rolloverMeta?.claimableResetDrop ?? null,
       reset_min_claimable_usd: minClaimable,
       max_post_rollover_claimable_usd: maxClaimable,
       avg_post_rollover_claimable_usd: avgClaimable,

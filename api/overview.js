@@ -10,6 +10,7 @@ const STABLE_SYMBOLS = new Set(["USDC", "USDT", "USDM", "DAI"]);
 const ROLLOVER_PENDING_HIGH_THRESHOLD = 2.5;
 const ROLLOVER_PENDING_LOW_THRESHOLD = 2.0;
 const ROLLOVER_MIN_PENDING_DROP = 0.75;
+const ROLLOVER_MIN_CLAIMABLE_RESET_DROP = 0.35;
 
 function safeNumber(value) {
   const n = Number(value);
@@ -200,19 +201,6 @@ function buildBucketTotals(snapshots, timeframe) {
   );
 }
 
-function isBucketLevelRollover(prevBucket, currentBucket) {
-  const prevPending = safeNumber(prevBucket?.pending_total_usd);
-  const currentPending = safeNumber(currentBucket?.pending_total_usd);
-
-  const pendingDrop = prevPending - currentPending;
-
-  if (prevPending < ROLLOVER_PENDING_HIGH_THRESHOLD) return false;
-  if (currentPending > ROLLOVER_PENDING_LOW_THRESHOLD) return false;
-  if (pendingDrop < ROLLOVER_MIN_PENDING_DROP) return false;
-
-  return true;
-}
-
 function detectDailyRolloverMeta(bucketTotals) {
   if (!Array.isArray(bucketTotals) || bucketTotals.length < 2) return null;
 
@@ -222,20 +210,40 @@ function detectDailyRolloverMeta(bucketTotals) {
     const prev = bucketTotals[i - 1];
     const current = bucketTotals[i];
 
-    runningMaxBeforeRollover = Math.max(
-      runningMaxBeforeRollover,
-      safeNumber(prev.claimable_total_usd)
-    );
+    const prevPending = safeNumber(prev.pending_total_usd);
+    const currentPending = safeNumber(current.pending_total_usd);
+    const pendingDrop = prevPending - currentPending;
 
-    if (isBucketLevelRollover(prev, current)) {
+    const currentClaimable = safeNumber(current.claimable_total_usd);
+    const claimableResetDrop = runningMaxBeforeRollover - currentClaimable;
+
+    const pendingResetDetected =
+      prevPending >= ROLLOVER_PENDING_HIGH_THRESHOLD &&
+      currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
+      pendingDrop >= ROLLOVER_MIN_PENDING_DROP;
+
+    const claimableResetDetected =
+      currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
+      claimableResetDrop >= ROLLOVER_MIN_CLAIMABLE_RESET_DROP;
+
+    if (pendingResetDetected || claimableResetDetected) {
       return {
         rolloverIndex: i,
         prevBucket: prev,
         rolloverBucket: current,
         rolloverSnapshotTime: current.snapshot_time,
         resetBaselineClaimableUsd: runningMaxBeforeRollover,
+        pendingResetDetected,
+        claimableResetDetected,
+        claimableResetDrop,
       };
     }
+
+    runningMaxBeforeRollover = Math.max(
+      runningMaxBeforeRollover,
+      safeNumber(prev.claimable_total_usd),
+      currentClaimable
+    );
   }
 
   return null;
@@ -716,6 +724,9 @@ module.exports = async function handler(req, res) {
               rollover_index: rolloverMeta?.rolloverIndex ?? null,
               rollover_snapshot_time: rolloverMeta?.rolloverSnapshotTime ?? null,
               reset_baseline_claimable_usd: rolloverMeta?.resetBaselineClaimableUsd ?? null,
+              pending_reset_detected: rolloverMeta?.pendingResetDetected ?? false,
+              claimable_reset_detected: rolloverMeta?.claimableResetDetected ?? false,
+              claimable_reset_drop: rolloverMeta?.claimableResetDrop ?? null,
               reset_min_claimable_usd: minClaimableValue,
               max_post_rollover_claimable_usd: maxClaimableValue,
               avg_post_rollover_claimable_usd: avgClaimableValue,
