@@ -272,7 +272,7 @@ function isBucketLevelRollover(prevBucket, currentBucket) {
   return Math.abs(claimableRise - pendingDrop) <= tolerance;
 }
 
-function detectDailyRolloverStartFromBuckets(bucketSeries) {
+function detectDailyRolloverMeta(bucketSeries) {
   if (!Array.isArray(bucketSeries) || bucketSeries.length < 2) return null;
 
   for (let i = 1; i < bucketSeries.length; i += 1) {
@@ -283,6 +283,8 @@ function detectDailyRolloverStartFromBuckets(bucketSeries) {
       return {
         rolloverIndex: i,
         rolloverBucket: current,
+        rolloverSnapshotTime: current.snapshot_time,
+        rolloverClaimableUsd: safeNumber(current.total_claimable_usd),
       };
     }
   }
@@ -290,27 +292,15 @@ function detectDailyRolloverStartFromBuckets(bucketSeries) {
   return null;
 }
 
-function filterDailyBucketsFromRollover(bucketSeries, rolloverMeta) {
-  if (!rolloverMeta || rolloverMeta.rolloverIndex == null) return bucketSeries;
-
-  const sliced = bucketSeries.slice(rolloverMeta.rolloverIndex);
-  return sliced.length > 0 ? sliced : bucketSeries;
-}
-
 function buildDailySummary(snapshots) {
   const bucketSeries = buildBucketSeries(snapshots, "daily");
   const currentTotals = buildLatestCurrentTotals(snapshots);
+  const rolloverMeta = detectDailyRolloverMeta(bucketSeries);
 
-  const rolloverMeta = detectDailyRolloverStartFromBuckets(bucketSeries);
-  const effectiveBucketSeries = filterDailyBucketsFromRollover(
-    bucketSeries,
-    rolloverMeta
-  );
-
-  const portfolioValues = effectiveBucketSeries.map((row) =>
+  const portfolioValues = bucketSeries.map((row) =>
     safeNumber(row.total_value_usd)
   );
-  const claimableValues = effectiveBucketSeries.map((row) =>
+  const claimableValues = bucketSeries.map((row) =>
     safeNumber(row.total_claimable_usd)
   );
 
@@ -318,22 +308,25 @@ function buildDailySummary(snapshots) {
   const minPortfolio = getMin(portfolioValues);
   const maxPortfolio = getMax(portfolioValues);
 
-  const latestClaimable =
-    claimableValues.length > 0
-      ? safeNumber(claimableValues[claimableValues.length - 1])
-      : 0;
-
   let avgClaimable = getAverage(claimableValues);
   let minClaimable = getMin(claimableValues, { ignoreZero: true });
   let maxClaimable = getMax(claimableValues);
+  let currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
 
-  if (claimableValues.length > 0) {
+  if (claimableValues.length > 0 && rolloverMeta) {
+    const postRolloverClaimables = claimableValues.slice(rolloverMeta.rolloverIndex);
+    const rolloverBaseline = safeNumber(rolloverMeta.rolloverClaimableUsd);
+
+    minClaimable = rolloverBaseline;
+    maxClaimable = getMax(postRolloverClaimables);
+    avgClaimable = getAverage(postRolloverClaimables);
+    currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
+  } else if (claimableValues.length > 0) {
     minClaimable = safeNumber(claimableValues[0]);
     maxClaimable = getMax(claimableValues);
     avgClaimable = getAverage(claimableValues);
+    currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
   }
-
-  const currentYieldFlow = getRangeFlow(latestClaimable, minClaimable);
 
   return {
     mode: "daily_summary",
@@ -360,16 +353,19 @@ function buildDailySummary(snapshots) {
     max_total_claimable_usd: maxClaimable,
     range_min_to_max_total_claimable_pct: getPctChange(minClaimable, maxClaimable),
     range_current_to_max_total_claimable_pct: getPctChange(
-      latestClaimable,
-      maxClaimable
+      maxClaimable,
+      minClaimable
     ),
 
-    snapshot_count: effectiveBucketSeries.length,
+    snapshot_count: bucketSeries.length,
     daily_rollover_debug: {
       detected: Boolean(rolloverMeta),
       rollover_index: rolloverMeta?.rolloverIndex ?? null,
-      rollover_snapshot_time: rolloverMeta?.rolloverBucket?.snapshot_time ?? null,
-      effective_bucket_count: effectiveBucketSeries.length,
+      rollover_snapshot_time: rolloverMeta?.rolloverSnapshotTime ?? null,
+      rollover_claimable_usd: rolloverMeta?.rolloverClaimableUsd ?? null,
+      reset_min_claimable_usd: minClaimable,
+      max_post_rollover_claimable_usd: maxClaimable,
+      effective_daily_current_usd: currentYieldFlow,
     },
   };
 }
