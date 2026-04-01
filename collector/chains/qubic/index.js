@@ -94,9 +94,11 @@ export async function collectQubicHoldings({
     wallet_name: wallet?.name,
     identity,
     qubic_amount: qubicAmount,
+    qubic_price_usd: qubicPrice,
     qcap_amount: qcapAsset
       ? normalizeQubicUnits(qcapAsset.raw_units, qcapAsset.decimal_places)
       : 0,
+    qcap_price_usd: getPriceForSymbol(priceMap, "QCAP"),
     holdings_count: holdings.length,
     total_value_usd: totalValueUsd,
   });
