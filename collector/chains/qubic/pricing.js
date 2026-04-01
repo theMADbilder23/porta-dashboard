@@ -76,10 +76,20 @@ export async function getQubicPriceMap({ forceRefresh = false } = {}) {
       qubic_row: liveMap?.QUBIC || null,
     });
 
-    const merged = {
-      ...getFallbackPriceMap(),
-      ...liveMap,
-    };
+    const fallback = getFallbackPriceMap();
+    const merged = { ...fallback };
+
+    for (const [key, value] of Object.entries(liveMap || {})) {
+      const normalizedKey = normalizeSymbol(key);
+
+      merged[normalizedKey] = {
+        symbol: normalizedKey,
+        name: value?.name || normalizedKey,
+        price_usd: Number(value?.price_usd) || 0,
+        price_qu: Number(value?.price_qu) || 0,
+        source: value?.source || "qubicswap",
+      };
+    }
 
     if (!safeNumber(merged.QUBIC?.price_usd)) {
       const derivedQubicUsd = deriveQubicUsdFromMap(merged);
