@@ -6,7 +6,9 @@ const supabase = createClient(
 );
 
 const STABLE_SYMBOLS = new Set(["USDC", "USDT", "USDM", "DAI"]);
-const ROLLOVER_PENDING_HIGH_THRESHOLD = 5;
+
+// Adjusted to better match observed rollover behavior in your live data
+const ROLLOVER_PENDING_HIGH_THRESHOLD = 2.5;
 const ROLLOVER_PENDING_LOW_THRESHOLD = 2;
 
 function safeNumber(value) {
@@ -147,6 +149,25 @@ function buildLatestPerWallet(snapshots) {
   return latestPerWallet;
 }
 
+function groupSnapshotsByWallet(snapshots) {
+  const snapshotsByWallet = new Map();
+
+  for (const snapshot of snapshots) {
+    if (!snapshotsByWallet.has(snapshot.wallet_id)) {
+      snapshotsByWallet.set(snapshot.wallet_id, []);
+    }
+    snapshotsByWallet.get(snapshot.wallet_id).push(snapshot);
+  }
+
+  for (const walletSnapshots of snapshotsByWallet.values()) {
+    walletSnapshots.sort(
+      (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
+    );
+  }
+
+  return snapshotsByWallet;
+}
+
 function isPendingToClaimableRollover(prevSnapshot, currentSnapshot) {
   const prevPending = getPendingSnapshotValue(prevSnapshot);
   const currentPending = getPendingSnapshotValue(currentSnapshot);
@@ -161,47 +182,31 @@ function isPendingToClaimableRollover(prevSnapshot, currentSnapshot) {
   if (pendingDrop <= 0) return false;
   if (claimableRise <= 0) return false;
 
-  const tolerance = Math.max(2, pendingDrop * 0.35);
+  const tolerance = Math.max(2, pendingDrop * 0.5);
   return Math.abs(claimableRise - pendingDrop) <= tolerance;
 }
 
-function detectDailyRolloverStart(snapshots) {
-  const snapshotsByWallet = new Map();
+function detectWalletRolloverMap(snapshots) {
+  const snapshotsByWallet = groupSnapshotsByWallet(snapshots);
+  const rolloverMap = new Map();
 
-  for (const snapshot of snapshots) {
-    if (!snapshotsByWallet.has(snapshot.wallet_id)) {
-      snapshotsByWallet.set(snapshot.wallet_id, []);
-    }
-    snapshotsByWallet.get(snapshot.wallet_id).push(snapshot);
-  }
-
-  let earliestRolloverTime = null;
-
-  for (const walletSnapshots of snapshotsByWallet.values()) {
-    walletSnapshots.sort(
-      (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
-    );
+  for (const [walletId, walletSnapshots] of snapshotsByWallet.entries()) {
+    let rolloverIndex = null;
 
     for (let i = 1; i < walletSnapshots.length; i += 1) {
       const prev = walletSnapshots[i - 1];
       const current = walletSnapshots[i];
 
       if (isPendingToClaimableRollover(prev, current)) {
-        const rolloverTime = new Date(current.snapshot_time).getTime();
-
-        if (
-          earliestRolloverTime === null ||
-          rolloverTime < earliestRolloverTime
-        ) {
-          earliestRolloverTime = rolloverTime;
-        }
-
+        rolloverIndex = i;
         break;
       }
     }
+
+    rolloverMap.set(walletId, rolloverIndex);
   }
 
-  return earliestRolloverTime;
+  return rolloverMap;
 }
 
 function buildBucketTotals(snapshots, timeframe) {
@@ -255,20 +260,6 @@ function buildBucketTotals(snapshots, timeframe) {
   );
 }
 
-function filterDailyBucketsFromRollover(bucketTotals, rolloverStartMs) {
-  if (rolloverStartMs === null) return bucketTotals;
-
-  const postRolloverBuckets = bucketTotals.filter(
-    (bucket) => new Date(bucket.snapshot_time).getTime() >= rolloverStartMs
-  );
-
-  if (postRolloverBuckets.length > 0) {
-    return postRolloverBuckets;
-  }
-
-  return bucketTotals;
-}
-
 function getMinValue(values, { ignoreZero = false } = {}) {
   const filtered = (values || [])
     .map((v) => safeNumber(v))
@@ -297,6 +288,51 @@ function getRangeFlow(maxValue, minValue) {
   const max = safeNumber(maxValue);
   const min = safeNumber(minValue);
   return Math.max(0, max - min);
+}
+
+function buildWalletClaimableFlowMap(snapshots, timeframe) {
+  const snapshotsByWallet = groupSnapshotsByWallet(snapshots);
+  const rolloverMap = detectWalletRolloverMap(snapshots);
+  const walletFlowMap = new Map();
+
+  for (const [walletId, walletSnapshots] of snapshotsByWallet.entries()) {
+    let effectiveSnapshots = walletSnapshots;
+
+    if (timeframe === "daily") {
+      const rolloverIndex = rolloverMap.get(walletId);
+
+      if (
+        rolloverIndex !== null &&
+        rolloverIndex !== undefined &&
+        rolloverIndex >= 0 &&
+        rolloverIndex < walletSnapshots.length
+      ) {
+        const sliced = walletSnapshots.slice(rolloverIndex);
+        if (sliced.length > 0) {
+          effectiveSnapshots = sliced;
+        }
+      }
+    }
+
+    const claimableValues = effectiveSnapshots.map((snapshot) =>
+      getClaimableSnapshotValue(snapshot)
+    );
+
+    const minClaimable = getMinValue(claimableValues, { ignoreZero: false });
+    const maxClaimable = getMaxValue(claimableValues);
+    const yieldFlow = getRangeFlow(maxClaimable, minClaimable);
+
+    walletFlowMap.set(walletId, {
+      min_claimable: minClaimable,
+      max_claimable: maxClaimable,
+      yield_flow: yieldFlow,
+      snapshot_count: effectiveSnapshots.length,
+      rollover_index:
+        timeframe === "daily" ? rolloverMap.get(walletId) ?? null : null,
+    });
+  }
+
+  return walletFlowMap;
 }
 
 function getEmptyResponse(timeframe) {
@@ -409,6 +445,8 @@ function buildWalletYieldDebug({
   walletGrowthRiskYieldValue,
   stableWeight,
   growthWeight,
+  snapshotCount,
+  rolloverIndex,
 }) {
   return {
     wallet_id: walletId,
@@ -427,6 +465,8 @@ function buildWalletYieldDebug({
     wallet_growth_risk_yield_value: walletGrowthRiskYieldValue,
     stable_weight: stableWeight,
     growth_weight: growthWeight,
+    effective_snapshot_count: snapshotCount,
+    rollover_index: rolloverIndex,
   };
 }
 
@@ -484,16 +524,12 @@ module.exports = async function handler(req, res) {
     const latestSnapshotIds = latestSnapshots.map((snapshot) => snapshot.id);
 
     const bucketTotals = buildBucketTotals(allSnapshots, timeframe);
-    const rolloverStartMs =
-      timeframe === "daily" ? detectDailyRolloverStart(allSnapshots) : null;
-    const effectiveBucketTotals =
-      timeframe === "daily"
-        ? filterDailyBucketsFromRollover(bucketTotals, rolloverStartMs)
-        : bucketTotals;
 
     const walletRoleMap = new Map(
       activeWallets.map((wallet) => [wallet.id, normalizeRole(wallet.role)])
     );
+
+    const walletFlowMap = buildWalletClaimableFlowMap(allSnapshots, timeframe);
 
     let latestHoldings = [];
 
@@ -523,25 +559,6 @@ module.exports = async function handler(req, res) {
         holdingsBySnapshotId.set(snapshotId, []);
       }
       holdingsBySnapshotId.get(snapshotId).push(holding);
-    }
-
-    const walletClaimableStats = new Map();
-
-    for (const snapshot of allSnapshots) {
-      const walletId = snapshot.wallet_id;
-      const claimable = getClaimableSnapshotValue(snapshot);
-
-      if (!walletClaimableStats.has(walletId)) {
-        walletClaimableStats.set(walletId, {
-          min: claimable,
-          max: claimable,
-        });
-        continue;
-      }
-
-      const stats = walletClaimableStats.get(walletId);
-      stats.min = Math.min(stats.min, claimable);
-      stats.max = Math.max(stats.max, claimable);
     }
 
     let totalPortfolioValue = 0;
@@ -619,8 +636,14 @@ module.exports = async function handler(req, res) {
         else if (fallbackBucket === "swing") swingValue += remainder;
       }
 
-      const walletStats = walletClaimableStats.get(walletId) || { min: 0, max: 0 };
-      const walletYieldFlow = getRangeFlow(walletStats.max, walletStats.min);
+      const walletFlowStats = walletFlowMap.get(walletId) || {
+        min_claimable: 0,
+        max_claimable: 0,
+        yield_flow: 0,
+        snapshot_count: 0,
+        rollover_index: null,
+      };
+
       const walletYieldBase = walletStableYieldValue + walletGrowthRiskYieldValue;
 
       const stableWeight =
@@ -633,13 +656,15 @@ module.exports = async function handler(req, res) {
           walletId,
           role,
           latestSnapshot: snapshot,
-          walletClaimableMin: walletStats.min,
-          walletClaimableMax: walletStats.max,
-          walletYieldFlow,
+          walletClaimableMin: walletFlowStats.min_claimable,
+          walletClaimableMax: walletFlowStats.max_claimable,
+          walletYieldFlow: walletFlowStats.yield_flow,
           walletStableYieldValue,
           walletGrowthRiskYieldValue,
           stableWeight,
           growthWeight,
+          snapshotCount: walletFlowStats.snapshot_count,
+          rolloverIndex: walletFlowStats.rollover_index,
         })
       );
     }
@@ -647,24 +672,16 @@ module.exports = async function handler(req, res) {
     const totalValueDistributed =
       stableYieldValue + growthRiskYieldValue + hardAssetYieldValue;
 
-    const portfolioBucketValues = effectiveBucketTotals.map(
+    const portfolioBucketValues = bucketTotals.map(
       (bucket) => bucket.portfolio_total_usd
-    );
-    const claimableBucketValues = effectiveBucketTotals.map(
-      (bucket) => bucket.claimable_total_usd
     );
 
     const minPortfolioValue = getMinValue(portfolioBucketValues);
 
-    let minClaimableValue = getMinValue(claimableBucketValues, { ignoreZero: true });
-    let maxClaimableValue = getMaxValue(claimableBucketValues);
-
-    if (timeframe === "daily" && rolloverStartMs !== null && claimableBucketValues.length > 0) {
-      minClaimableValue = safeNumber(claimableBucketValues[0]);
-      maxClaimableValue = getMaxValue(claimableBucketValues);
-    }
-
-    const totalYieldFlow = getRangeFlow(maxClaimableValue, minClaimableValue);
+    const totalYieldFlow = Array.from(walletFlowMap.values()).reduce(
+      (sum, walletStats) => sum + safeNumber(walletStats.yield_flow),
+      0
+    );
 
     const stableFlowWeight =
       totalValueDistributed > 0 ? stableYieldValue / totalValueDistributed : 0;
@@ -692,10 +709,7 @@ module.exports = async function handler(req, res) {
         totalPortfolioValue,
         minPortfolioValue
       ),
-      passive_income_change_pct: getChangePctFromMin(
-        minClaimableValue,
-        maxClaimableValue
-      ),
+      passive_income_change_pct: null,
       realized_gains_change_pct: null,
       realized_losses_change_pct: null,
       allocation_scope_label: "Tracked dashboard assets only",
