@@ -2,6 +2,7 @@ import { POLL_INTERVAL_MS } from "./config.js";
 import { fetchWallets, insertSnapshot, insertHoldings } from "./db.js";
 import { cleanWallet, isValidWallet, safeNumber } from "./utils.js";
 import { collectCustomProtocols } from "./protocols/index.js";
+import { collectQubicHoldings } from "./chains/qubic/index.js";
 
 import {
   collectDebankData,
@@ -57,7 +58,85 @@ function sumRewardHoldingsAmount(holdings = [], rewardTokenSymbol = null) {
   }, 0);
 }
 
-async function collectOneWallet(wallet) {
+function buildHoldingInsertRows({ holdings, snapshotId, walletId, snapshotTime }) {
+  return holdings.map((holding) => ({
+    snapshot_id: snapshotId,
+    wallet_id: walletId,
+    token_symbol: holding.token_symbol,
+    token_name: holding.token_name,
+    network: holding.network,
+    amount: holding.amount,
+    value_usd: holding.value_usd,
+    category: holding.category,
+    protocol: holding.protocol,
+    is_yield_position: holding.is_yield_position,
+    snapshot_time: snapshotTime,
+  }));
+}
+
+async function collectQubicWallet(wallet) {
+  const snapshotTime = new Date().toISOString();
+
+  const result = await collectQubicHoldings({
+    wallet,
+    snapshotId: null,
+    snapshotTime,
+  });
+
+  const snapshotPayload = {
+    wallet_id: wallet.id,
+    total_value_usd: safeNumber(result?.snapshotMetrics?.total_value_usd || 0),
+    total_rewards_usd: safeNumber(result?.snapshotMetrics?.total_rewards_usd || 0),
+    total_claimed_usd: safeNumber(result?.snapshotMetrics?.total_claimed_usd || 0),
+    total_pending_usd: safeNumber(result?.snapshotMetrics?.total_pending_usd || 0),
+    total_claimable_usd: safeNumber(result?.snapshotMetrics?.total_claimable_usd || 0),
+    total_claimable_token: safeNumber(
+      result?.snapshotMetrics?.total_claimable_token || 0
+    ),
+    rewards_token_symbol: result?.snapshotMetrics?.rewards_token_symbol || null,
+    merkl_rewards_json: null,
+    snapshot_time: snapshotTime,
+  };
+
+  const snapshot = await insertSnapshot(snapshotPayload);
+
+  const holdingRows = buildHoldingInsertRows({
+    holdings: Array.isArray(result?.holdings) ? result.holdings : [],
+    snapshotId: snapshot.id,
+    walletId: wallet.id,
+    snapshotTime,
+  });
+
+  await insertHoldings(holdingRows);
+
+  console.log(
+    JSON.stringify(
+      {
+        wallet_name: wallet.name || null,
+        wallet_address: wallet.wallet_address || null,
+        network_group: wallet.network_group || null,
+        role_used: wallet.role || null,
+        collector_path: "qubic",
+        snapshot_id: snapshot.id,
+        holdings_count: holdingRows.length,
+        snapshot_metrics: {
+          total_value_usd: snapshotPayload.total_value_usd,
+          total_rewards_usd: snapshotPayload.total_rewards_usd,
+          total_claimed_usd: snapshotPayload.total_claimed_usd,
+          total_pending_usd: snapshotPayload.total_pending_usd,
+          total_claimable_usd: snapshotPayload.total_claimable_usd,
+          total_claimable_token: snapshotPayload.total_claimable_token,
+          rewards_token_symbol: snapshotPayload.rewards_token_symbol,
+        },
+        holdings: holdingRows,
+      },
+      null,
+      2
+    )
+  );
+}
+
+async function collectStandardWallet(wallet) {
   const cleanedAddress = cleanWallet(wallet.wallet_address);
 
   if (!isValidWallet(cleanedAddress)) {
@@ -152,19 +231,12 @@ async function collectOneWallet(wallet) {
 
   const snapshot = await insertSnapshot(snapshotPayload);
 
-  const holdingRows = allHoldings.map((holding) => ({
-    snapshot_id: snapshot.id,
-    wallet_id: wallet.id,
-    token_symbol: holding.token_symbol,
-    token_name: holding.token_name,
-    network: holding.network,
-    amount: holding.amount,
-    value_usd: holding.value_usd,
-    category: holding.category,
-    protocol: holding.protocol,
-    is_yield_position: holding.is_yield_position,
-    snapshot_time: snapshotTime,
-  }));
+  const holdingRows = buildHoldingInsertRows({
+    holdings: allHoldings,
+    snapshotId: snapshot.id,
+    walletId: wallet.id,
+    snapshotTime,
+  });
 
   await insertHoldings(holdingRows);
 
@@ -173,7 +245,9 @@ async function collectOneWallet(wallet) {
       {
         wallet_name: wallet.name || null,
         wallet_address: cleanedAddress,
+        network_group: wallet.network_group || null,
         role_used: roleUsed,
+        collector_path: "standard",
         total_value_usd: totalWalletValue,
         chain_count: chainCount,
         snapshot_id: snapshot.id,
@@ -209,6 +283,17 @@ async function collectOneWallet(wallet) {
       2
     )
   );
+}
+
+async function collectOneWallet(wallet) {
+  const networkGroup = normalizeText(wallet.network_group);
+
+  if (networkGroup === "qubic") {
+    await collectQubicWallet(wallet);
+    return;
+  }
+
+  await collectStandardWallet(wallet);
 }
 
 async function runCollector() {
