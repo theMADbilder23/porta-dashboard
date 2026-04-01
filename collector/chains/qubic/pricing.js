@@ -31,6 +31,23 @@ function getFallbackPriceMap() {
   };
 }
 
+function deriveQubicUsdFromMap(priceMap) {
+  const candidates = Object.values(priceMap || {}).filter((row) => {
+    const priceUsd = safeNumber(row?.price_usd);
+    const priceQu = safeNumber(row?.price_qu);
+    return priceUsd > 0 && priceQu > 0;
+  });
+
+  if (candidates.length === 0) return 0;
+
+  // Prefer QCAP first since we verified it manually from Qubicswap
+  const preferred =
+    candidates.find((row) => normalizeSymbol(row.symbol) === "QCAP") ||
+    candidates[0];
+
+  return safeNumber(preferred.price_usd) / safeNumber(preferred.price_qu);
+}
+
 export async function getQubicPriceMap({ forceRefresh = false } = {}) {
   const now = Date.now();
 
@@ -45,10 +62,26 @@ export async function getQubicPriceMap({ forceRefresh = false } = {}) {
   try {
     const liveMap = await fetchQubicswapPriceMap();
 
-    cachedPriceMap = {
+    const merged = {
       ...getFallbackPriceMap(),
       ...liveMap,
     };
+
+    // If QUBIC is not returned directly by Qubicswap, derive it from priceUSD / priceQU
+    if (!safeNumber(merged.QUBIC?.price_usd)) {
+      const derivedQubicUsd = deriveQubicUsdFromMap(merged);
+
+      if (derivedQubicUsd > 0) {
+        merged.QUBIC = {
+          symbol: "QUBIC",
+          name: "QUBIC",
+          price_usd: derivedQubicUsd,
+          source: "qubicswap_derived",
+        };
+      }
+    }
+
+    cachedPriceMap = merged;
     cachedAtMs = now;
 
     return cachedPriceMap;
