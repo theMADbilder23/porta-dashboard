@@ -274,9 +274,14 @@ function isBucketLevelRollover(prevBucket, currentBucket) {
 function detectDailyRolloverMeta(bucketSeries) {
   if (!Array.isArray(bucketSeries) || bucketSeries.length < 2) return null;
 
+  let runningMaxBeforeRollover = safeNumber(bucketSeries[0]?.total_claimable_usd);
+
   for (let i = 1; i < bucketSeries.length; i += 1) {
     const prev = bucketSeries[i - 1];
     const current = bucketSeries[i];
+
+    const prevClaimable = safeNumber(prev.total_claimable_usd);
+    runningMaxBeforeRollover = Math.max(runningMaxBeforeRollover, prevClaimable);
 
     if (isBucketLevelRollover(prev, current)) {
       return {
@@ -284,7 +289,7 @@ function detectDailyRolloverMeta(bucketSeries) {
         prevBucket: prev,
         rolloverBucket: current,
         rolloverSnapshotTime: current.snapshot_time,
-        resetBaselineClaimableUsd: safeNumber(prev.total_claimable_usd),
+        resetBaselineClaimableUsd: runningMaxBeforeRollover,
       };
     }
   }
