@@ -1,65 +1,24 @@
-import type { SVGProps } from "react";
-
-export type IconSvgProps = SVGProps<SVGSVGElement> & {
-  size?: number;
-};
-
-export type TicketMetric = {
-  date: string;
-  type: "created" | "resolved";
-  count: number;
-};
-
-export type OverviewResponse = {
-  timeframe: string;
-  total_portfolio_value: number | null;
-  stable_value: number | null;
-  rotational_value: number | null;
-  growth_value: number | null;
-  swing_value: number | null;
-  realized_gains: number | null;
-  realized_losses: number | null;
-  passive_income: number | null;
-  total_portfolio_value_change_pct: number | null;
-  passive_income_change_pct: number | null;
-  realized_gains_change_pct: null;
-  realized_losses_change_pct: null;
-  allocation_scope_label?: string | null;
-  stable_yield_value: number | null;
-  growth_risk_yield_value: number | null;
-  hard_asset_yield_value: number | null;
-  total_value_distributed: number | null;
-  stable_daily_yield: number | null;
-  growth_risk_daily_yield: number | null;
-  hard_asset_daily_yield: number | null;
-  total_daily_yield: number | null;
-  stable_avg_apy: number | null;
-  growth_risk_avg_apy: number | null;
-  hard_asset_avg_apy: number | null;
-};
-
-export type ConversionBucketName =
-  | "Stable Core"
-  | "Rotational Core"
-  | "Growth"
-  | "Swing";
-
-export type ConversionBucket = {
-  name: ConversionBucketName;
-  value: number;
-  color: string;
-};
-
-export type YieldSummarySource = {
-  label: "Stable Yield" | "Hard Asset Yield" | "Growth / Risk Yield";
-  color: string;
-  value: number;
-  avgYield: number;
-  distributionPercentage: number;
-  dailyYield: number;
+export type BlockchainAccountRewardItem = {
+  asset_id: string | null;
+  token_symbol: string;
+  token_name: string;
+  network: string;
+  amount: number;
+  value_usd: number;
+  price_usd: number;
+  asset_class: string | null;
+  yield_profile: string | null;
+  mmii_bucket: string | null;
+  mmii_subclass: string | null;
+  price_source: string | null;
+  position_role: string | null;
+  is_yield_position: boolean;
+  category: string | null;
+  protocol: string | null;
 };
 
 export type BlockchainAccountHoldingItem = {
+  asset_id: string | null;
   token_symbol: string;
   token_name: string;
   network: string;
@@ -68,14 +27,22 @@ export type BlockchainAccountHoldingItem = {
   wallet_share_pct: number;
   price_usd: number;
   yield_contribution: number;
-  classification: string;
+  asset_class: string | null;
+  yield_profile: string | null;
+  mmii_bucket: string | null;
+  mmii_subclass: string | null;
+  price_source: string | null;
+  position_role: string | null;
+  is_yield_position: boolean;
   category: string | null;
   protocol: string | null;
+  rewards: BlockchainAccountRewardItem[];
 };
 
 export type BlockchainAccountSummaryItem = {
   wallet_id: string;
   wallet_name: string;
+  wallet_address: string | null;
   role: string;
   network_group: string | null;
   total_value: number;
@@ -85,6 +52,7 @@ export type BlockchainAccountSummaryItem = {
   chains: string[];
   holdings_value_sum: number;
   holdings_count: number;
+  raw_holdings_count: number;
   holdings: BlockchainAccountHoldingItem[];
 };
 

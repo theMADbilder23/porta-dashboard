@@ -14,10 +14,18 @@ function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function titleCaseWords(value) {
+  return String(value || "")
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function formatRoleLabel(value) {
   const normalized = normalizeText(value);
   if (!normalized) return "Unknown";
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  return titleCaseWords(normalized);
 }
 
 function formatChainLabel(value) {
@@ -25,7 +33,7 @@ function formatChainLabel(value) {
   if (!normalized) return "Unknown";
   if (normalized === "eth") return "Ethereum";
   if (normalized === "op") return "Optimism";
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  return titleCaseWords(normalized);
 }
 
 function getPortfolioSnapshotValue(snapshot) {
@@ -81,38 +89,6 @@ function isRealChain(value) {
   return !invalidValues.has(network);
 }
 
-function deriveHoldingClassification(holding) {
-  const tokenSymbol = normalizeText(holding?.token_symbol);
-  const protocol = normalizeText(holding?.protocol);
-  const category = normalizeText(holding?.category);
-
-  const stableSymbols = new Set(["usdc", "usdt", "usdm", "dai", "fdusd", "usde"]);
-
-  if (stableSymbols.has(tokenSymbol) && protocol) {
-    return "Stable Core";
-  }
-
-  if (category === "reward") {
-    return "Growth";
-  }
-
-  if (protocol) {
-    return "Growth";
-  }
-
-  if (stableSymbols.has(tokenSymbol)) {
-    return "Stable Core";
-  }
-
-  return "Rotational Core";
-}
-
-function deriveHoldingYieldContribution(holding) {
-  return normalizeText(holding?.category) === "reward"
-    ? safeNumber(holding?.value_usd)
-    : 0;
-}
-
 function deriveHoldingDisplayName(holding) {
   const tokenName = String(holding?.token_name || "").trim();
   const tokenSymbol = String(holding?.token_symbol || "").trim();
@@ -126,6 +102,11 @@ function deriveHoldingDisplayName(holding) {
 }
 
 function deriveHoldingPrice(holding) {
+  const providedPrice = safeNumber(holding?.price_per_unit_usd);
+  if (providedPrice > 0) {
+    return providedPrice;
+  }
+
   const value = safeNumber(holding?.value_usd);
   const amount = safeNumber(holding?.amount);
 
@@ -136,11 +117,161 @@ function deriveHoldingPrice(holding) {
   return 0;
 }
 
+function isRewardHolding(holding) {
+  return normalizeText(holding?.position_role) === "reward";
+}
+
+function buildParentMatchKeys(holding) {
+  const keys = new Set();
+
+  const tokenSymbol = normalizeText(holding?.token_symbol);
+  const tokenName = normalizeText(holding?.token_name);
+  const protocol = normalizeText(holding?.protocol);
+  const network = normalizeText(holding?.network);
+
+  if (protocol) keys.add(`protocol:${network}:${protocol}`);
+  if (tokenSymbol) keys.add(`symbol:${network}:${tokenSymbol}`);
+  if (tokenName) keys.add(`name:${network}:${tokenName}`);
+
+  return Array.from(keys);
+}
+
+function buildRewardMatchKeys(holding) {
+  const keys = new Set();
+
+  const protocol = normalizeText(holding?.protocol);
+  const network = normalizeText(holding?.network);
+
+  if (protocol) {
+    keys.add(`protocol:${network}:${protocol}`);
+    keys.add(`symbol:${network}:${protocol}`);
+    keys.add(`name:${network}:${protocol}`);
+  }
+
+  return Array.from(keys);
+}
+
+function normalizeRewardHolding(holding) {
+  return {
+    asset_id: holding.asset_id || null,
+    token_symbol: String(holding.token_symbol || "").trim() || "—",
+    token_name: deriveHoldingDisplayName(holding),
+    network: isRealChain(holding.network)
+      ? formatChainLabel(holding.network)
+      : "Unknown",
+    amount: safeNumber(holding.amount),
+    value_usd: safeNumber(holding.value_usd),
+    price_usd: deriveHoldingPrice(holding),
+    asset_class: String(holding.asset_class || "").trim() || null,
+    yield_profile: String(holding.yield_profile || "").trim() || null,
+    mmii_bucket: String(holding.mmii_bucket || "").trim() || null,
+    mmii_subclass: String(holding.mmii_subclass || "").trim() || null,
+    price_source: String(holding.price_source || "").trim() || null,
+    position_role: String(holding.position_role || "").trim() || null,
+    is_yield_position: Boolean(holding.is_yield_position),
+    category: String(holding.category || "").trim() || null,
+    protocol: String(holding.protocol || "").trim() || null,
+  };
+}
+
+function normalizeParentHolding(holding, totalValue) {
+  const holdingValue = safeNumber(holding.value_usd);
+
+  return {
+    asset_id: holding.asset_id || null,
+    token_symbol: String(holding.token_symbol || "").trim() || "—",
+    token_name: deriveHoldingDisplayName(holding),
+    network: isRealChain(holding.network)
+      ? formatChainLabel(holding.network)
+      : "Unknown",
+    amount: safeNumber(holding.amount),
+    value_usd: holdingValue,
+    wallet_share_pct: totalValue > 0 ? (holdingValue / totalValue) * 100 : 0,
+    price_usd: deriveHoldingPrice(holding),
+    yield_contribution: 0,
+    asset_class: String(holding.asset_class || "").trim() || null,
+    yield_profile: String(holding.yield_profile || "").trim() || null,
+    mmii_bucket: String(holding.mmii_bucket || "").trim() || null,
+    mmii_subclass: String(holding.mmii_subclass || "").trim() || null,
+    price_source: String(holding.price_source || "").trim() || null,
+    position_role: String(holding.position_role || "").trim() || null,
+    is_yield_position: Boolean(holding.is_yield_position),
+    category: String(holding.category || "").trim() || null,
+    protocol: String(holding.protocol || "").trim() || null,
+    rewards: [],
+  };
+}
+
+function groupWalletHoldings(walletHoldings, totalValue) {
+  const principalRows = [];
+  const rewardRows = [];
+  const parentLookup = new Map();
+
+  for (const holding of walletHoldings) {
+    if (isRewardHolding(holding)) {
+      rewardRows.push(holding);
+      continue;
+    }
+
+    const normalizedParent = normalizeParentHolding(holding, totalValue);
+    principalRows.push(normalizedParent);
+
+    const keys = buildParentMatchKeys(holding);
+    for (const key of keys) {
+      if (!parentLookup.has(key)) {
+        parentLookup.set(key, normalizedParent);
+      }
+    }
+  }
+
+  const unmatchedRewards = [];
+
+  for (const reward of rewardRows) {
+    const rewardKeys = buildRewardMatchKeys(reward);
+    let matchedParent = null;
+
+    for (const key of rewardKeys) {
+      if (parentLookup.has(key)) {
+        matchedParent = parentLookup.get(key);
+        break;
+      }
+    }
+
+    const normalizedReward = normalizeRewardHolding(reward);
+
+    if (matchedParent) {
+      matchedParent.rewards.push(normalizedReward);
+      continue;
+    }
+
+    unmatchedRewards.push({
+      ...normalizeParentHolding(reward, totalValue),
+      yield_contribution: safeNumber(reward.value_usd),
+      rewards: [],
+    });
+  }
+
+  const combinedRows = [...principalRows, ...unmatchedRewards];
+
+  for (const holding of combinedRows) {
+    const rewardTotal = holding.rewards.reduce(
+      (sum, reward) => sum + safeNumber(reward.value_usd),
+      0
+    );
+    holding.yield_contribution = rewardTotal;
+    holding.rewards.sort((a, b) => b.value_usd - a.value_usd);
+  }
+
+  combinedRows.sort((a, b) => b.value_usd - a.value_usd);
+
+  return combinedRows;
+}
+
 module.exports = async function handler(req, res) {
   try {
     const { data: wallets, error: walletsError } = await supabase
       .from("Wallets")
-      .select("id, name, role, network_group, is_active")
+      .select("id, name, wallet_address, role, network_group, is_active")
       .eq("is_active", true);
 
     if (walletsError) throw walletsError;
@@ -193,7 +324,16 @@ module.exports = async function handler(req, res) {
           amount,
           value_usd,
           category,
-          protocol
+          protocol,
+          is_yield_position,
+          asset_id,
+          asset_class,
+          yield_profile,
+          mmii_bucket,
+          mmii_subclass,
+          price_source,
+          price_per_unit_usd,
+          position_role
         `)
         .in("snapshot_id", latestSnapshotIds);
 
@@ -264,34 +404,12 @@ module.exports = async function handler(req, res) {
           0
         );
 
-        const normalizedHoldings = walletHoldings
-          .map((holding) => {
-            const holdingValue = safeNumber(holding.value_usd);
-            const priceUsd = deriveHoldingPrice(holding);
-            const yieldValue = deriveHoldingYieldContribution(holding);
-
-            return {
-              token_symbol: String(holding.token_symbol || "").trim() || "—",
-              token_name: deriveHoldingDisplayName(holding),
-              network: isRealChain(holding.network)
-                ? formatChainLabel(holding.network)
-                : "Unknown",
-              amount: safeNumber(holding.amount),
-              value_usd: holdingValue,
-              wallet_share_pct:
-                totalValue > 0 ? (holdingValue / totalValue) * 100 : 0,
-              price_usd: priceUsd,
-              yield_contribution: yieldValue,
-              classification: deriveHoldingClassification(holding),
-              category: String(holding.category || "").trim() || null,
-              protocol: String(holding.protocol || "").trim() || null,
-            };
-          })
-          .sort((a, b) => b.value_usd - a.value_usd);
+        const groupedHoldings = groupWalletHoldings(walletHoldings, totalValue);
 
         return {
           wallet_id: snapshot.wallet_id,
           wallet_name: wallet?.name || "Unknown Wallet",
+          wallet_address: wallet?.wallet_address || null,
           role: formatRoleLabel(wallet?.role),
           network_group: wallet?.network_group || null,
           total_value: totalValue,
@@ -303,21 +421,12 @@ module.exports = async function handler(req, res) {
           snapshot_time: snapshot.snapshot_time || null,
           chains: Array.from(chainSet.values()),
           holdings_value_sum: holdingsValueSum,
-          holdings_count: walletHoldings.length,
-          holdings: normalizedHoldings,
+          holdings_count: groupedHoldings.length,
+          raw_holdings_count: walletHoldings.length,
+          holdings: groupedHoldings,
         };
       })
       .sort((a, b) => b.total_value - a.total_value);
-
-    console.log(
-      "[api/blockchain-accounts-summary] recent latest snapshots:",
-      latestSnapshots.map((snapshot) => ({
-        wallet_id: snapshot.wallet_id,
-        snapshot_time: snapshot.snapshot_time,
-        total_value_usd: safeNumber(snapshot.total_value_usd),
-        total_claimable_usd: safeNumber(snapshot.total_claimable_usd),
-      }))
-    );
 
     return res.status(200).json({
       total_blockchain_value: totalBlockchainValue,
