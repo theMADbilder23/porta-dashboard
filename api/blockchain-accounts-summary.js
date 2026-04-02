@@ -39,17 +39,19 @@ function getClaimableSnapshotValue(snapshot) {
   return safeNumber(snapshot.total_claimable_usd);
 }
 
+function getFreshnessTime(snapshot) {
+  const createdAt = new Date(snapshot?.created_at || 0).getTime();
+  const snapshotTime = new Date(snapshot?.snapshot_time || 0).getTime();
+  return Math.max(createdAt || 0, snapshotTime || 0);
+}
+
 function buildLatestPerWallet(snapshots) {
   const latestPerWallet = new Map();
 
   for (const snapshot of snapshots || []) {
     const existing = latestPerWallet.get(snapshot.wallet_id);
 
-    if (
-      !existing ||
-      new Date(snapshot.snapshot_time).getTime() >
-        new Date(existing.snapshot_time).getTime()
-    ) {
+    if (!existing || getFreshnessTime(snapshot) > getFreshnessTime(existing)) {
       latestPerWallet.set(snapshot.wallet_id, snapshot);
     }
   }
@@ -108,7 +110,6 @@ module.exports = async function handler(req, res) {
     if (walletsError) throw walletsError;
 
     const activeWallets = Array.isArray(wallets) ? wallets : [];
-
     const blockchainWallets = activeWallets.filter(
       (wallet) => !isExplicitNonBlockchainWallet(wallet)
     );
@@ -133,10 +134,11 @@ module.exports = async function handler(req, res) {
         total_value_usd,
         total_claimable_usd,
         total_pending_usd,
-        snapshot_time
+        snapshot_time,
+        created_at
       `)
       .in("wallet_id", walletIds)
-      .order("snapshot_time", { ascending: true });
+      .order("created_at", { ascending: true });
 
     if (snapshotsError) throw snapshotsError;
 
@@ -240,7 +242,7 @@ module.exports = async function handler(req, res) {
           yield_contribution: getClaimableSnapshotValue(snapshot),
           portfolio_share_pct:
             totalBlockchainValue > 0 ? (totalValue / totalBlockchainValue) * 100 : 0,
-          snapshot_time: snapshot.snapshot_time || null,
+          snapshot_time: snapshot.snapshot_time || snapshot.created_at || null,
           chains: Array.from(chainSet.values()),
           holdings_value_sum: holdingsValueSum,
           holdings_count: walletHoldings.length,
@@ -248,19 +250,16 @@ module.exports = async function handler(req, res) {
       })
       .sort((a, b) => b.total_value - a.total_value);
 
-    console.log("[api/blockchain-accounts-summary] final summary:", {
-      total_blockchain_value: totalBlockchainValue,
-      yield_contribution: yieldContribution,
-      active_accounts: blockchainWallets.length,
-      chains_covered: uniqueChains.size,
-      account_values: accounts.map((account) => ({
-        wallet_name: account.wallet_name,
-        total_value: account.total_value,
-        holdings_value_sum: account.holdings_value_sum,
-        yield_contribution: account.yield_contribution,
-        chains: account.chains,
-      })),
-    });
+    console.log("[api/blockchain-accounts-summary] latest snapshots used:", 
+      latestSnapshots.map((snapshot) => ({
+        wallet_id: snapshot.wallet_id,
+        snapshot_time: snapshot.snapshot_time,
+        created_at: snapshot.created_at,
+        freshness_time: getFreshnessTime(snapshot),
+        total_value_usd: safeNumber(snapshot.total_value_usd),
+        total_claimable_usd: safeNumber(snapshot.total_claimable_usd),
+      }))
+    );
 
     return res.status(200).json({
       total_blockchain_value: totalBlockchainValue,
