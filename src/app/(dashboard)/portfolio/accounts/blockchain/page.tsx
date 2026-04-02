@@ -1,3 +1,5 @@
+import { useBlockchainAccountsSummary } from "@/hooks/use-blockchain-accounts-summary";
+
 export default function BlockchainAccountsPage() {
   const accountCards = [
     {
@@ -35,6 +37,8 @@ export default function BlockchainAccountsPage() {
     },
   ];
 
+  const { data, isLoading } = useBlockchainAccountsSummary();
+
   return (
     <div className="space-y-6 p-6">
       <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
@@ -47,9 +51,9 @@ export default function BlockchainAccountsPage() {
               Blockchain Accounts
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-              Operational inspection for on-chain wallets, balances, protocol exposure,
-              yield positions, chain distribution, and sync visibility across the
-              blockchain side of Porta.
+              Operational inspection for on-chain wallets, balances, protocol
+              exposure, yield positions, chain distribution, and sync visibility
+              across the blockchain side of Porta.
             </p>
           </div>
 
@@ -70,7 +74,9 @@ export default function BlockchainAccountsPage() {
             Total Blockchain Value
           </p>
           <h2 className="mt-3 text-3xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-            $31,282
+            {isLoading
+              ? "—"
+              : `$${(data?.total_blockchain_value ?? 0).toLocaleString()}`}
           </h2>
           <p className="mt-2 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
             Combined value across tracked blockchain accounts.
@@ -82,7 +88,12 @@ export default function BlockchainAccountsPage() {
             Yield Contribution
           </p>
           <h2 className="mt-3 text-3xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-            $167.60
+            {isLoading
+              ? "—"
+              : `$${(data?.yield_contribution ?? 0).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}`}
           </h2>
           <p className="mt-2 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
             Snapshot-level contribution from live on-chain yield sources.
@@ -94,7 +105,7 @@ export default function BlockchainAccountsPage() {
             Active Accounts
           </p>
           <h2 className="mt-3 text-3xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-            3
+            {isLoading ? "—" : data?.active_accounts ?? 0}
           </h2>
           <p className="mt-2 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
             Accounts currently expected to feed operational blockchain data.
@@ -106,7 +117,7 @@ export default function BlockchainAccountsPage() {
             Chains Covered
           </p>
           <h2 className="mt-3 text-3xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-            3
+            {isLoading ? "—" : data?.chains_covered ?? 0}
           </h2>
           <p className="mt-2 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
             Current visible chain groups across tracked blockchain accounts.
@@ -273,8 +284,8 @@ export default function BlockchainAccountsPage() {
                     Account Detail Preview
                   </h3>
                   <p className="mt-1 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
-                    Holdings table, protocol exposure, chain breakdown, and yield rows
-                    will expand here in the next build step.
+                    Holdings table, protocol exposure, chain breakdown, and yield
+                    rows will expand here in the next build step.
                   </p>
                 </div>
 

@@ -58,3 +58,10 @@ export type YieldSummarySource = {
   distributionPercentage: number;
   dailyYield: number;
 };
+
+export type BlockchainAccountsSummaryResponse = {
+  total_blockchain_value: number;
+  yield_contribution: number;
+  active_accounts: number;
+  chains_covered: number;
+};
