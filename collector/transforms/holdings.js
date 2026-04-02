@@ -16,9 +16,11 @@ export function enrichHolding(holding) {
   const price_per_unit_usd =
     safeAmount > 0 ? safeValue / safeAmount : 0;
 
-  // -----------------------------
-  // DEFAULT BASE STRUCTURE
-  // -----------------------------
+  const symbol = String(token_symbol || "").toUpperCase();
+  const normalizedCategory = String(category || "").toLowerCase();
+  const normalizedProtocol = String(protocol || "").toLowerCase();
+  const normalizedNetwork = String(network || "").toLowerCase();
+
   let enriched = {
     ...holding,
     asset_id: `${network || "unknown"}:${token_symbol}`,
@@ -31,75 +33,78 @@ export function enrichHolding(holding) {
     position_role: "principal",
   };
 
-  const symbol = String(token_symbol || "").toUpperCase();
-
-  // -----------------------------
-  // QCAP (DIVIDEND ASSET)
-  // -----------------------------
-  if (symbol === "QCAP") {
-    enriched.yield_profile = "dividends";
-    enriched.mmii_subclass = "defi_growth_yield";
-    enriched.position_role = "principal";
-    return enriched;
-  }
-
-  // -----------------------------
-  // QUBIC
-  // -----------------------------
+  // QCAP
   if (symbol === "QCAP") {
     enriched.is_yield_position = true;
     enriched.yield_profile = "dividends";
+    enriched.mmii_bucket = "growth";
     enriched.mmii_subclass = "defi_growth_yield";
     enriched.position_role = "principal";
     enriched.price_source = "manual_price";
     return enriched;
   }
 
-  // -----------------------------
-  // WELL
-  // -----------------------------
-  if (symbol === "WELL") {
+  // QUBIC
+  if (symbol === "QUBIC") {
+    enriched.is_yield_position = false;
+    enriched.yield_profile = "none";
+    enriched.mmii_bucket = "growth";
     enriched.mmii_subclass = "realfi10";
-    enriched.yield_profile = category === "reward" ? "staking" : "none";
-    enriched.position_role = category === "reward" ? "reward" : "principal";
+    enriched.position_role = "principal";
+    enriched.price_source = "manual_price";
     return enriched;
   }
 
-  // -----------------------------
+  // WELL
+  if (symbol === "WELL") {
+    enriched.mmii_bucket = "growth";
+    enriched.mmii_subclass = "realfi10";
+    enriched.yield_profile =
+      normalizedCategory === "reward" ? "staking" : "none";
+    enriched.position_role =
+      normalizedCategory === "reward" ? "reward" : "principal";
+    enriched.price_source =
+      normalizedCategory === "reward" ? "merkl_rewards" : "debank_token";
+    return enriched;
+  }
+
   // stkWELL
-  // -----------------------------
   if (symbol === "STKWELL") {
+    enriched.is_yield_position = true;
     enriched.yield_profile = "staking";
+    enriched.mmii_bucket = "growth";
     enriched.mmii_subclass = "defi_growth_yield";
     enriched.position_role = "principal";
+    enriched.price_source = "debank_token";
     return enriched;
   }
 
-  // -----------------------------
-  // MAMO (principal + rewards)
-  // -----------------------------
+  // MAMO principal + rewards
   if (symbol === "MAMO") {
     enriched.yield_profile = "staking";
+    enriched.mmii_bucket = "growth";
     enriched.mmii_subclass = "defi_growth_yield";
     enriched.position_role =
-      category === "reward" ? "reward" : "principal";
+      normalizedCategory === "reward" ? "reward" : "principal";
+
+    if (normalizedProtocol === "mamo") {
+      enriched.price_source = "contract_read";
+    }
+
     return enriched;
   }
 
-  // -----------------------------
-  // cbBTC (reward from MAMO)
-  // -----------------------------
+  // cbBTC reward from MAMO
   if (symbol === "CBBTC") {
     enriched.yield_profile = "staking";
+    enriched.mmii_bucket = "growth";
     enriched.mmii_subclass = "defi_growth_yield";
     enriched.position_role = "reward";
     enriched.price_source = "contract_read";
     return enriched;
   }
 
-  // -----------------------------
-  // STABLECOINS
-  // -----------------------------
+  // Stablecoins
   if (["USDC", "USDT", "USDM"].includes(symbol)) {
     enriched.asset_class = "stablecoin";
     enriched.yield_profile = is_yield_position ? "lending" : "none";
@@ -108,18 +113,25 @@ export function enrichHolding(holding) {
       ? "stable_collateralized"
       : "stable_non_collateralized";
     enriched.position_role =
-      category === "reward" ? "reward" : "principal";
+      normalizedCategory === "reward" ? "reward" : "principal";
+    enriched.price_source = "debank_token";
     return enriched;
   }
 
-  // -----------------------------
-  // GENERIC REWARD FALLBACK
-  // -----------------------------
-  if (category === "reward") {
+  // Generic reward fallback
+  if (normalizedCategory === "reward") {
     enriched.position_role = "reward";
     enriched.yield_profile = "staking";
+    enriched.mmii_bucket = "growth";
     enriched.mmii_subclass = "defi_growth_yield";
-    enriched.price_source = "merkl_rewards";
+    enriched.price_source =
+      normalizedProtocol === "mamo" ? "contract_read" : "merkl_rewards";
+    return enriched;
+  }
+
+  // Qubic-side fallback
+  if (normalizedNetwork === "qubic") {
+    enriched.price_source = "manual_price";
     return enriched;
   }
 
