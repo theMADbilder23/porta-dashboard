@@ -39,19 +39,17 @@ function getClaimableSnapshotValue(snapshot) {
   return safeNumber(snapshot.total_claimable_usd);
 }
 
-function getFreshnessTime(snapshot) {
-  const createdAt = new Date(snapshot?.created_at || 0).getTime();
-  const snapshotTime = new Date(snapshot?.snapshot_time || 0).getTime();
-  return Math.max(createdAt || 0, snapshotTime || 0);
-}
-
 function buildLatestPerWallet(snapshots) {
   const latestPerWallet = new Map();
 
   for (const snapshot of snapshots || []) {
     const existing = latestPerWallet.get(snapshot.wallet_id);
 
-    if (!existing || getFreshnessTime(snapshot) > getFreshnessTime(existing)) {
+    if (
+      !existing ||
+      new Date(snapshot.snapshot_time).getTime() >
+        new Date(existing.snapshot_time).getTime()
+    ) {
       latestPerWallet.set(snapshot.wallet_id, snapshot);
     }
   }
@@ -59,26 +57,9 @@ function buildLatestPerWallet(snapshots) {
   return Array.from(latestPerWallet.values());
 }
 
-function isExplicitNonBlockchainWallet(wallet) {
-  const role = normalizeText(wallet?.role);
-  const networkGroup = normalizeText(wallet?.network_group);
-  const name = normalizeText(wallet?.name);
-
-  const excludedValues = new Set([
-    "banking",
-    "bank",
-    "investment",
-    "brokerage",
-    "traditional",
-  ]);
-
-  return (
-    excludedValues.has(role) ||
-    excludedValues.has(networkGroup) ||
-    name.includes("bank") ||
-    name.includes("brokerage") ||
-    name.includes("investment account")
-  );
+function getRecentWindowStart() {
+  const now = new Date();
+  return new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
 }
 
 function isRealChain(value) {
@@ -110,11 +91,9 @@ module.exports = async function handler(req, res) {
     if (walletsError) throw walletsError;
 
     const activeWallets = Array.isArray(wallets) ? wallets : [];
-    const blockchainWallets = activeWallets.filter(
-      (wallet) => !isExplicitNonBlockchainWallet(wallet)
-    );
+    const walletIds = activeWallets.map((wallet) => wallet.id);
 
-    if (blockchainWallets.length === 0) {
+    if (walletIds.length === 0) {
       return res.status(200).json({
         total_blockchain_value: 0,
         yield_contribution: 0,
@@ -124,7 +103,7 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    const walletIds = blockchainWallets.map((wallet) => wallet.id);
+    const recentWindowStart = getRecentWindowStart();
 
     const { data: snapshots, error: snapshotsError } = await supabase
       .from("wallet_snapshots")
@@ -134,11 +113,11 @@ module.exports = async function handler(req, res) {
         total_value_usd,
         total_claimable_usd,
         total_pending_usd,
-        snapshot_time,
-        created_at
+        snapshot_time
       `)
       .in("wallet_id", walletIds)
-      .order("created_at", { ascending: true });
+      .gte("snapshot_time", recentWindowStart)
+      .order("snapshot_time", { ascending: true });
 
     if (snapshotsError) throw snapshotsError;
 
@@ -156,13 +135,32 @@ module.exports = async function handler(req, res) {
           token_symbol,
           token_name,
           network,
-          value_usd
+          value_usd,
+          category,
+          protocol
         `)
         .in("snapshot_id", latestSnapshotIds);
 
       if (holdingsError) throw holdingsError;
 
       holdings = Array.isArray(holdingsData) ? holdingsData : [];
+    }
+
+    const walletById = new Map(
+      activeWallets.map((wallet) => [wallet.id, wallet])
+    );
+
+    const holdingsByWalletId = new Map();
+
+    for (const holding of holdings) {
+      const walletId = holding.wallet_id;
+      if (!walletId) continue;
+
+      if (!holdingsByWalletId.has(walletId)) {
+        holdingsByWalletId.set(walletId, []);
+      }
+
+      holdingsByWalletId.get(walletId).push(holding);
     }
 
     const totalBlockchainValue = latestSnapshots.reduce(
@@ -182,30 +180,6 @@ module.exports = async function handler(req, res) {
       if (isRealChain(network)) {
         uniqueChains.add(network);
       }
-    }
-
-    for (const wallet of blockchainWallets) {
-      const networkGroup = normalizeText(wallet.network_group);
-      if (isRealChain(networkGroup)) {
-        uniqueChains.add(networkGroup);
-      }
-    }
-
-    const walletById = new Map(
-      blockchainWallets.map((wallet) => [wallet.id, wallet])
-    );
-
-    const holdingsByWalletId = new Map();
-
-    for (const holding of holdings) {
-      const walletId = holding.wallet_id;
-      if (!walletId) continue;
-
-      if (!holdingsByWalletId.has(walletId)) {
-        holdingsByWalletId.set(walletId, []);
-      }
-
-      holdingsByWalletId.get(walletId).push(holding);
     }
 
     const accounts = latestSnapshots
@@ -242,7 +216,7 @@ module.exports = async function handler(req, res) {
           yield_contribution: getClaimableSnapshotValue(snapshot),
           portfolio_share_pct:
             totalBlockchainValue > 0 ? (totalValue / totalBlockchainValue) * 100 : 0,
-          snapshot_time: snapshot.snapshot_time || snapshot.created_at || null,
+          snapshot_time: snapshot.snapshot_time || null,
           chains: Array.from(chainSet.values()),
           holdings_value_sum: holdingsValueSum,
           holdings_count: walletHoldings.length,
@@ -250,12 +224,11 @@ module.exports = async function handler(req, res) {
       })
       .sort((a, b) => b.total_value - a.total_value);
 
-    console.log("[api/blockchain-accounts-summary] latest snapshots used:", 
+    console.log(
+      "[api/blockchain-accounts-summary] recent latest snapshots:",
       latestSnapshots.map((snapshot) => ({
         wallet_id: snapshot.wallet_id,
         snapshot_time: snapshot.snapshot_time,
-        created_at: snapshot.created_at,
-        freshness_time: getFreshnessTime(snapshot),
         total_value_usd: safeNumber(snapshot.total_value_usd),
         total_claimable_usd: safeNumber(snapshot.total_claimable_usd),
       }))
@@ -264,7 +237,7 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({
       total_blockchain_value: totalBlockchainValue,
       yield_contribution: yieldContribution,
-      active_accounts: blockchainWallets.length,
+      active_accounts: latestSnapshots.length,
       chains_covered: uniqueChains.size,
       accounts,
     });
