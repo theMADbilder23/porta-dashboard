@@ -1,7 +1,7 @@
 type AssetViewerPageProps = {
-  params: {
+  params: Promise<{
     token: string;
-  };
+  }>;
 };
 
 function decodeToken(value: string) {
@@ -12,8 +12,11 @@ function decodeToken(value: string) {
   }
 }
 
-export default function AssetViewerPage({ params }: AssetViewerPageProps) {
-  const token = decodeToken(params.token);
+export default async function AssetViewerPage({
+  params,
+}: AssetViewerPageProps) {
+  const { token: rawToken } = await params;
+  const token = decodeToken(rawToken);
 
   return (
     <div className="min-h-screen p-6">
