@@ -1,3 +1,5 @@
+"use client";
+
 import { useBlockchainAccountsSummary } from "@/hooks/use-blockchain-accounts-summary";
 
 export default function BlockchainAccountsPage() {
