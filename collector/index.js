@@ -3,6 +3,7 @@ import { fetchWallets, insertSnapshot, insertHoldings } from "./db.js";
 import { cleanWallet, isValidWallet, safeNumber } from "./utils.js";
 import { collectCustomProtocols } from "./protocols/index.js";
 import { collectQubicHoldings } from "./chains/qubic/index.js";
+import { enrichHolding } from "./transforms/holdings.js";
 
 import {
   collectDebankData,
@@ -58,20 +59,39 @@ function sumRewardHoldingsAmount(holdings = [], rewardTokenSymbol = null) {
   }, 0);
 }
 
-function buildHoldingInsertRows({ holdings, snapshotId, walletId, snapshotTime }) {
-  return holdings.map((holding) => ({
-    snapshot_id: snapshotId,
-    wallet_id: walletId,
-    token_symbol: holding.token_symbol,
-    token_name: holding.token_name,
-    network: holding.network,
-    amount: holding.amount,
-    value_usd: holding.value_usd,
-    category: holding.category,
-    protocol: holding.protocol,
-    is_yield_position: holding.is_yield_position,
-    snapshot_time: snapshotTime,
-  }));
+function buildHoldingInsertRows({
+  holdings,
+  snapshotId,
+  walletId,
+  snapshotTime,
+}) {
+  return holdings.map((holding) => {
+    const enriched = enrichHolding(holding);
+
+    return {
+      snapshot_id: snapshotId,
+      wallet_id: walletId,
+      token_symbol: enriched.token_symbol,
+      token_name: enriched.token_name,
+      network: enriched.network,
+      amount: enriched.amount,
+      value_usd: enriched.value_usd,
+      category: enriched.category,
+      protocol: enriched.protocol,
+      is_yield_position: enriched.is_yield_position,
+      snapshot_time: snapshotTime,
+
+      // New metadata columns
+      asset_id: enriched.asset_id || null,
+      asset_class: enriched.asset_class || null,
+      yield_profile: enriched.yield_profile || null,
+      mmii_bucket: enriched.mmii_bucket || null,
+      mmii_subclass: enriched.mmii_subclass || null,
+      price_source: enriched.price_source || null,
+      price_per_unit_usd: safeNumber(enriched.price_per_unit_usd || 0),
+      position_role: enriched.position_role || null,
+    };
+  });
 }
 
 async function collectQubicWallet(wallet) {
@@ -86,10 +106,18 @@ async function collectQubicWallet(wallet) {
   const snapshotPayload = {
     wallet_id: wallet.id,
     total_value_usd: safeNumber(result?.snapshotMetrics?.total_value_usd || 0),
-    total_rewards_usd: safeNumber(result?.snapshotMetrics?.total_rewards_usd || 0),
-    total_claimed_usd: safeNumber(result?.snapshotMetrics?.total_claimed_usd || 0),
-    total_pending_usd: safeNumber(result?.snapshotMetrics?.total_pending_usd || 0),
-    total_claimable_usd: safeNumber(result?.snapshotMetrics?.total_claimable_usd || 0),
+    total_rewards_usd: safeNumber(
+      result?.snapshotMetrics?.total_rewards_usd || 0
+    ),
+    total_claimed_usd: safeNumber(
+      result?.snapshotMetrics?.total_claimed_usd || 0
+    ),
+    total_pending_usd: safeNumber(
+      result?.snapshotMetrics?.total_pending_usd || 0
+    ),
+    total_claimable_usd: safeNumber(
+      result?.snapshotMetrics?.total_claimable_usd || 0
+    ),
     total_claimable_token: safeNumber(
       result?.snapshotMetrics?.total_claimable_token || 0
     ),
@@ -100,8 +128,10 @@ async function collectQubicWallet(wallet) {
 
   const snapshot = await insertSnapshot(snapshotPayload);
 
+  const rawHoldings = Array.isArray(result?.holdings) ? result.holdings : [];
+
   const holdingRows = buildHoldingInsertRows({
-    holdings: Array.isArray(result?.holdings) ? result.holdings : [],
+    holdings: rawHoldings,
     snapshotId: snapshot.id,
     walletId: wallet.id,
     snapshotTime,
@@ -163,20 +193,20 @@ async function collectStandardWallet(wallet) {
     stkWellAmount,
   });
 
-  const totalWalletValue = safeNumber(debankData.totalWalletValue || 0);
-  const chainCount = Array.isArray(debankData.usedChains)
+  const totalWalletValue = safeNumber(debankData?.totalWalletValue || 0);
+  const chainCount = Array.isArray(debankData?.usedChains)
     ? debankData.usedChains.length
     : 0;
 
   const topTokens = getTopTokens(
-    debankData.allTokens,
+    debankData?.allTokens,
     totalWalletValue,
     roleUsed,
     5,
     25
   );
 
-  const topProtocols = getTopProtocols(debankData.allProtocols, 5, 25);
+  const topProtocols = getTopProtocols(debankData?.allProtocols, 5, 25);
 
   const stkWellHolding = buildStkWellHolding(
     stkWellAmount,
@@ -220,7 +250,8 @@ async function collectStandardWallet(wallet) {
     total_pending_usd:
       safeNumber(merklMetrics.total_pending_usd) + safeNumber(customRewardsUsd),
     total_claimable_usd:
-      safeNumber(merklMetrics.total_claimable_usd) + safeNumber(customRewardsUsd),
+      safeNumber(merklMetrics.total_claimable_usd) +
+      safeNumber(customRewardsUsd),
     total_claimable_token:
       safeNumber(merklMetrics.total_claimable_token) +
       safeNumber(customRewardsTokenAmount),
@@ -263,21 +294,18 @@ async function collectStandardWallet(wallet) {
           custom_rewards_token_amount: customRewardsTokenAmount,
         },
         merkl_rewards: {
-          token: merklRewards.token,
-          price: merklRewards.price,
-          earned: merklRewards.earned,
-          claimed: merklRewards.claimed,
-          pending: merklRewards.pending,
-          claimable: merklRewards.claimable,
-          usd_value: merklRewards.usd_value,
+          token: merklRewards?.token,
+          price: merklRewards?.price,
+          earned: merklRewards?.earned,
+          claimed: merklRewards?.claimed,
+          pending: merklRewards?.pending,
+          claimable: merklRewards?.claimable,
+          usd_value: merklRewards?.usd_value,
         },
         stkwell_balance: stkWellAmount,
         top_tokens: filteredTopTokens,
         top_protocols: filteredTopProtocols,
-        enriched_holdings: [
-          ...(stkWellHolding ? [stkWellHolding] : []),
-          ...customProtocolHoldings,
-        ],
+        enriched_holdings: holdingRows,
       },
       null,
       2
