@@ -1,6 +1,9 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { useBlockchainAccountsSummary } from "@/hooks/use-blockchain-accounts-summary";
+
+type SortOption = "highest" | "lowest" | "recent";
 
 function formatCurrency(value: number) {
   return `$${value.toLocaleString(undefined, {
@@ -70,7 +73,87 @@ function getExposureText(
 
 export default function BlockchainAccountsPage() {
   const { data, isLoading, error } = useBlockchainAccountsSummary();
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [chainFilter, setChainFilter] = useState("all");
+  const [sortOption, setSortOption] = useState<SortOption>("highest");
+  const [expandedWalletIds, setExpandedWalletIds] = useState<string[]>([]);
+
   const accounts = data?.accounts ?? [];
+
+  const roleOptions = useMemo(() => {
+    const roles = Array.from(
+      new Set(
+        accounts
+          .map((account) => String(account.role || "").trim())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b));
+
+    return roles;
+  }, [accounts]);
+
+  const chainOptions = useMemo(() => {
+    const chains = Array.from(
+      new Set(
+        accounts.flatMap((account) =>
+          (account.chains ?? []).map((chain) => String(chain || "").trim())
+        )
+      )
+    ).filter(Boolean);
+
+    return chains.sort((a, b) => a.localeCompare(b));
+  }, [accounts]);
+
+  const filteredAccounts = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    const filtered = accounts.filter((account) => {
+      const matchesSearch =
+        !query ||
+        account.wallet_name.toLowerCase().includes(query) ||
+        account.role.toLowerCase().includes(query) ||
+        (account.network_group || "").toLowerCase().includes(query) ||
+        account.chains.some((chain) => chain.toLowerCase().includes(query));
+
+      const matchesRole =
+        roleFilter === "all" ||
+        account.role.toLowerCase() === roleFilter.toLowerCase();
+
+      const matchesChain =
+        chainFilter === "all" ||
+        account.chains.some(
+          (chain) => chain.toLowerCase() === chainFilter.toLowerCase()
+        );
+
+      return matchesSearch && matchesRole && matchesChain;
+    });
+
+    filtered.sort((a, b) => {
+      if (sortOption === "lowest") {
+        return a.total_value - b.total_value;
+      }
+
+      if (sortOption === "recent") {
+        const aTime = new Date(a.snapshot_time || 0).getTime();
+        const bTime = new Date(b.snapshot_time || 0).getTime();
+        return bTime - aTime;
+      }
+
+      return b.total_value - a.total_value;
+    });
+
+    return filtered;
+  }, [accounts, searchQuery, roleFilter, chainFilter, sortOption]);
+
+  function toggleExpanded(walletId: string) {
+    setExpandedWalletIds((current) =>
+      current.includes(walletId)
+        ? current.filter((id) => id !== walletId)
+        : [...current, walletId]
+    );
+  }
 
   return (
     <div className="space-y-6 p-6">
@@ -154,14 +237,18 @@ export default function BlockchainAccountsPage() {
       </section>
 
       <section className="rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-        <div className="flex flex-col gap-4 desktop:flex-row desktop:items-center">
+        <div className="flex flex-col gap-4 desktop:flex-row desktop:items-end">
           <div className="flex-1">
             <label className="mb-2 block text-xs font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
               Search Accounts
             </label>
-            <div className="rounded-xl border border-[#E9DAFF] bg-[#FCFAFF] px-4 py-3 text-sm text-[#8A79A8] dark:border-[#312047] dark:bg-[#140D20] dark:text-[#A78BCE]">
-              Search by wallet name, chain, or role...
-            </div>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search by wallet name, chain, or role..."
+              className="w-full rounded-xl border border-[#E9DAFF] bg-[#FCFAFF] px-4 py-3 text-sm text-[#2D1B45] outline-none transition-colors placeholder:text-[#8A79A8] focus:border-[#C084FC] dark:border-[#312047] dark:bg-[#140D20] dark:text-[#F3E8FF] dark:placeholder:text-[#A78BCE]"
+            />
           </div>
 
           <div className="grid grid-cols-1 gap-4 tablet:grid-cols-3 desktop:w-[520px]">
@@ -169,27 +256,53 @@ export default function BlockchainAccountsPage() {
               <label className="mb-2 block text-xs font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
                 Role
               </label>
-              <div className="rounded-xl border border-[#E9DAFF] bg-[#FCFAFF] px-4 py-3 text-sm text-[#8A79A8] dark:border-[#312047] dark:bg-[#140D20] dark:text-[#A78BCE]">
-                All roles
-              </div>
+              <select
+                value={roleFilter}
+                onChange={(event) => setRoleFilter(event.target.value)}
+                className="w-full rounded-xl border border-[#E9DAFF] bg-[#FCFAFF] px-4 py-3 text-sm text-[#2D1B45] outline-none transition-colors focus:border-[#C084FC] dark:border-[#312047] dark:bg-[#140D20] dark:text-[#F3E8FF]"
+              >
+                <option value="all">All roles</option>
+                {roleOptions.map((role) => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>
               <label className="mb-2 block text-xs font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
                 Chain
               </label>
-              <div className="rounded-xl border border-[#E9DAFF] bg-[#FCFAFF] px-4 py-3 text-sm text-[#8A79A8] dark:border-[#312047] dark:bg-[#140D20] dark:text-[#A78BCE]">
-                All chains
-              </div>
+              <select
+                value={chainFilter}
+                onChange={(event) => setChainFilter(event.target.value)}
+                className="w-full rounded-xl border border-[#E9DAFF] bg-[#FCFAFF] px-4 py-3 text-sm text-[#2D1B45] outline-none transition-colors focus:border-[#C084FC] dark:border-[#312047] dark:bg-[#140D20] dark:text-[#F3E8FF]"
+              >
+                <option value="all">All chains</option>
+                {chainOptions.map((chain) => (
+                  <option key={chain} value={chain}>
+                    {chain}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>
               <label className="mb-2 block text-xs font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
                 Sort
               </label>
-              <div className="rounded-xl border border-[#E9DAFF] bg-[#FCFAFF] px-4 py-3 text-sm text-[#8A79A8] dark:border-[#312047] dark:bg-[#140D20] dark:text-[#A78BCE]">
-                Highest value
-              </div>
+              <select
+                value={sortOption}
+                onChange={(event) =>
+                  setSortOption(event.target.value as SortOption)
+                }
+                className="w-full rounded-xl border border-[#E9DAFF] bg-[#FCFAFF] px-4 py-3 text-sm text-[#2D1B45] outline-none transition-colors focus:border-[#C084FC] dark:border-[#312047] dark:bg-[#140D20] dark:text-[#F3E8FF]"
+              >
+                <option value="highest">Highest value</option>
+                <option value="lowest">Lowest value</option>
+                <option value="recent">Most recent</option>
+              </select>
             </div>
           </div>
         </div>
@@ -208,14 +321,14 @@ export default function BlockchainAccountsPage() {
               Loading blockchain account cards...
             </p>
           </div>
-        ) : accounts.length === 0 ? (
+        ) : filteredAccounts.length === 0 ? (
           <div className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
             <p className="text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
-              No blockchain accounts available yet.
+              No blockchain accounts match your current search/filter settings.
             </p>
           </div>
         ) : (
-          accounts.map((account) => {
+          filteredAccounts.map((account) => {
             const roleLabel = account.role || "Unknown";
             const chainLabel =
               account.chains.length > 0
@@ -227,6 +340,7 @@ export default function BlockchainAccountsPage() {
               account.chains,
               account.yield_contribution
             );
+            const isExpanded = expandedWalletIds.includes(account.wallet_id);
 
             return (
               <div
@@ -349,10 +463,111 @@ export default function BlockchainAccountsPage() {
                       </p>
                     </div>
 
-                    <button className="rounded-xl border border-[#D9C7FF] bg-white px-4 py-2 text-sm font-medium text-[#6D28D9] transition-colors hover:bg-[#F3E8FF] dark:border-[#3A2559] dark:bg-[#100A19] dark:text-[#D8B4FE] dark:hover:bg-[#1A1226]">
-                      View Details
+                    <button
+                      onClick={() => toggleExpanded(account.wallet_id)}
+                      className="rounded-xl border border-[#D9C7FF] bg-white px-4 py-2 text-sm font-medium text-[#6D28D9] transition-colors hover:bg-[#F3E8FF] dark:border-[#3A2559] dark:bg-[#100A19] dark:text-[#D8B4FE] dark:hover:bg-[#1A1226]"
+                    >
+                      {isExpanded ? "Hide Details" : "View Details"}
                     </button>
                   </div>
+
+                  {isExpanded ? (
+                    <div className="mt-5 grid grid-cols-1 gap-4 tablet:grid-cols-2 desktop:grid-cols-3">
+                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
+                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                          Wallet ID
+                        </p>
+                        <p className="mt-2 break-all text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {account.wallet_id}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
+                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                          Role
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {account.role}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
+                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                          Network Group
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {account.network_group || "Unknown"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
+                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                          Chains Covered
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {account.chains.length > 0
+                            ? account.chains.join(", ")
+                            : "None detected"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
+                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                          Snapshot Total
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {formatCurrency(account.total_value)}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
+                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                          Holdings Sum
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {formatCurrency(account.holdings_value_sum)}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
+                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                          Holdings Count
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {account.holdings_count}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
+                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                          Yield Contribution
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {account.yield_contribution > 0
+                            ? formatCurrency(account.yield_contribution)
+                            : "No current claimable value"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
+                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                          Last Updated
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {formatRelativeMinutes(account.snapshot_time)}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
+                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                          Portfolio Share
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {formatPercent(account.portfolio_share_pct)}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             );
