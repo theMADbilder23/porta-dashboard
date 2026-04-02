@@ -14,14 +14,6 @@ function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function normalizeRole(value) {
-  return normalizeText(value);
-}
-
-function normalizeNetwork(value) {
-  return normalizeText(value);
-}
-
 function getPortfolioSnapshotValue(snapshot) {
   return (
     safeNumber(snapshot.total_value_usd) +
@@ -51,71 +43,45 @@ function buildLatestPerWallet(snapshots) {
   return Array.from(latestPerWallet.values());
 }
 
-function isBlockchainWallet(wallet) {
-  const role = normalizeRole(wallet?.role);
-  const networkGroup = normalizeNetwork(wallet?.network_group);
+function isExplicitNonBlockchainWallet(wallet) {
+  const role = normalizeText(wallet?.role);
+  const networkGroup = normalizeText(wallet?.network_group);
+  const name = normalizeText(wallet?.name);
 
-  const blockchainRoles = new Set([
-    "hub",
-    "yield",
-    "core",
-    "swing",
-    "external",
-    "trading",
-  ]);
-
-  const nonBlockchainGroups = new Set([
+  const excludedValues = new Set([
     "banking",
     "bank",
     "investment",
     "brokerage",
+    "traditional",
   ]);
 
-  const knownBlockchainGroups = new Set([
-    "base",
-    "eth",
-    "ethereum",
-    "op",
-    "optimism",
-    "qubic",
-    "sol",
-    "solana",
-    "arb",
-    "arbitrum",
-    "avax",
-    "polygon",
-    "bsc",
-  ]);
-
-  if (networkGroup && nonBlockchainGroups.has(networkGroup)) {
-    return false;
-  }
-
-  if (networkGroup && knownBlockchainGroups.has(networkGroup)) {
-    return true;
-  }
-
-  if (blockchainRoles.has(role)) {
-    return true;
-  }
-
-  return false;
+  return (
+    excludedValues.has(role) ||
+    excludedValues.has(networkGroup) ||
+    name.includes("bank") ||
+    name.includes("brokerage") ||
+    name.includes("investment account")
+  );
 }
 
-function isUsefulChain(value) {
-  const network = normalizeNetwork(value);
+function isRealChain(value) {
+  const network = normalizeText(value);
 
   if (!network) return false;
 
-  const invalid = new Set([
+  const invalidValues = new Set([
     "null",
     "undefined",
+    "unknown",
     "n/a",
     "na",
-    "unknown",
+    "multi-chain",
+    "multichain",
+    "multi chain",
   ]);
 
-  return !invalid.has(network);
+  return !invalidValues.has(network);
 }
 
 module.exports = async function handler(req, res) {
@@ -128,7 +94,14 @@ module.exports = async function handler(req, res) {
     if (walletsError) throw walletsError;
 
     const activeWallets = Array.isArray(wallets) ? wallets : [];
-    const blockchainWallets = activeWallets.filter(isBlockchainWallet);
+
+    // IMPORTANT:
+    // Right now the user's full tracked portfolio is blockchain-based.
+    // So instead of trying to positively whitelist blockchain roles,
+    // we include all active wallets except explicitly non-blockchain ones.
+    const blockchainWallets = activeWallets.filter(
+      (wallet) => !isExplicitNonBlockchainWallet(wallet)
+    );
 
     if (blockchainWallets.length === 0) {
       return res.status(200).json({
@@ -164,7 +137,14 @@ module.exports = async function handler(req, res) {
     if (latestSnapshotIds.length > 0) {
       const { data: holdingsData, error: holdingsError } = await supabase
         .from("wallet_holdings")
-        .select("snapshot_id, wallet_id, token_symbol, token_name, network, value_usd")
+        .select(`
+          snapshot_id,
+          wallet_id,
+          token_symbol,
+          token_name,
+          network,
+          value_usd
+        `)
         .in("snapshot_id", latestSnapshotIds);
 
       if (holdingsError) throw holdingsError;
@@ -182,21 +162,26 @@ module.exports = async function handler(req, res) {
       0
     );
 
-    const chainSet = new Set();
+    const uniqueChains = new Set();
 
     for (const holding of holdings) {
-      if (isUsefulChain(holding.network)) {
-        chainSet.add(normalizeNetwork(holding.network));
+      const network = normalizeText(holding.network);
+      if (isRealChain(network)) {
+        uniqueChains.add(network);
       }
     }
 
+    // Fallback only if a wallet has no usable holding networks
     for (const wallet of blockchainWallets) {
-      if (isUsefulChain(wallet.network_group)) {
-        chainSet.add(normalizeNetwork(wallet.network_group));
+      const networkGroup = normalizeText(wallet.network_group);
+      if (isRealChain(networkGroup)) {
+        uniqueChains.add(networkGroup);
       }
     }
 
-    console.log("[api/blockchain-accounts-summary] wallets included:", 
+    console.log("[api/blockchain-accounts-summary] active wallets:", activeWallets.length);
+    console.log(
+      "[api/blockchain-accounts-summary] blockchain wallets:",
       blockchainWallets.map((wallet) => ({
         id: wallet.id,
         name: wallet.name,
@@ -205,40 +190,40 @@ module.exports = async function handler(req, res) {
       }))
     );
 
-    console.log("[api/blockchain-accounts-summary] latest snapshots:", 
+    console.log(
+      "[api/blockchain-accounts-summary] latest snapshots used:",
       latestSnapshots.map((snapshot) => ({
         wallet_id: snapshot.wallet_id,
         total_value_usd: safeNumber(snapshot.total_value_usd),
         total_claimable_usd: safeNumber(snapshot.total_claimable_usd),
-        total_pending_usd: safeNumber(snapshot.total_pending_usd),
-        snapshot_time: snapshot.snapshot_time,
         portfolio_value_used: getPortfolioSnapshotValue(snapshot),
+        snapshot_time: snapshot.snapshot_time,
       }))
     );
 
-    console.log("[api/blockchain-accounts-summary] holdings networks:", 
+    console.log(
+      "[api/blockchain-accounts-summary] holdings networks:",
       holdings.map((holding) => ({
         wallet_id: holding.wallet_id,
-        snapshot_id: holding.snapshot_id,
         token_symbol: holding.token_symbol,
         network: holding.network,
         value_usd: safeNumber(holding.value_usd),
       }))
     );
 
-    console.log("[api/blockchain-accounts-summary] summary result:", {
+    console.log("[api/blockchain-accounts-summary] final summary:", {
       total_blockchain_value: totalBlockchainValue,
       yield_contribution: yieldContribution,
       active_accounts: blockchainWallets.length,
-      chains_covered: chainSet.size,
-      chains: Array.from(chainSet.values()),
+      chains_covered: uniqueChains.size,
+      chains: Array.from(uniqueChains.values()),
     });
 
     return res.status(200).json({
       total_blockchain_value: totalBlockchainValue,
       yield_contribution: yieldContribution,
       active_accounts: blockchainWallets.length,
-      chains_covered: chainSet.size,
+      chains_covered: uniqueChains.size,
     });
   } catch (err) {
     console.error("[api/blockchain-accounts-summary] error:", err);
