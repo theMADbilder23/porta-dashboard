@@ -134,7 +134,7 @@ export default function BlockchainAccountsPage() {
   const [sortOption, setSortOption] = useState<SortOption>("highest");
   const [expandedWalletIds, setExpandedWalletIds] = useState<string[]>([]);
 
-  const accounts = data?.accounts ?? [];
+  const accounts = data?.accounts || [];
 
   const roleOptions = useMemo(() => {
     const roles = Array.from(
