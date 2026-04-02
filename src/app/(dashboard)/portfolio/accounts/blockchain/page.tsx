@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useBlockchainAccountsSummary } from "@/hooks/use-blockchain-accounts-summary";
 
 type SortOption = "highest" | "lowest" | "recent";
@@ -173,7 +173,11 @@ function buildAssetRoute(assetId: string | null, tokenSymbol: string) {
   return `/portfolio/assets/${encodeURIComponent(assetId)}`;
 }
 
-function getHoldingRowKey(walletId: string, assetId: string | null, token: string) {
+function getHoldingRowKey(
+  walletId: string,
+  assetId: string | null,
+  token: string
+) {
   return `${walletId}::${assetId || token}`;
 }
 
@@ -189,7 +193,7 @@ export default function BlockchainAccountsPage() {
   const [expandedHoldingKeys, setExpandedHoldingKeys] = useState<string[]>([]);
   const [copiedWalletId, setCopiedWalletId] = useState<string | null>(null);
 
-  const accounts = data?.accounts || [];
+  const accounts = useMemo(() => data?.accounts ?? [], [data?.accounts]);
 
   const roleOptions = useMemo(() => {
     const roles = Array.from(
@@ -279,7 +283,11 @@ export default function BlockchainAccountsPage() {
     );
   }
 
-  function toggleHolding(walletId: string, assetId: string | null, tokenSymbol: string) {
+  function toggleHolding(
+    walletId: string,
+    assetId: string | null,
+    tokenSymbol: string
+  ) {
     const key = getHoldingRowKey(walletId, assetId, tokenSymbol);
 
     setExpandedHoldingKeys((current) =>
@@ -289,7 +297,10 @@ export default function BlockchainAccountsPage() {
     );
   }
 
-  async function copyWalletAddress(walletId: string, walletAddress: string | null) {
+  async function copyWalletAddress(
+    walletId: string,
+    walletAddress: string | null
+  ) {
     const value = String(walletAddress || "").trim();
     if (!value) return;
 
@@ -297,8 +308,8 @@ export default function BlockchainAccountsPage() {
       await navigator.clipboard.writeText(value);
       setCopiedWalletId(walletId);
       window.setTimeout(() => setCopiedWalletId(null), 1600);
-    } catch (err) {
-      console.error("Failed to copy wallet address", err);
+    } catch {
+      setCopiedWalletId(null);
     }
   }
 
@@ -743,9 +754,8 @@ export default function BlockchainAccountsPage() {
                                   );
 
                                   return (
-                                    <>
+                                    <Fragment key={holdingKey}>
                                       <tr
-                                        key={holdingKey}
                                         onClick={() => {
                                           if (hasRewards) {
                                             toggleHolding(
@@ -866,8 +876,11 @@ export default function BlockchainAccountsPage() {
                                       </tr>
 
                                       {hasRewards && isHoldingExpanded ? (
-                                        <tr key={`${holdingKey}::expanded`}>
-                                          <td colSpan={6} className="border-b border-[#F7F1FF] bg-[#FCFAFF] px-4 py-4 dark:border-[#1C1328] dark:bg-[#140D20]">
+                                        <tr>
+                                          <td
+                                            colSpan={6}
+                                            className="border-b border-[#F7F1FF] bg-[#FCFAFF] px-4 py-4 dark:border-[#1C1328] dark:bg-[#140D20]"
+                                          >
                                             <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
                                               <div className="flex flex-col gap-3 desktop:flex-row desktop:items-center desktop:justify-between">
                                                 <div>
@@ -978,7 +991,7 @@ export default function BlockchainAccountsPage() {
                                           </td>
                                         </tr>
                                       ) : null}
-                                    </>
+                                    </Fragment>
                                   );
                                 })}
                               </tbody>
