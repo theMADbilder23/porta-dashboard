@@ -81,6 +81,61 @@ function isRealChain(value) {
   return !invalidValues.has(network);
 }
 
+function deriveHoldingClassification(holding) {
+  const tokenSymbol = normalizeText(holding?.token_symbol);
+  const protocol = normalizeText(holding?.protocol);
+  const category = normalizeText(holding?.category);
+
+  const stableSymbols = new Set(["usdc", "usdt", "usdm", "dai", "fdusd", "usde"]);
+
+  if (stableSymbols.has(tokenSymbol) && protocol) {
+    return "Stable Core";
+  }
+
+  if (category === "reward") {
+    return "Growth";
+  }
+
+  if (protocol) {
+    return "Growth";
+  }
+
+  if (stableSymbols.has(tokenSymbol)) {
+    return "Stable Core";
+  }
+
+  return "Rotational Core";
+}
+
+function deriveHoldingYieldContribution(holding) {
+  return normalizeText(holding?.category) === "reward"
+    ? safeNumber(holding?.value_usd)
+    : 0;
+}
+
+function deriveHoldingDisplayName(holding) {
+  const tokenName = String(holding?.token_name || "").trim();
+  const tokenSymbol = String(holding?.token_symbol || "").trim();
+  const protocol = String(holding?.protocol || "").trim();
+
+  if (tokenName) return tokenName;
+  if (tokenSymbol) return tokenSymbol;
+  if (protocol) return protocol;
+
+  return "Unknown Asset";
+}
+
+function deriveHoldingPrice(holding) {
+  const value = safeNumber(holding?.value_usd);
+  const amount = safeNumber(holding?.amount);
+
+  if (amount > 0) {
+    return value / amount;
+  }
+
+  return 0;
+}
+
 module.exports = async function handler(req, res) {
   try {
     const { data: wallets, error: walletsError } = await supabase
@@ -135,6 +190,7 @@ module.exports = async function handler(req, res) {
           token_symbol,
           token_name,
           network,
+          amount,
           value_usd,
           category,
           protocol
@@ -202,10 +258,36 @@ module.exports = async function handler(req, res) {
         }
 
         const totalValue = getPortfolioSnapshotValue(snapshot);
+
         const holdingsValueSum = walletHoldings.reduce(
           (sum, holding) => sum + safeNumber(holding.value_usd),
           0
         );
+
+        const normalizedHoldings = walletHoldings
+          .map((holding) => {
+            const holdingValue = safeNumber(holding.value_usd);
+            const priceUsd = deriveHoldingPrice(holding);
+            const yieldValue = deriveHoldingYieldContribution(holding);
+
+            return {
+              token_symbol: String(holding.token_symbol || "").trim() || "—",
+              token_name: deriveHoldingDisplayName(holding),
+              network: isRealChain(holding.network)
+                ? formatChainLabel(holding.network)
+                : "Unknown",
+              amount: safeNumber(holding.amount),
+              value_usd: holdingValue,
+              wallet_share_pct:
+                totalValue > 0 ? (holdingValue / totalValue) * 100 : 0,
+              price_usd: priceUsd,
+              yield_contribution: yieldValue,
+              classification: deriveHoldingClassification(holding),
+              category: String(holding.category || "").trim() || null,
+              protocol: String(holding.protocol || "").trim() || null,
+            };
+          })
+          .sort((a, b) => b.value_usd - a.value_usd);
 
         return {
           wallet_id: snapshot.wallet_id,
@@ -215,11 +297,14 @@ module.exports = async function handler(req, res) {
           total_value: totalValue,
           yield_contribution: getClaimableSnapshotValue(snapshot),
           portfolio_share_pct:
-            totalBlockchainValue > 0 ? (totalValue / totalBlockchainValue) * 100 : 0,
+            totalBlockchainValue > 0
+              ? (totalValue / totalBlockchainValue) * 100
+              : 0,
           snapshot_time: snapshot.snapshot_time || null,
           chains: Array.from(chainSet.values()),
           holdings_value_sum: holdingsValueSum,
           holdings_count: walletHoldings.length,
+          holdings: normalizedHoldings,
         };
       })
       .sort((a, b) => b.total_value - a.total_value);

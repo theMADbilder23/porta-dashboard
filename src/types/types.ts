@@ -59,6 +59,43 @@ export type YieldSummarySource = {
   dailyYield: number;
 };
 
+export type BlockchainAccountHoldingItem = {
+  token_symbol: string;
+  token_name: string;
+  network: string;
+  amount: number;
+  value_usd: number;
+  wallet_share_pct: number;
+  price_usd: number;
+  yield_contribution: number;
+  classification: string;
+  category: string | null;
+  protocol: string | null;
+};
+
+export type BlockchainAccountSummaryItem = {
+  wallet_id: string;
+  wallet_name: string;
+  role: string;
+  network_group: string | null;
+  total_value: number;
+  yield_contribution: number;
+  portfolio_share_pct: number;
+  snapshot_time: string | null;
+  chains: string[];
+  holdings_value_sum: number;
+  holdings_count: number;
+  holdings: BlockchainAccountHoldingItem[];
+};
+
+export type BlockchainAccountsSummaryResponse = {
+  total_blockchain_value: number;
+  yield_contribution: number;
+  active_accounts: number;
+  chains_covered: number;
+  accounts: BlockchainAccountSummaryItem[];
+};
+
 export type BlockchainAccountSummaryItem = {
   wallet_id: string;
   wallet_name: string;

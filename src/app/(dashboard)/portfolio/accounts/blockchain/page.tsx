@@ -12,8 +12,44 @@ function formatCurrency(value: number) {
   })}`;
 }
 
+function formatCompactCurrency(value: number) {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  const abs = Math.abs(safeValue);
+
+  if (abs >= 1_000_000_000) return `$${(safeValue / 1_000_000_000).toFixed(2)}B`;
+  if (abs >= 1_000_000) return `$${(safeValue / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `$${(safeValue / 1_000).toFixed(2)}K`;
+
+  return formatCurrency(safeValue);
+}
+
 function formatPercent(value: number) {
   return `${value.toFixed(1)}%`;
+}
+
+function formatPrice(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "—";
+
+  if (value >= 1) {
+    return `$${value.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4,
+    })}`;
+  }
+
+  if (value >= 0.01) {
+    return `$${value.toFixed(4)}`;
+  }
+
+  return `$${value.toFixed(8)}`;
+}
+
+function formatAmount(value: number) {
+  if (!Number.isFinite(value) || value === 0) return "—";
+
+  return value.toLocaleString(undefined, {
+    maximumFractionDigits: 6,
+  });
 }
 
 function formatRelativeMinutes(snapshotTime: string | null) {
@@ -71,6 +107,24 @@ function getExposureText(
   return "Operational blockchain account with live balance visibility";
 }
 
+function getClassificationPillClasses(classification: string) {
+  const normalized = String(classification || "").toLowerCase();
+
+  if (normalized === "stable core") {
+    return "bg-[#ECFDF3] text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]";
+  }
+
+  if (normalized === "growth") {
+    return "bg-[#EEF4FF] text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]";
+  }
+
+  if (normalized === "swing") {
+    return "bg-[#FFF4E5] text-[#B45309] dark:bg-[#2A1A0C] dark:text-[#FBBF24]";
+  }
+
+  return "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]";
+}
+
 export default function BlockchainAccountsPage() {
   const { data, isLoading, error } = useBlockchainAccountsSummary();
 
@@ -110,12 +164,19 @@ export default function BlockchainAccountsPage() {
     const query = searchQuery.trim().toLowerCase();
 
     const filtered = accounts.filter((account) => {
+      const holdings = account.holdings ?? [];
+
       const matchesSearch =
         !query ||
         account.wallet_name.toLowerCase().includes(query) ||
         account.role.toLowerCase().includes(query) ||
         (account.network_group || "").toLowerCase().includes(query) ||
-        account.chains.some((chain) => chain.toLowerCase().includes(query));
+        account.chains.some((chain) => chain.toLowerCase().includes(query)) ||
+        holdings.some(
+          (holding) =>
+            holding.token_symbol.toLowerCase().includes(query) ||
+            holding.token_name.toLowerCase().includes(query)
+        );
 
       const matchesRole =
         roleFilter === "all" ||
@@ -156,7 +217,7 @@ export default function BlockchainAccountsPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="min-h-screen space-y-6 p-6">
       <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
         <div className="flex flex-col gap-4 laptop:flex-row laptop:items-end laptop:justify-between">
           <div>
@@ -175,10 +236,10 @@ export default function BlockchainAccountsPage() {
 
           <div className="flex flex-wrap gap-2">
             <span className="rounded-full border border-[#E9DAFF] bg-[#F7F1FF] px-3 py-1 text-xs font-medium text-[#6D28D9] dark:border-[#312047] dark:bg-[#1A1226] dark:text-[#D8B4FE]">
-              Live account shell
+              Asset-level inspection
             </span>
             <span className="rounded-full border border-[#E9DAFF] bg-[#F7F1FF] px-3 py-1 text-xs font-medium text-[#6D28D9] dark:border-[#312047] dark:bg-[#1A1226] dark:text-[#D8B4FE]">
-              Data wiring next
+              Holdings search enabled
             </span>
           </div>
         </div>
@@ -246,7 +307,7 @@ export default function BlockchainAccountsPage() {
               type="text"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search by wallet name, chain, or role..."
+              placeholder="Search by wallet, chain, role, token symbol, or token name..."
               className="w-full rounded-xl border border-[#E9DAFF] bg-[#FCFAFF] px-4 py-3 text-sm text-[#2D1B45] outline-none transition-colors placeholder:text-[#8A79A8] focus:border-[#C084FC] dark:border-[#312047] dark:bg-[#140D20] dark:text-[#F3E8FF] dark:placeholder:text-[#A78BCE]"
             />
           </div>
@@ -455,11 +516,11 @@ export default function BlockchainAccountsPage() {
                   <div className="flex flex-col gap-4 desktop:flex-row desktop:items-center desktop:justify-between">
                     <div>
                       <h3 className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                        Account Detail Preview
+                        Account Detail View
                       </h3>
                       <p className="mt-1 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
-                        Holdings table, protocol exposure, chain breakdown, and yield
-                        rows will expand here in the next build step.
+                        Asset-level holdings, value concentration, yield contribution,
+                        and MMII classification for this wallet.
                       </p>
                     </div>
 
@@ -472,99 +533,184 @@ export default function BlockchainAccountsPage() {
                   </div>
 
                   {isExpanded ? (
-                    <div className="mt-5 grid grid-cols-1 gap-4 tablet:grid-cols-2 desktop:grid-cols-3">
-                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                          Wallet ID
-                        </p>
-                        <p className="mt-2 break-all text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                          {account.wallet_id}
-                        </p>
+                    <div className="mt-5 space-y-5">
+                      <div className="grid grid-cols-1 gap-4 tablet:grid-cols-2 desktop:grid-cols-5">
+                        <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
+                          <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            Wallet ID
+                          </p>
+                          <p className="mt-2 break-all text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                            {account.wallet_id}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
+                          <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            Role
+                          </p>
+                          <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                            {account.role}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
+                          <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            Network Group
+                          </p>
+                          <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                            {account.network_group || "Unknown"}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
+                          <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            Chains Covered
+                          </p>
+                          <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                            {account.chains.length > 0
+                              ? account.chains.join(", ")
+                              : "None detected"}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
+                          <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            Holdings Count
+                          </p>
+                          <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                            {account.holdings_count}
+                          </p>
+                        </div>
                       </div>
 
-                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                          Role
-                        </p>
-                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                          {account.role}
-                        </p>
-                      </div>
+                      <div className="overflow-hidden rounded-2xl border border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]">
+                        <div className="border-b border-[#F0E8FF] px-4 py-3 dark:border-[#241533]">
+                          <h4 className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                            Wallet Holdings
+                          </h4>
+                          <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
+                            Sorted by highest USD value within this wallet.
+                          </p>
+                        </div>
 
-                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                          Network Group
-                        </p>
-                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                          {account.network_group || "Unknown"}
-                        </p>
-                      </div>
+                        {account.holdings.length === 0 ? (
+                          <div className="px-4 py-6 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
+                            No holdings were returned for this wallet’s latest snapshot.
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full text-left">
+                              <thead className="bg-[#FCFAFF] dark:bg-[#140D20]">
+                                <tr className="border-b border-[#F0E8FF] dark:border-[#241533]">
+                                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                    Asset
+                                  </th>
+                                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                    Value
+                                  </th>
+                                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                    % Wallet
+                                  </th>
+                                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                    Price
+                                  </th>
+                                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                    Yield Contribution
+                                  </th>
+                                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                    Classification
+                                  </th>
+                                </tr>
+                              </thead>
 
-                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                          Chains Covered
-                        </p>
-                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                          {account.chains.length > 0
-                            ? account.chains.join(", ")
-                            : "None detected"}
-                        </p>
-                      </div>
+                              <tbody>
+                                {account.holdings.map((holding, index) => (
+                                  <tr
+                                    key={`${account.wallet_id}-${holding.token_symbol}-${holding.protocol ?? "none"}-${index}`}
+                                    className="border-b border-[#F7F1FF] last:border-b-0 dark:border-[#1C1328]"
+                                  >
+                                    <td className="px-4 py-4 align-top">
+                                      <div className="min-w-[220px]">
+                                        <div className="flex items-center gap-2">
+                                          <p className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                            {holding.token_symbol}
+                                          </p>
 
-                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                          Snapshot Total
-                        </p>
-                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                          {formatCurrency(account.total_value)}
-                        </p>
-                      </div>
+                                          {holding.network ? (
+                                            <span className="rounded-full bg-[#EEF4FF] px-2 py-0.5 text-[10px] font-medium text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]">
+                                              {holding.network}
+                                            </span>
+                                          ) : null}
+                                        </div>
 
-                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                          Holdings Sum
-                        </p>
-                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                          {formatCurrency(account.holdings_value_sum)}
-                        </p>
-                      </div>
+                                        <p className="mt-1 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
+                                          {holding.token_name}
+                                        </p>
 
-                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                          Holdings Count
-                        </p>
-                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                          {account.holdings_count}
-                        </p>
-                      </div>
+                                        <div className="mt-2 flex flex-wrap gap-2">
+                                          {holding.protocol ? (
+                                            <span className="rounded-full bg-[#F3E8FF] px-2 py-0.5 text-[10px] font-medium text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]">
+                                              {holding.protocol}
+                                            </span>
+                                          ) : null}
 
-                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                          Yield Contribution
-                        </p>
-                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                          {account.yield_contribution > 0
-                            ? formatCurrency(account.yield_contribution)
-                            : "No current claimable value"}
-                        </p>
-                      </div>
+                                          {holding.category ? (
+                                            <span className="rounded-full bg-[#F5F3FF] px-2 py-0.5 text-[10px] font-medium text-[#7C3AED] dark:bg-[#1E1430] dark:text-[#C4B5FD]">
+                                              {holding.category}
+                                            </span>
+                                          ) : null}
+                                        </div>
 
-                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                          Last Updated
-                        </p>
-                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                          {formatRelativeMinutes(account.snapshot_time)}
-                        </p>
-                      </div>
+                                        <p className="mt-2 text-xs text-[#8A79A8] dark:text-[#A78BCE]">
+                                          Amount: {formatAmount(holding.amount)}
+                                        </p>
+                                      </div>
+                                    </td>
 
-                      <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                          Portfolio Share
-                        </p>
-                        <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                          {formatPercent(account.portfolio_share_pct)}
-                        </p>
+                                    <td className="px-4 py-4 align-top">
+                                      <p className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                        {formatCurrency(holding.value_usd)}
+                                      </p>
+                                      <p className="mt-1 text-xs text-[#8A79A8] dark:text-[#A78BCE]">
+                                        {formatCompactCurrency(holding.value_usd)}
+                                      </p>
+                                    </td>
+
+                                    <td className="px-4 py-4 align-top">
+                                      <p className="text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                                        {formatPercent(holding.wallet_share_pct)}
+                                      </p>
+                                    </td>
+
+                                    <td className="px-4 py-4 align-top">
+                                      <p className="text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                                        {formatPrice(holding.price_usd)}
+                                      </p>
+                                    </td>
+
+                                    <td className="px-4 py-4 align-top">
+                                      <p className="text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                                        {holding.yield_contribution > 0
+                                          ? formatCurrency(holding.yield_contribution)
+                                          : "—"}
+                                      </p>
+                                    </td>
+
+                                    <td className="px-4 py-4 align-top">
+                                      <span
+                                        className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${getClassificationPillClasses(
+                                          holding.classification
+                                        )}`}
+                                      >
+                                        {holding.classification}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : null}
