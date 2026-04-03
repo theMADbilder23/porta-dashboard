@@ -4,7 +4,7 @@ import {
   safeNumber,
   getPortfolioSnapshotValue,
   getTimeframeStart,
-} from "../api/lib/porta-math/dyf";
+} from "../api/lib/porta-math/dyf.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
