@@ -1,6 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import ReactFlow, {
+  Background,
+  Controls,
+  Handle,
+  MarkerType,
+  Position,
+  type Edge,
+  type Node,
+  type NodeProps,
+} from "reactflow";
+import "reactflow/dist/style.css";
 
 type WalletNode = {
   wallet_id: string | null;
@@ -56,6 +67,14 @@ type StrategyFlowResponse = {
   };
 };
 
+type FlowCardData = {
+  title: string;
+  subtitle?: string;
+  value?: string;
+  meta?: string;
+  tone?: "root" | "tier_0" | "tier_1" | "tier_2" | "bucket" | "subclass" | "wallet";
+};
+
 function safeNumber(value: number | null | undefined) {
   return Number.isFinite(Number(value)) ? Number(value) : 0;
 }
@@ -82,69 +101,92 @@ function formatPercent(value: number, digits = 1) {
   return `${safeNumber(value).toFixed(digits)}%`;
 }
 
-function formatDateTime(value: string | null) {
-  if (!value) return "No snapshot";
-
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "No snapshot";
-
-  return date.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function getTierAccentClasses(tierKey: string) {
-  switch (tierKey) {
+function getToneClasses(tone: FlowCardData["tone"]) {
+  switch (tone) {
+    case "root":
+      return {
+        shell:
+          "border-[#D8B4FE] bg-gradient-to-br from-white to-[#F8F4FF] dark:border-[#4B2A6B] dark:from-[#100A19] dark:to-[#171022]",
+        badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
+      };
     case "tier_0":
       return {
-        pill: "bg-[#ECFDF3] text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]",
-        line: "bg-[#22C55E]",
-        soft: "bg-[#F4FFF7] dark:bg-[#0F1A13]",
+        shell:
+          "border-[#BBF7D0] bg-[#F4FFF7] dark:border-[#1E4D2B] dark:bg-[#0F1A13]",
+        badge: "bg-[#DCFCE7] text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]",
       };
     case "tier_1":
       return {
-        pill: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
-        line: "bg-[#A855F7]",
-        soft: "bg-[#FCF8FF] dark:bg-[#17111F]",
+        shell:
+          "border-[#E9D5FF] bg-[#FCF8FF] dark:border-[#4B2A6B] dark:bg-[#17111F]",
+        badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
       };
     case "tier_2":
+      return {
+        shell:
+          "border-[#BFDBFE] bg-[#F8FBFF] dark:border-[#294A78] dark:bg-[#101722]",
+        badge: "bg-[#DBEAFE] text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]",
+      };
+    case "bucket":
+      return {
+        shell:
+          "border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]",
+        badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
+      };
+    case "subclass":
+      return {
+        shell:
+          "border-[#E9DAFF] bg-[#FCFAFF] dark:border-[#312047] dark:bg-[#140D20]",
+        badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
+      };
+    case "wallet":
     default:
       return {
-        pill: "bg-[#EEF4FF] text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]",
-        line: "bg-[#3B82F6]",
-        soft: "bg-[#F8FBFF] dark:bg-[#101722]",
+        shell:
+          "border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]",
+        badge: "bg-[#EEF4FF] text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]",
       };
   }
 }
 
-function getBucketAccentClasses(bucketKey: string) {
-  switch (bucketKey) {
-    case "stable_core":
-      return {
-        pill: "bg-[#ECFDF3] text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]",
-      };
-    case "rotational_core":
-      return {
-        pill: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
-      };
-    case "growth":
-      return {
-        pill: "bg-[#EEF4FF] text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]",
-      };
-    case "swing":
-      return {
-        pill: "bg-[#FFF4E5] text-[#B45309] dark:bg-[#2A1A0C] dark:text-[#FBBF24]",
-      };
-    default:
-      return {
-        pill: "bg-[#F3F4F6] text-[#374151] dark:bg-[#1F2937] dark:text-[#D1D5DB]",
-      };
-  }
+function FlowCardNode({ data }: NodeProps<FlowCardData>) {
+  const tone = getToneClasses(data.tone);
+
+  return (
+    <div
+      className={`min-w-[220px] max-w-[260px] rounded-2xl border px-4 py-3 shadow-sm ${tone.shell}`}
+    >
+      <Handle type="target" position={Position.Top} className="!h-2 !w-2 !bg-[#C084FC]" />
+      <div className="flex items-start justify-between gap-3">
+        <span className={`rounded-full px-2.5 py-1 text-[10px] font-medium ${tone.badge}`}>
+          {data.title}
+        </span>
+        {data.meta ? (
+          <span className="text-[10px] font-medium text-[#7E6A9F] dark:text-[#BFA9F5]">
+            {data.meta}
+          </span>
+        ) : null}
+      </div>
+
+      {data.value ? (
+        <p className="mt-3 text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+          {data.value}
+        </p>
+      ) : null}
+
+      {data.subtitle ? (
+        <p className="mt-2 text-xs leading-5 text-[#6B5A86] dark:text-[#BFA9F5]">
+          {data.subtitle}
+        </p>
+      ) : null}
+      <Handle type="source" position={Position.Bottom} className="!h-2 !w-2 !bg-[#8B5CF6]" />
+    </div>
+  );
 }
+
+const nodeTypes = {
+  flowCard: FlowCardNode,
+};
 
 function MetricCard({
   label,
@@ -170,207 +212,167 @@ function MetricCard({
   );
 }
 
-function SubclassCard({ node }: { node: StructureNode }) {
-  const examples = node.meta?.examples ?? [];
+function buildTreeElements(structure?: StructureNode) {
+  const nodes: Node<FlowCardData>[] = [];
+  const edges: Edge[] = [];
 
-  return (
-    <div className="rounded-xl border border-[#E9DAFF] bg-[#FCFAFF] p-4 dark:border-[#312047] dark:bg-[#140D20]">
-      <div className="flex flex-col gap-2 desktop:flex-row desktop:items-start desktop:justify-between">
-        <div>
-          <p className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-            {node.label}
-          </p>
-          <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
-            {node.holding_count} holding{node.holding_count === 1 ? "" : "s"}
-          </p>
-        </div>
+  if (!structure) {
+    return { nodes, edges };
+  }
 
-        <div className="desktop:text-right">
-          <p className="text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-            {formatCurrency(node.total_value_usd)}
-          </p>
-          <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
-            {formatPercent(node.allocation_pct)} of structure
-          </p>
-        </div>
-      </div>
+  const ROOT_X = 700;
+  const ROOT_Y = 20;
+  const TIER_Y_START = 220;
+  const TIER_Y_GAP = 420;
+  const BUCKET_Y_OFFSET = 180;
+  const SUBCLASS_Y_OFFSET = 360;
+  const WALLET_Y_OFFSET = 560;
+  const BUCKET_X_GAP = 460;
+  const SUBCLASS_X_OFFSET = 200;
+  const WALLET_X_OFFSET = 220;
+  const SUBCLASS_Y_GAP = 130;
+  const WALLET_Y_GAP = 130;
 
-      {examples.length ? (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {examples.map((example) => (
-            <span
-              key={`${node.key}-${example.asset_id}-${example.token_symbol}`}
-              className="rounded-full bg-[#F3E8FF] px-2 py-0.5 text-[10px] font-medium text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]"
-            >
-              {example.token_symbol} • {example.yield_profile || "none"}
-            </span>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
+  nodes.push({
+    id: "root",
+    type: "flowCard",
+    position: { x: ROOT_X, y: ROOT_Y },
+    data: {
+      title: structure.label,
+      value: formatCurrency(structure.total_value_usd),
+      subtitle: structure.description,
+      meta: `${structure.wallet_count} wallets`,
+      tone: "root",
+    },
+    draggable: true,
+  });
 
-function WalletCard({ wallet }: { wallet: WalletNode }) {
-  return (
-    <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
-      <div className="flex flex-col gap-3 desktop:flex-row desktop:items-start desktop:justify-between">
-        <div>
-          <p className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-            {wallet.wallet_name}
-          </p>
+  structure.children.forEach((tier, tierIndex) => {
+    const tierId = `tier-${tier.key}`;
+    const tierY = TIER_Y_START + tierIndex * TIER_Y_GAP;
 
-          <div className="mt-2 flex flex-wrap gap-2">
-            <span className="rounded-full bg-[#F3E8FF] px-2 py-0.5 text-[10px] font-medium text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]">
-              {wallet.role}
-            </span>
-            <span className="rounded-full bg-[#EEF4FF] px-2 py-0.5 text-[10px] font-medium text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]">
-              {wallet.network_group}
-            </span>
-            <span className="rounded-full bg-[#ECFDF3] px-2 py-0.5 text-[10px] font-medium text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]">
-              {wallet.status}
-            </span>
-          </div>
+    const tierTone =
+      tier.key === "tier_0"
+        ? "tier_0"
+        : tier.key === "tier_1"
+          ? "tier_1"
+          : "tier_2";
 
-          <p className="mt-2 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
-            {wallet.wallet_address_short} • {wallet.wallet_type}
-          </p>
-        </div>
+    nodes.push({
+      id: tierId,
+      type: "flowCard",
+      position: { x: ROOT_X, y: tierY },
+      data: {
+        title: tier.label,
+        value: formatCurrency(tier.total_value_usd),
+        subtitle: tier.description,
+        meta: `${formatPercent(tier.allocation_pct)} • ${tier.wallet_count} wallets`,
+        tone: tierTone,
+      },
+      draggable: true,
+    });
 
-        <div className="desktop:text-right">
-          <p className="text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-            {formatCurrency(wallet.total_value_usd)}
-          </p>
-        </div>
-      </div>
+    edges.push({
+      id: `edge-root-${tierId}`,
+      source: "root",
+      target: tierId,
+      animated: true,
+      markerEnd: { type: MarkerType.ArrowClosed },
+      style: { strokeWidth: 2, stroke: "#C084FC" },
+    });
 
-      <p className="mt-3 text-[11px] text-[#8A79A8] dark:text-[#A78BCE]">
-        Latest snapshot: {formatDateTime(wallet.snapshot_time)}
-      </p>
-    </div>
-  );
-}
+    const bucketCount = tier.children.length;
+    const bucketCenterOffset = ((bucketCount - 1) * BUCKET_X_GAP) / 2;
 
-function BucketSection({ bucket }: { bucket: StructureNode }) {
-  const accent = getBucketAccentClasses(bucket.key);
+    tier.children.forEach((bucket, bucketIndex) => {
+      const bucketId = `${tierId}-bucket-${bucket.key}`;
+      const bucketX = ROOT_X - bucketCenterOffset + bucketIndex * BUCKET_X_GAP;
+      const bucketY = tierY + BUCKET_Y_OFFSET;
 
-  return (
-    <div className="rounded-2xl border border-[#E9DAFF] bg-white p-5 dark:border-[#2A1D3B] dark:bg-[#100A19]">
-      <div className="flex flex-col gap-3 desktop:flex-row desktop:items-start desktop:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className={`rounded-full px-3 py-1 text-xs font-medium ${accent.pill}`}>
-              {bucket.label}
-            </span>
-            <span className="text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
-              {formatPercent(bucket.allocation_pct)}
-            </span>
-          </div>
+      nodes.push({
+        id: bucketId,
+        type: "flowCard",
+        position: { x: bucketX, y: bucketY },
+        data: {
+          title: bucket.label,
+          value: formatCompactCurrency(bucket.total_value_usd),
+          subtitle: `${bucket.wallet_count} wallets • ${bucket.holding_count} holdings`,
+          meta: formatPercent(bucket.allocation_pct),
+          tone: "bucket",
+        },
+        draggable: true,
+      });
 
-          <h4 className="mt-3 text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-            {formatCurrency(bucket.total_value_usd)}
-          </h4>
+      edges.push({
+        id: `edge-${tierId}-${bucketId}`,
+        source: tierId,
+        target: bucketId,
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed },
+        style: { strokeWidth: 2, stroke: "#A78BFA" },
+      });
 
-          <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-            {bucket.description}
-          </p>
-        </div>
+      bucket.children.forEach((subclass, subclassIndex) => {
+        const subclassId = `${bucketId}-subclass-${subclass.key}`;
+        const subclassX = bucketX - SUBCLASS_X_OFFSET;
+        const subclassY = bucketY + SUBCLASS_Y_OFFSET + subclassIndex * SUBCLASS_Y_GAP;
 
-        <div className="rounded-xl bg-[#F8F4FF] px-4 py-3 text-right dark:bg-[#140D20]">
-          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-            Wallet Count
-          </p>
-          <p className="mt-1 text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-            {bucket.wallet_count}
-          </p>
-        </div>
-      </div>
+        nodes.push({
+          id: subclassId,
+          type: "flowCard",
+          position: { x: subclassX, y: subclassY },
+          data: {
+            title: subclass.label,
+            value: formatCompactCurrency(subclass.total_value_usd),
+            subtitle: `${subclass.holding_count} holdings`,
+            meta: formatPercent(subclass.allocation_pct),
+            tone: "subclass",
+          },
+          draggable: true,
+        });
 
-      {bucket.children.length ? (
-        <div className="mt-5">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-            Subclass Structure
-          </p>
+        edges.push({
+          id: `edge-${bucketId}-${subclassId}`,
+          source: bucketId,
+          target: subclassId,
+          animated: false,
+          markerEnd: { type: MarkerType.ArrowClosed },
+          style: { strokeWidth: 1.75, stroke: "#C4B5FD" },
+        });
+      });
 
-          <div className="mt-3 grid grid-cols-1 gap-3 laptop:grid-cols-2">
-            {bucket.children.map((subclass) => (
-              <SubclassCard key={subclass.key} node={subclass} />
-            ))}
-          </div>
-        </div>
-      ) : null}
+      bucket.wallets.forEach((wallet, walletIndex) => {
+        const walletId = `${bucketId}-wallet-${wallet.wallet_id ?? wallet.wallet_name}-${walletIndex}`;
+        const walletX = bucketX + WALLET_X_OFFSET;
+        const walletY = bucketY + WALLET_Y_OFFSET + walletIndex * WALLET_Y_GAP;
 
-      <div className="mt-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-          Wallets In Bucket
-        </p>
+        nodes.push({
+          id: walletId,
+          type: "flowCard",
+          position: { x: walletX, y: walletY },
+          data: {
+            title: wallet.wallet_name,
+            value: formatCompactCurrency(wallet.total_value_usd),
+            subtitle: `${wallet.role} • ${wallet.network_group}`,
+            meta: wallet.wallet_address_short,
+            tone: "wallet",
+          },
+          draggable: true,
+        });
 
-        <div className="mt-3 space-y-3">
-          {bucket.wallets.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-[#D8B4FE] px-4 py-4 text-sm text-[#8B5CF6] dark:border-[#3B2A57] dark:text-[#C084FC]">
-              No wallets currently mapped into this bucket.
-            </div>
-          ) : (
-            bucket.wallets.map((wallet) => (
-              <WalletCard
-                key={`${bucket.key}-${wallet.wallet_id ?? wallet.wallet_name}`}
-                wallet={wallet}
-              />
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+        edges.push({
+          id: `edge-${bucketId}-${walletId}`,
+          source: bucketId,
+          target: walletId,
+          animated: false,
+          markerEnd: { type: MarkerType.ArrowClosed },
+          style: { strokeWidth: 1.75, stroke: "#93C5FD" },
+        });
+      });
+    });
+  });
 
-function TierSection({ tier }: { tier: StructureNode }) {
-  const accent = getTierAccentClasses(tier.key);
-
-  return (
-    <section className="relative rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-      <div className="absolute left-6 top-0 h-6 w-[2px] -translate-y-full rounded-full bg-[#E9DAFF] dark:bg-[#2A1D3B]" />
-      <div className={`absolute left-6 top-6 h-full w-[2px] rounded-full ${accent.line} opacity-30`} />
-
-      <div className="relative ml-6">
-        <div className={`rounded-2xl ${accent.soft} p-5`}>
-          <div className="flex flex-col gap-3 desktop:flex-row desktop:items-start desktop:justify-between">
-            <div>
-              <span className={`rounded-full px-3 py-1 text-xs font-medium ${accent.pill}`}>
-                {tier.label}
-              </span>
-
-              <h3 className="mt-3 text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                {formatCurrency(tier.total_value_usd)}
-              </h3>
-
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                {tier.description}
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-[#E9DAFF] bg-white px-4 py-3 dark:border-[#312047] dark:bg-[#100A19]">
-              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                Tier Coverage
-              </p>
-              <p className="mt-1 text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                {formatPercent(tier.allocation_pct)}
-              </p>
-              <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
-                {tier.wallet_count} wallet{tier.wallet_count === 1 ? "" : "s"} • {tier.holding_count} holding{tier.holding_count === 1 ? "" : "s"}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-5 grid grid-cols-1 gap-4 desktop:grid-cols-2">
-          {tier.children.map((bucket) => (
-            <BucketSection key={bucket.key} bucket={bucket} />
-          ))}
-        </div>
-      </div>
-    </section>
-  );
+  return { nodes, edges };
 }
 
 export default function StrategyFlowPage() {
@@ -407,12 +409,8 @@ export default function StrategyFlowPage() {
 
   const summary = data?.summary;
   const structure = data?.structure;
-  const tiers = structure?.children ?? [];
 
-  const dominantTierLabel = useMemo(
-    () => summary?.dominant_tier || structure?.meta?.dominant_tier || "—",
-    [summary?.dominant_tier, structure?.meta?.dominant_tier]
-  );
+  const { nodes, edges } = useMemo(() => buildTreeElements(structure), [structure]);
 
   return (
     <div className="min-h-screen space-y-6 p-6">
@@ -480,7 +478,7 @@ export default function StrategyFlowPage() {
 
             <MetricCard
               label="Dominant Tier"
-              value={dominantTierLabel}
+              value={summary?.dominant_tier || "—"}
               sublabel="Highest-value structural layer"
             />
           </section>
@@ -491,33 +489,32 @@ export default function StrategyFlowPage() {
                 MMII Structural Tree
               </h2>
               <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                First live tree-oriented structure view of MMII. The hierarchy now
-                flows from the MMII root into structural tiers, then strategic buckets,
-                then subclass sleeves, and finally the wallets mapped into those sleeves.
+                Interactive tree canvas of the MMII structure. Pan, zoom, and inspect
+                how the strategy flows from the MMII root into tiers, buckets, subclasses,
+                and wallet nodes.
               </p>
             </div>
 
-            <div className="mt-5 rounded-2xl border border-dashed border-[#D8B4FE] bg-[#FCFAFF] p-6 dark:border-[#3B2A57] dark:bg-[#140D20]">
-              <div className="mx-auto max-w-2xl rounded-2xl border border-[#E9DAFF] bg-white p-6 text-center shadow-sm dark:border-[#312047] dark:bg-[#100A19]">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                  MMII Root Structure
-                </p>
-                <h3 className="mt-2 text-3xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                  {formatCurrency(structure?.total_value_usd ?? 0)}
-                </h3>
-                <p className="mt-2 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
-                  {structure?.description ||
-                    "Top-level MMII structural map showing how capital is organized through the system."}
-                </p>
+            <div className="mt-5 rounded-2xl border border-dashed border-[#D8B4FE] bg-[#FCFAFF] p-3 dark:border-[#3B2A57] dark:bg-[#140D20]">
+              <div className="h-[1150px] overflow-hidden rounded-2xl border border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]">
+                <ReactFlow
+                  nodes={nodes}
+                  edges={edges}
+                  nodeTypes={nodeTypes}
+                  fitView
+                  fitViewOptions={{ padding: 0.2 }}
+                  defaultEdgeOptions={{
+                    markerEnd: { type: MarkerType.ArrowClosed },
+                    style: { strokeWidth: 2, stroke: "#C084FC" },
+                  }}
+                  proOptions={{ hideAttribution: true }}
+                >
+                  <Background gap={20} size={1} color="#E9DAFF" />
+                  <Controls />
+                </ReactFlow>
               </div>
 
-              <div className="mt-8 space-y-6">
-                {tiers.map((tier) => (
-                  <TierSection key={tier.key} tier={tier} />
-                ))}
-              </div>
-
-              <div className="mt-6 rounded-xl bg-[#F8F4FF] px-4 py-3 text-sm text-[#6B5A86] dark:bg-[#100A19] dark:text-[#BFA9F5]">
+              <div className="mt-4 rounded-xl bg-[#F8F4FF] px-4 py-3 text-sm text-[#6B5A86] dark:bg-[#100A19] dark:text-[#BFA9F5]">
                 {data.methodology?.note ||
                   "This structure view currently uses wallet metadata plus holdings classification fields."}
               </div>
