@@ -18,17 +18,9 @@ function formatCompactCurrency(value: number) {
   const safeValue = Number.isFinite(value) ? value : 0;
   const abs = Math.abs(safeValue);
 
-  if (abs >= 1_000_000_000) {
-    return `$${(safeValue / 1_000_000_000).toFixed(2)}B`;
-  }
-
-  if (abs >= 1_000_000) {
-    return `$${(safeValue / 1_000_000).toFixed(2)}M`;
-  }
-
-  if (abs >= 1_000) {
-    return `$${(safeValue / 1_000).toFixed(2)}K`;
-  }
+  if (abs >= 1_000_000_000) return `$${(safeValue / 1_000_000_000).toFixed(2)}B`;
+  if (abs >= 1_000_000) return `$${(safeValue / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `$${(safeValue / 1_000).toFixed(2)}K`;
 
   return formatCurrency(safeValue);
 }
@@ -179,7 +171,6 @@ function truncateAddress(value: string | null) {
 
 function buildAssetRoute(assetId: string | null, tokenSymbol: string) {
   const fallback = encodeURIComponent(String(tokenSymbol || "").toLowerCase());
-
   if (!assetId) {
     return `/portfolio/assets/${fallback}`;
   }
@@ -195,32 +186,6 @@ function getHoldingRowKey(
   return `${walletId}::${assetId || token}`;
 }
 
-function formatYieldContributionWithPercent(
-  contribution: number,
-  totalYieldContribution: number
-) {
-  const safeContribution = Number.isFinite(contribution) ? contribution : 0;
-  const safeTotal =
-    Number.isFinite(totalYieldContribution) && totalYieldContribution > 0
-      ? totalYieldContribution
-      : 0;
-
-  if (safeContribution <= 0 || safeTotal <= 0) {
-    return "—";
-  }
-
-  const percent = (safeContribution / safeTotal) * 100;
-
-  return (
-    <>
-      {formatCurrency(safeContribution)}{" "}
-      <span className="text-xs text-[#8A79A8] dark:text-[#A78BCE]">
-        ({formatPercent(percent)})
-      </span>
-    </>
-  );
-}
-
 function Tooltip({
   label,
   children,
@@ -229,7 +194,7 @@ function Tooltip({
   children: React.ReactNode;
 }) {
   return (
-    <div className="group relative inline-flex cursor-help items-center gap-1">
+    <div className="group relative inline-flex items-center gap-1 cursor-help">
       {children}
       <span className="text-[10px] text-[#8B5CF6] dark:text-[#C084FC]">ⓘ</span>
 
@@ -274,8 +239,6 @@ export default function BlockchainAccountsPage() {
   const [copiedWalletId, setCopiedWalletId] = useState<string | null>(null);
 
   const accounts = useMemo(() => data?.accounts ?? [], [data?.accounts]);
-
-  const totalYieldContribution = data?.yield_contribution ?? 0;
 
   const roleOptions = useMemo(() => {
     const roles = Array.from(
@@ -446,7 +409,7 @@ export default function BlockchainAccountsPage() {
             </p>
           </Tooltip>
           <h2 className="mt-3 text-3xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-            {isLoading ? "—" : formatCurrency(totalYieldContribution)}
+            {isLoading ? "—" : formatCurrency(data?.yield_contribution ?? 0)}
           </h2>
           <p className="mt-2 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
             Snapshot-level contribution from live on-chain yield sources.
@@ -636,10 +599,9 @@ export default function BlockchainAccountsPage() {
                           </p>
                         </Tooltip>
                         <p className="mt-2 text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                          {formatYieldContributionWithPercent(
-                            account.yield_contribution,
-                            totalYieldContribution
-                          )}
+                          {account.yield_contribution > 0
+                            ? formatCurrency(account.yield_contribution)
+                            : "—"}
                         </p>
                       </div>
 
@@ -738,10 +700,7 @@ export default function BlockchainAccountsPage() {
                             <button
                               type="button"
                               onClick={() =>
-                                copyWalletAddress(
-                                  account.wallet_id,
-                                  account.wallet_address
-                                )
+                                copyWalletAddress(account.wallet_id, account.wallet_address)
                               }
                               className="text-left text-sm font-medium text-[#2D1B45] underline decoration-dotted underline-offset-4 dark:text-[#F3E8FF]"
                               title={account.wallet_address || "No wallet address"}
@@ -752,16 +711,11 @@ export default function BlockchainAccountsPage() {
                             <button
                               type="button"
                               onClick={() =>
-                                copyWalletAddress(
-                                  account.wallet_id,
-                                  account.wallet_address
-                                )
+                                copyWalletAddress(account.wallet_id, account.wallet_address)
                               }
                               className="rounded-lg border border-[#E9DAFF] px-2 py-1 text-[11px] font-medium text-[#6D28D9] hover:bg-[#F3E8FF] dark:border-[#312047] dark:text-[#D8B4FE] dark:hover:bg-[#1A1226]"
                             >
-                              {copiedWalletId === account.wallet_id
-                                ? "Copied"
-                                : "Copy"}
+                              {copiedWalletId === account.wallet_id ? "Copied" : "Copy"}
                             </button>
                           </div>
                         </div>
@@ -819,15 +773,13 @@ export default function BlockchainAccountsPage() {
                             Wallet Holdings
                           </h4>
                           <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
-                            Click parent assets to expand rewards or open the
-                            asset viewer.
+                            Click parent assets to expand rewards or open the asset viewer.
                           </p>
                         </div>
 
                         {account.holdings.length === 0 ? (
                           <div className="px-4 py-6 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
-                            No holdings were returned for this wallet’s latest
-                            snapshot.
+                            No holdings were returned for this wallet’s latest snapshot.
                           </div>
                         ) : (
                           <div className="overflow-x-auto">
@@ -920,17 +872,13 @@ export default function BlockchainAccountsPage() {
 
                                               {holding.position_role ? (
                                                 <span className="rounded-full bg-[#F5F3FF] px-2 py-0.5 text-[10px] font-medium text-[#7C3AED] dark:bg-[#1E1430] dark:text-[#C4B5FD]">
-                                                  {formatRoleLabel(
-                                                    holding.position_role
-                                                  )}
+                                                  {formatRoleLabel(holding.position_role)}
                                                 </span>
                                               ) : null}
 
                                               {holding.yield_profile ? (
                                                 <span className="rounded-full bg-[#ECFDF3] px-2 py-0.5 text-[10px] font-medium text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]">
-                                                  {formatRoleLabel(
-                                                    holding.yield_profile
-                                                  )}
+                                                  {formatRoleLabel(holding.yield_profile)}
                                                 </span>
                                               ) : null}
                                             </div>
@@ -942,8 +890,7 @@ export default function BlockchainAccountsPage() {
                                             </p>
 
                                             <p className="mt-2 text-xs text-[#8A79A8] dark:text-[#A78BCE]">
-                                              Amount:{" "}
-                                              {formatAmount(holding.amount)}
+                                              Amount: {formatAmount(holding.amount)}
                                             </p>
                                           </div>
                                         </td>
@@ -953,17 +900,13 @@ export default function BlockchainAccountsPage() {
                                             {formatCurrency(holding.value_usd)}
                                           </p>
                                           <p className="mt-1 text-xs text-[#8A79A8] dark:text-[#A78BCE]">
-                                            {formatCompactCurrency(
-                                              holding.value_usd
-                                            )}
+                                            {formatCompactCurrency(holding.value_usd)}
                                           </p>
                                         </td>
 
                                         <td className="px-4 py-4 align-top">
                                           <p className="text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                                            {formatPercent(
-                                              holding.wallet_share_pct
-                                            )}
+                                            {formatPercent(holding.wallet_share_pct)}
                                           </p>
                                         </td>
 
@@ -978,10 +921,9 @@ export default function BlockchainAccountsPage() {
 
                                         <td className="px-4 py-4 align-top">
                                           <p className="text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                                            {formatYieldContributionWithPercent(
-                                              holding.yield_contribution,
-                                              totalYieldContribution
-                                            )}
+                                            {holding.yield_contribution > 0
+                                              ? formatCurrency(holding.yield_contribution)
+                                              : "—"}
                                           </p>
                                         </td>
 
@@ -992,15 +934,11 @@ export default function BlockchainAccountsPage() {
                                                 holding.mmii_bucket
                                               )}`}
                                             >
-                                              {formatBucketLabel(
-                                                holding.mmii_bucket
-                                              )}
+                                              {formatBucketLabel(holding.mmii_bucket)}
                                             </span>
 
                                             <p className="text-xs text-[#8A79A8] dark:text-[#A78BCE]">
-                                              {formatSubclassLabel(
-                                                holding.mmii_subclass
-                                              )}
+                                              {formatSubclassLabel(holding.mmii_subclass)}
                                             </p>
                                           </div>
                                         </td>
@@ -1019,218 +957,185 @@ export default function BlockchainAccountsPage() {
                                                     Reward Streams
                                                   </p>
                                                   <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
-                                                    Yield generated by this
-                                                    parent position.
+                                                    Yield generated by this parent position.
                                                   </p>
                                                 </div>
 
                                                 <Link
                                                   href={assetRoute}
                                                   className="inline-flex w-fit rounded-xl border border-[#D9C7FF] bg-white px-4 py-2 text-sm font-medium text-[#6D28D9] transition-colors hover:bg-[#F3E8FF] dark:border-[#3A2559] dark:bg-[#100A19] dark:text-[#D8B4FE] dark:hover:bg-[#1A1226]"
-                                                  onClick={(event) =>
-                                                    event.stopPropagation()
-                                                  }
+                                                  onClick={(event) => event.stopPropagation()}
                                                 >
                                                   View Parent Asset
                                                 </Link>
                                               </div>
 
                                               <div className="mt-4 space-y-3">
-                                                {holding.rewards.map(
-                                                  (reward, rewardIndex) => {
-                                                    const rewardBalanceUsd =
-                                                      Number.isFinite(
-                                                        reward.reward_balance_usd
-                                                      )
-                                                        ? reward.reward_balance_usd
-                                                        : reward.value_usd;
+                                                {holding.rewards.map((reward, rewardIndex) => {
+                                                  const rewardBalanceUsd =
+                                                    Number.isFinite(reward.reward_balance_usd)
+                                                      ? reward.reward_balance_usd
+                                                      : reward.value_usd;
 
-                                                    const rewardDailyUsd =
-                                                      getRewardDyfContribution(
-                                                        reward.reward_daily_usd
-                                                      );
+                                                  const rewardDailyUsd =
+                                                    getRewardDyfContribution(
+                                                      reward.reward_daily_usd
+                                                    );
 
-                                                    const projectedMonthly =
-                                                      getRewardProjectedMonthly(
-                                                        reward.reward_daily_usd
-                                                      );
+                                                  const projectedMonthly =
+                                                    getRewardProjectedMonthly(
+                                                      reward.reward_daily_usd
+                                                    );
 
-                                                    const projectedAnnual =
-                                                      getRewardProjectedAnnual(
-                                                        reward.reward_daily_usd
-                                                      );
+                                                  const projectedAnnual =
+                                                    getRewardProjectedAnnual(
+                                                      reward.reward_daily_usd
+                                                    );
 
-                                                    const rewardApy =
-                                                      getRewardApy(
-                                                        reward.reward_daily_usd,
-                                                        holding.value_usd
-                                                      );
+                                                  const rewardApy = getRewardApy(
+                                                    reward.reward_daily_usd,
+                                                    holding.value_usd
+                                                  );
 
-                                                    return (
-                                                      <div
-                                                        key={`${holdingKey}::reward::${reward.asset_id || reward.token_symbol}-${rewardIndex}`}
-                                                        className="flex flex-col gap-4 rounded-xl border border-[#F0E8FF] bg-[#FCFAFF] p-4 dark:border-[#241533] dark:bg-[#140D20]"
-                                                      >
-                                                        <div className="flex flex-col gap-3 desktop:flex-row desktop:items-start desktop:justify-between">
-                                                          <div className="min-w-0">
-                                                            <div className="flex items-center gap-2">
-                                                              <span className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                                                                ↳{" "}
-                                                                {reward.token_symbol}
+                                                  return (
+                                                    <div
+                                                      key={`${holdingKey}::reward::${reward.asset_id || reward.token_symbol}-${rewardIndex}`}
+                                                      className="flex flex-col gap-4 rounded-xl border border-[#F0E8FF] bg-[#FCFAFF] p-4 dark:border-[#241533] dark:bg-[#140D20]"
+                                                    >
+                                                      <div className="flex flex-col gap-3 desktop:flex-row desktop:items-start desktop:justify-between">
+                                                        <div className="min-w-0">
+                                                          <div className="flex items-center gap-2">
+                                                            <span className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              ↳ {reward.token_symbol}
+                                                            </span>
+
+                                                            <span className="rounded-full bg-[#F5F3FF] px-2 py-0.5 text-[10px] font-medium text-[#7C3AED] dark:bg-[#1E1430] dark:text-[#C4B5FD]">
+                                                              Reward
+                                                            </span>
+
+                                                            {reward.network ? (
+                                                              <span className="rounded-full bg-[#EEF4FF] px-2 py-0.5 text-[10px] font-medium text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]">
+                                                                {reward.network}
                                                               </span>
+                                                            ) : null}
+                                                          </div>
 
-                                                              <span className="rounded-full bg-[#F5F3FF] px-2 py-0.5 text-[10px] font-medium text-[#7C3AED] dark:bg-[#1E1430] dark:text-[#C4B5FD]">
-                                                                Reward
+                                                          <p className="mt-1 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
+                                                            {reward.token_name}
+                                                          </p>
+
+                                                          <div className="mt-2 flex flex-wrap gap-2">
+                                                            {reward.protocol ? (
+                                                              <span className="rounded-full bg-[#F3E8FF] px-2 py-0.5 text-[10px] font-medium text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]">
+                                                                {reward.protocol}
                                                               </span>
+                                                            ) : null}
 
-                                                              {reward.network ? (
-                                                                <span className="rounded-full bg-[#EEF4FF] px-2 py-0.5 text-[10px] font-medium text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]">
-                                                                  {
-                                                                    reward.network
-                                                                  }
-                                                                </span>
-                                                              ) : null}
-                                                            </div>
+                                                            {reward.yield_profile ? (
+                                                              <span className="rounded-full bg-[#ECFDF3] px-2 py-0.5 text-[10px] font-medium text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]">
+                                                                {formatRoleLabel(reward.yield_profile)}
+                                                              </span>
+                                                            ) : null}
+                                                          </div>
 
-                                                            <p className="mt-1 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
-                                                              {reward.token_name}
-                                                            </p>
+                                                          <p className="mt-2 text-xs text-[#8A79A8] dark:text-[#A78BCE]">
+                                                            Amount: {formatAmount(reward.amount)}
+                                                          </p>
+                                                        </div>
 
-                                                            <div className="mt-2 flex flex-wrap gap-2">
-                                                              {reward.protocol ? (
-                                                                <span className="rounded-full bg-[#F3E8FF] px-2 py-0.5 text-[10px] font-medium text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]">
-                                                                  {
-                                                                    reward.protocol
-                                                                  }
-                                                                </span>
-                                                              ) : null}
-
-                                                              {reward.yield_profile ? (
-                                                                <span className="rounded-full bg-[#ECFDF3] px-2 py-0.5 text-[10px] font-medium text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]">
-                                                                  {formatRoleLabel(
-                                                                    reward.yield_profile
-                                                                  )}
-                                                                </span>
-                                                              ) : null}
-                                                            </div>
-
-                                                            <p className="mt-2 text-xs text-[#8A79A8] dark:text-[#A78BCE]">
-                                                              Amount:{" "}
-                                                              {formatAmount(
-                                                                reward.amount
-                                                              )}
+                                                        <div className="grid grid-cols-2 gap-4 desktop:min-w-[460px] desktop:grid-cols-4">
+                                                          <div>
+                                                            <Tooltip label="Current reward balance value sitting within this reward stream.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                Value
+                                                              </p>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {formatCurrency(rewardBalanceUsd)}
                                                             </p>
                                                           </div>
 
-                                                          <div className="grid grid-cols-2 gap-4 desktop:min-w-[460px] desktop:grid-cols-4">
-                                                            <div>
-                                                              <Tooltip label="Current reward balance value sitting within this reward stream.">
-                                                                <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                                                                  Value
-                                                                </p>
-                                                              </Tooltip>
-                                                              <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                                                                {formatCurrency(
-                                                                  rewardBalanceUsd
-                                                                )}
+                                                          <div>
+                                                            <Tooltip label="Current price per reward token based on the latest tracked source.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                Price
                                                               </p>
-                                                            </div>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {formatPrice(reward.price_usd)}
+                                                            </p>
+                                                          </div>
 
-                                                            <div>
-                                                              <Tooltip label="Current price per reward token based on the latest tracked source.">
-                                                                <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                                                                  Price
-                                                                </p>
-                                                              </Tooltip>
-                                                              <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                                                                {formatPrice(
-                                                                  reward.price_usd
-                                                                )}
+                                                          <div>
+                                                            <Tooltip label="Derived daily yield flow contribution assigned to this reward stream.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                DYF Contribution
                                                               </p>
-                                                            </div>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {formatCurrency(rewardDailyUsd)}
+                                                            </p>
+                                                          </div>
 
-                                                            <div>
-                                                              <Tooltip label="Derived daily yield flow contribution assigned to this reward stream.">
-                                                                <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                                                                  DYF Contribution
-                                                                </p>
-                                                              </Tooltip>
-                                                              <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                                                                {formatCurrency(
-                                                                  rewardDailyUsd
-                                                                )}
+                                                          <div>
+                                                            <Tooltip label="Implied annualized yield generated by this reward stream relative to its parent asset value.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                Current APY
                                                               </p>
-                                                            </div>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {formatApy(rewardApy)}
+                                                            </p>
+                                                          </div>
 
-                                                            <div>
-                                                              <Tooltip label="Implied annualized yield generated by this reward stream relative to its parent asset value.">
-                                                                <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                                                                  Current APY
-                                                                </p>
-                                                              </Tooltip>
-                                                              <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                                                                {formatApy(
-                                                                  rewardApy
-                                                                )}
+                                                          <div>
+                                                            <Tooltip label="Projected 30-day reward output using the current derived daily reward pace.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                Projected Monthly
                                                               </p>
-                                                            </div>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {formatCurrency(projectedMonthly)}
+                                                            </p>
+                                                          </div>
 
-                                                            <div>
-                                                              <Tooltip label="Projected 30-day reward output using the current derived daily reward pace.">
-                                                                <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                                                                  Projected Monthly
-                                                                </p>
-                                                              </Tooltip>
-                                                              <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                                                                {formatCurrency(
-                                                                  projectedMonthly
-                                                                )}
+                                                          <div>
+                                                            <Tooltip label="Projected annual reward output using the current derived daily reward pace.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                Projected Annual
                                                               </p>
-                                                            </div>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {formatCurrency(projectedAnnual)}
+                                                            </p>
+                                                          </div>
 
-                                                            <div>
-                                                              <Tooltip label="Projected annual reward output using the current derived daily reward pace.">
-                                                                <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                                                                  Projected Annual
-                                                                </p>
-                                                              </Tooltip>
-                                                              <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                                                                {formatCurrency(
-                                                                  projectedAnnual
-                                                                )}
+                                                          <div>
+                                                            <Tooltip label="Current price/value source used for this reward stream.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                Source
                                                               </p>
-                                                            </div>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {reward.price_source || "—"}
+                                                            </p>
+                                                          </div>
 
-                                                            <div>
-                                                              <Tooltip label="Current price/value source used for this reward stream.">
-                                                                <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                                                                  Source
-                                                                </p>
-                                                              </Tooltip>
-                                                              <p className="mt-1 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                                                                {reward.price_source ||
-                                                                  "—"}
+                                                          <div>
+                                                            <Tooltip label="Role classification assigned to this reward stream inside the position structure.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                Role
                                                               </p>
-                                                            </div>
-
-                                                            <div>
-                                                              <Tooltip label="Role classification assigned to this reward stream inside the position structure.">
-                                                                <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                                                                  Role
-                                                                </p>
-                                                              </Tooltip>
-                                                              <p className="mt-1 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                                                                {formatRoleLabel(
-                                                                  reward.position_role
-                                                                )}
-                                                              </p>
-                                                            </div>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {formatRoleLabel(reward.position_role)}
+                                                            </p>
                                                           </div>
                                                         </div>
                                                       </div>
-                                                    );
-                                                  }
-                                                )}
+                                                    </div>
+                                                  );
+                                                })}
                                               </div>
                                             </div>
                                           </td>
