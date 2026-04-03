@@ -169,19 +169,27 @@ function CompactStat({
   value,
   sublabel,
   emphasis = false,
+  compact = false,
 }: {
   label: string;
   value: string;
   sublabel?: string;
   emphasis?: boolean;
+  compact?: boolean;
 }) {
   return (
-    <div className="rounded-xl bg-[#F8F4FF] p-4 dark:bg-[#140D20]">
+    <div
+      className={`rounded-xl bg-[#F8F4FF] dark:bg-[#140D20] ${
+        compact ? "px-4 py-3" : "p-4"
+      }`}
+    >
       <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
         {label}
       </p>
       <p
-        className={`mt-2 text-xl font-semibold ${
+        className={`font-semibold ${
+          compact ? "mt-1.5 text-lg" : "mt-2 text-xl"
+        } ${
           emphasis
             ? "text-[#6D28D9] dark:text-[#D8B4FE]"
             : "text-[#2D1B45] dark:text-[#F3E8FF]"
@@ -190,7 +198,13 @@ function CompactStat({
         {value}
       </p>
       {sublabel ? (
-        <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">{sublabel}</p>
+        <p
+          className={`text-[#6B5A86] dark:text-[#BFA9F5] ${
+            compact ? "mt-0.5 text-[11px]" : "mt-1 text-xs"
+          }`}
+        >
+          {sublabel}
+        </p>
       ) : null}
     </div>
   );
@@ -400,19 +414,19 @@ export default function PortfolioInDepthPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#140D20]">
-            <div className="flex flex-col gap-2">
-              <h2 className="text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                Period Highlights
-              </h2>
-              <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                Compact highlight strip for the strongest and weakest yield-flow
-                days, stored row coverage, and overall TPV range across the
-                selected historical window.
-              </p>
+          <section className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-4 shadow-sm dark:border-[#2A1D3B] dark:bg-[#140D20]">
+            <div className="flex flex-col gap-1.5 desktop:flex-row desktop:items-end desktop:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                  Period Highlights
+                </h2>
+                <p className="text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
+                  Quick scan of the strongest and weakest yield-flow days, stored row coverage, and TPV range.
+                </p>
+              </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-4 desktop:grid-cols-4">
+            <div className="mt-3 grid grid-cols-2 gap-3 desktop:grid-cols-4">
               <CompactStat
                 label="Strongest DYF Day"
                 value={strongestDay ? strongestDay.label : "—"}
@@ -422,6 +436,7 @@ export default function PortfolioInDepthPage() {
                     : "No data"
                 }
                 emphasis
+                compact
               />
               <CompactStat
                 label="Weakest DYF Day"
@@ -431,6 +446,7 @@ export default function PortfolioInDepthPage() {
                     ? formatCurrency(weakestDay.total_daily_yield_flow)
                     : "No data"
                 }
+                compact
               />
               <CompactStat
                 label="Period TPV Range"
@@ -440,11 +456,13 @@ export default function PortfolioInDepthPage() {
                 )} → Max ${formatCompactCurrency(
                   historical?.max_portfolio_value ?? 0
                 )}`}
+                compact
               />
               <CompactStat
                 label="Stored Rows"
                 value={String(data.actual_rows)}
                 sublabel={`Minimum required: ${data.minimum_required_rows}`}
+                compact
               />
             </div>
           </section>
