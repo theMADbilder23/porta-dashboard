@@ -181,6 +181,25 @@ function getHoldingRowKey(
   return `${walletId}::${assetId || token}`;
 }
 
+function Tooltip({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="group relative inline-flex items-center gap-1 cursor-help">
+      {children}
+      <span className="text-[10px] text-[#8B5CF6] dark:text-[#C084FC]">ⓘ</span>
+
+      <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-[220px] -translate-x-1/2 rounded-lg border border-[#E9DAFF] bg-white px-3 py-2 text-xs leading-5 text-[#2D1B45] opacity-0 shadow-md transition-all duration-150 group-hover:opacity-100 dark:border-[#312047] dark:bg-[#140D20] dark:text-[#F3E8FF]">
+        {label}
+      </div>
+    </div>
+  );
+}
+
 export default function BlockchainAccountsPage() {
   const router = useRouter();
   const { data, isLoading, error } = useBlockchainAccountsSummary();
@@ -344,9 +363,11 @@ export default function BlockchainAccountsPage() {
 
       <section className="grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-4">
         <div className="rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-            Total Blockchain Value
-          </p>
+          <Tooltip label="Combined value across all tracked blockchain accounts on this page.">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+              Total Blockchain Value
+            </p>
+          </Tooltip>
           <h2 className="mt-3 text-3xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
             {isLoading ? "—" : formatCurrency(data?.total_blockchain_value ?? 0)}
           </h2>
@@ -356,9 +377,11 @@ export default function BlockchainAccountsPage() {
         </div>
 
         <div className="rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-            Yield Contribution
-          </p>
+          <Tooltip label="Snapshot-level contribution from live on-chain reward and yield sources across all tracked blockchain accounts.">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+              Yield Contribution
+            </p>
+          </Tooltip>
           <h2 className="mt-3 text-3xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
             {isLoading ? "—" : formatCurrency(data?.yield_contribution ?? 0)}
           </h2>
@@ -368,9 +391,11 @@ export default function BlockchainAccountsPage() {
         </div>
 
         <div className="rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-            Active Accounts
-          </p>
+          <Tooltip label="Number of active blockchain accounts currently expected to feed operational account data into Porta.">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+              Active Accounts
+            </p>
+          </Tooltip>
           <h2 className="mt-3 text-3xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
             {isLoading ? "—" : data?.active_accounts ?? 0}
           </h2>
@@ -380,9 +405,11 @@ export default function BlockchainAccountsPage() {
         </div>
 
         <div className="rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-            Chains Covered
-          </p>
+          <Tooltip label="Distinct blockchain networks currently represented across the latest tracked blockchain account snapshots.">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+              Chains Covered
+            </p>
+          </Tooltip>
           <h2 className="mt-3 text-3xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
             {isLoading ? "—" : data?.chains_covered ?? 0}
           </h2>
@@ -529,18 +556,22 @@ export default function BlockchainAccountsPage() {
 
                     <div className="mt-5 grid grid-cols-2 gap-4 tablet:grid-cols-4">
                       <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                          Total Value
-                        </p>
+                        <Tooltip label="Total USD value of all assets currently held in this blockchain account.">
+                          <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            Total Value
+                          </p>
+                        </Tooltip>
                         <p className="mt-2 text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
                           {formatCurrency(account.total_value)}
                         </p>
                       </div>
 
                       <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                          Yield Contribution
-                        </p>
+                        <Tooltip label="Current yield generated by this blockchain account from all tracked reward sources.">
+                          <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            Yield Contribution
+                          </p>
+                        </Tooltip>
                         <p className="mt-2 text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
                           {account.yield_contribution > 0
                             ? formatCurrency(account.yield_contribution)
@@ -549,18 +580,22 @@ export default function BlockchainAccountsPage() {
                       </div>
 
                       <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                          % of Portfolio
-                        </p>
+                        <Tooltip label="This wallet’s share of total value across all tracked blockchain accounts.">
+                          <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            % of Blockchain Portfolio
+                          </p>
+                        </Tooltip>
                         <p className="mt-2 text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
                           {formatPercent(account.portfolio_share_pct)}
                         </p>
                       </div>
 
                       <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                          Last Updated
-                        </p>
+                        <Tooltip label="Time since the latest snapshot was recorded for this blockchain account.">
+                          <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            Last Updated
+                          </p>
+                        </Tooltip>
                         <p className="mt-2 text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
                           {formatRelativeMinutes(account.snapshot_time)}
                         </p>
@@ -660,27 +695,33 @@ export default function BlockchainAccountsPage() {
                         </div>
 
                         <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
-                          <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                            Role
-                          </p>
+                          <Tooltip label="Primary operational role assigned to this blockchain account inside the MMII structure.">
+                            <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                              Role
+                            </p>
+                          </Tooltip>
                           <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
                             {account.role}
                           </p>
                         </div>
 
                         <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
-                          <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                            Network Group
-                          </p>
+                          <Tooltip label="Higher-level blockchain grouping assigned to this account, such as multi-chain or a specific external network group.">
+                            <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                              Network Group
+                            </p>
+                          </Tooltip>
                           <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
                             {account.network_group || "Unknown"}
                           </p>
                         </div>
 
                         <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
-                          <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                            Chains Covered
-                          </p>
+                          <Tooltip label="Detected blockchain networks represented in this account’s latest snapshot.">
+                            <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                              Chains Covered
+                            </p>
+                          </Tooltip>
                           <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
                             {account.chains.length > 0
                               ? account.chains.join(", ")
@@ -689,9 +730,11 @@ export default function BlockchainAccountsPage() {
                         </div>
 
                         <div className="rounded-xl border border-[#E9DAFF] bg-white p-4 dark:border-[#312047] dark:bg-[#100A19]">
-                          <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                            Holdings Count
-                          </p>
+                          <Tooltip label="Number of grouped parent holdings currently displayed for this blockchain account.">
+                            <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                              Holdings Count
+                            </p>
+                          </Tooltip>
                           <p className="mt-2 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
                             {account.holdings_count}
                           </p>
