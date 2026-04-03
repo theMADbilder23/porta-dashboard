@@ -34,9 +34,17 @@ function getTimeframeStart(timeframe) {
     }
     case "daily":
     default: {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 1);
-      return d;
+      return new Date(
+        Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate(),
+          0,
+          0,
+          0,
+          0
+        )
+      );
     }
   }
 }
