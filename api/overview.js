@@ -1,19 +1,4 @@
 const { createClient } = require("@supabase/supabase-js");
-const {
-  safeNumber,
-  capitalizeTimeframe,
-  getTimeframeStart,
-  getPortfolioSnapshotValue,
-  buildLatestPerWallet,
-  buildBucketTotals,
-  splitDailyBucketTotalsForWindow,
-  getMinValue,
-  getMaxValue,
-  getAverageValue,
-  getChangePctFromMin,
-  getRangeFlow,
-  buildDailySummary,
-} = require("./lib/porta-math/dyf");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -21,6 +6,16 @@ const supabase = createClient(
 );
 
 const STABLE_SYMBOLS = new Set(["USDC", "USDT", "USDM", "DAI"]);
+
+const ROLLOVER_PENDING_HIGH_THRESHOLD = 2.5;
+const ROLLOVER_PENDING_LOW_THRESHOLD = 2.0;
+const ROLLOVER_MIN_PENDING_DROP = 0.75;
+const ROLLOVER_MIN_CLAIMABLE_RESET_DROP = 0.35;
+
+function safeNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -36,6 +31,44 @@ function normalizeRole(value) {
 
 function isStableSymbol(symbol) {
   return STABLE_SYMBOLS.has(normalizeSymbol(symbol));
+}
+
+function capitalizeTimeframe(timeframe) {
+  const value = String(timeframe || "daily").toLowerCase();
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function getTimeframeStart(timeframe) {
+  const now = new Date();
+
+  switch ((timeframe || "daily").toLowerCase()) {
+    case "weekly": {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 7);
+      return d;
+    }
+    case "monthly": {
+      const d = new Date(now);
+      d.setMonth(d.getMonth() - 1);
+      return d;
+    }
+    case "quarterly": {
+      const d = new Date(now);
+      d.setMonth(d.getMonth() - 3);
+      return d;
+    }
+    case "yearly": {
+      const d = new Date(now);
+      d.setFullYear(d.getFullYear() - 1);
+      return d;
+    }
+    case "daily":
+    default: {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 1);
+      return d;
+    }
+  }
 }
 
 const MIN_TIME_SPAN_MS = {
@@ -55,6 +88,236 @@ function hasEnoughTimeCoverage(snapshots, timeframe) {
   if (!Number.isFinite(first) || !Number.isFinite(last)) return false;
 
   return last - first >= (MIN_TIME_SPAN_MS[timeframe] || MIN_TIME_SPAN_MS.daily);
+}
+
+function getBucketKey(dateString, timeframe) {
+  const d = new Date(dateString);
+
+  if (timeframe === "daily") {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    const hour = String(d.getUTCHours()).padStart(2, "0");
+    const minuteBucket = d.getUTCMinutes() < 30 ? "00" : "30";
+    return `${year}-${month}-${day}T${hour}:${minuteBucket}:00Z`;
+  }
+
+  if (timeframe === "weekly" || timeframe === "monthly") {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  if (timeframe === "quarterly") {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+    return `${year}-${month}`;
+  }
+
+  const year = d.getUTCFullYear();
+  const quarter = Math.floor(d.getUTCMonth() / 3) + 1;
+  return `${year}-Q${quarter}`;
+}
+
+function getPortfolioSnapshotValue(snapshot) {
+  return safeNumber(snapshot.total_value_usd) + safeNumber(snapshot.total_claimable_usd);
+}
+
+function getClaimableSnapshotValue(snapshot) {
+  return safeNumber(snapshot.total_claimable_usd);
+}
+
+function getPendingSnapshotValue(snapshot) {
+  return safeNumber(snapshot.total_pending_usd);
+}
+
+function buildLatestPerWallet(snapshots) {
+  const latestPerWallet = new Map();
+
+  for (const snapshot of snapshots) {
+    const existing = latestPerWallet.get(snapshot.wallet_id);
+
+    if (
+      !existing ||
+      new Date(snapshot.snapshot_time).getTime() >
+        new Date(existing.snapshot_time).getTime()
+    ) {
+      latestPerWallet.set(snapshot.wallet_id, snapshot);
+    }
+  }
+
+  return latestPerWallet;
+}
+
+function buildBucketTotals(snapshots, timeframe) {
+  const latestPerWalletPerBucket = new Map();
+
+  for (const snapshot of snapshots) {
+    const bucketKey = getBucketKey(snapshot.snapshot_time, timeframe);
+    const compositeKey = `${bucketKey}__${snapshot.wallet_id}`;
+    const existing = latestPerWalletPerBucket.get(compositeKey);
+
+    if (
+      !existing ||
+      new Date(snapshot.snapshot_time).getTime() >
+        new Date(existing.snapshot_time).getTime()
+    ) {
+      latestPerWalletPerBucket.set(compositeKey, snapshot);
+    }
+  }
+
+  const bucketTotals = new Map();
+
+  for (const [compositeKey, snapshot] of latestPerWalletPerBucket.entries()) {
+    const bucketKey = compositeKey.split("__")[0];
+
+    if (!bucketTotals.has(bucketKey)) {
+      bucketTotals.set(bucketKey, {
+        bucket_key: bucketKey,
+        snapshot_time: snapshot.snapshot_time,
+        portfolio_total_usd: 0,
+        claimable_total_usd: 0,
+        pending_total_usd: 0,
+      });
+    }
+
+    const bucket = bucketTotals.get(bucketKey);
+
+    bucket.portfolio_total_usd += getPortfolioSnapshotValue(snapshot);
+    bucket.claimable_total_usd += getClaimableSnapshotValue(snapshot);
+    bucket.pending_total_usd += getPendingSnapshotValue(snapshot);
+
+    if (
+      new Date(snapshot.snapshot_time).getTime() >
+      new Date(bucket.snapshot_time).getTime()
+    ) {
+      bucket.snapshot_time = snapshot.snapshot_time;
+    }
+  }
+
+  return Array.from(bucketTotals.values()).sort(
+    (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
+  );
+}
+
+function splitDailyBucketTotalsForWindow(bucketTotals, timeframeStartIso) {
+  const startMs = new Date(timeframeStartIso).getTime();
+
+  if (!Array.isArray(bucketTotals) || bucketTotals.length === 0) {
+    return {
+      contextBuckets: [],
+      displayBuckets: [],
+      displayStartIndex: -1,
+    };
+  }
+
+  const displayStartIndex = bucketTotals.findIndex(
+    (bucket) => new Date(bucket.snapshot_time).getTime() >= startMs
+  );
+
+  if (displayStartIndex === -1) {
+    return {
+      contextBuckets: bucketTotals.slice(-1),
+      displayBuckets: bucketTotals.slice(-1),
+      displayStartIndex: bucketTotals.length - 1,
+    };
+  }
+
+  const contextStartIndex = Math.max(0, displayStartIndex - 1);
+
+  return {
+    contextBuckets: bucketTotals.slice(contextStartIndex),
+    displayBuckets: bucketTotals.slice(displayStartIndex),
+    displayStartIndex,
+  };
+}
+
+function detectDailyRolloverMeta(bucketTotals) {
+  if (!Array.isArray(bucketTotals) || bucketTotals.length < 2) return null;
+
+  let runningMaxBeforeRollover = safeNumber(bucketTotals[0]?.claimable_total_usd);
+
+  for (let i = 1; i < bucketTotals.length; i += 1) {
+    const prev = bucketTotals[i - 1];
+    const current = bucketTotals[i];
+
+    const prevPending = safeNumber(prev.pending_total_usd);
+    const currentPending = safeNumber(current.pending_total_usd);
+    const pendingDrop = prevPending - currentPending;
+
+    const currentClaimable = safeNumber(current.claimable_total_usd);
+    const claimableResetDrop = runningMaxBeforeRollover - currentClaimable;
+
+    const pendingResetDetected =
+      prevPending >= ROLLOVER_PENDING_HIGH_THRESHOLD &&
+      currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
+      pendingDrop >= ROLLOVER_MIN_PENDING_DROP;
+
+    const claimableResetDetected =
+      currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
+      claimableResetDrop >= ROLLOVER_MIN_CLAIMABLE_RESET_DROP;
+
+    if (pendingResetDetected || claimableResetDetected) {
+      return {
+        rolloverIndex: i,
+        prevBucket: prev,
+        rolloverBucket: current,
+        rolloverSnapshotTime: current.snapshot_time,
+        resetBaselineClaimableUsd: runningMaxBeforeRollover,
+        pendingResetDetected,
+        claimableResetDetected,
+        claimableResetDrop,
+      };
+    }
+
+    runningMaxBeforeRollover = Math.max(
+      runningMaxBeforeRollover,
+      safeNumber(prev.claimable_total_usd),
+      currentClaimable
+    );
+  }
+
+  return null;
+}
+
+function getMinValue(values, { ignoreZero = false } = {}) {
+  const filtered = (values || [])
+    .map((v) => safeNumber(v))
+    .filter((v) => (ignoreZero ? v > 0 : true));
+
+  if (filtered.length === 0) return 0;
+  return Math.min(...filtered);
+}
+
+function getMaxValue(values) {
+  const filtered = (values || []).map((v) => safeNumber(v));
+
+  if (filtered.length === 0) return 0;
+  return Math.max(...filtered);
+}
+
+function getAverageValue(values, { ignoreZero = false } = {}) {
+  const filtered = (values || [])
+    .map((v) => safeNumber(v))
+    .filter((v) => (ignoreZero ? v > 0 : true));
+
+  if (filtered.length === 0) return 0;
+  return filtered.reduce((sum, v) => sum + v, 0) / filtered.length;
+}
+
+function getChangePctFromMin(current, min) {
+  const currentValue = safeNumber(current);
+  const minValue = safeNumber(min);
+
+  if (minValue <= 0) return null;
+  return (currentValue - minValue) / minValue;
+}
+
+function getRangeFlow(maxValue, minValue) {
+  const max = safeNumber(maxValue);
+  const min = safeNumber(minValue);
+  return Math.max(0, max - min);
 }
 
 function getEmptyResponse(timeframe) {
@@ -86,7 +349,6 @@ function getEmptyResponse(timeframe) {
     growth_risk_avg_apy: null,
     hard_asset_avg_apy: null,
     wallet_yield_debug: [],
-    daily_rollover_debug: null,
   };
 }
 
@@ -244,11 +506,17 @@ module.exports = async function handler(req, res) {
 
     const fullBucketTotals = buildBucketTotals(allSnapshots, timeframe);
     const {
+      contextBuckets: dailyContextBucketTotals,
       displayBuckets: dailyDisplayBucketTotals,
     } =
       timeframe === "daily"
         ? splitDailyBucketTotalsForWindow(fullBucketTotals, timeframeStart)
-        : { displayBuckets: fullBucketTotals };
+        : { contextBuckets: fullBucketTotals, displayBuckets: fullBucketTotals };
+
+    const rolloverMeta =
+      timeframe === "daily"
+        ? detectDailyRolloverMeta(dailyContextBucketTotals)
+        : null;
 
     const bucketTotalsForStats =
       timeframe === "daily" ? dailyDisplayBucketTotals : fullBucketTotals;
@@ -291,7 +559,7 @@ module.exports = async function handler(req, res) {
 
     for (const snapshot of allSnapshots) {
       const walletId = snapshot.wallet_id;
-      const claimable = safeNumber(snapshot.total_claimable_usd);
+      const claimable = getClaimableSnapshotValue(snapshot);
 
       if (!walletClaimableStats.has(walletId)) {
         walletClaimableStats.set(walletId, {
@@ -410,28 +678,52 @@ module.exports = async function handler(req, res) {
       stableYieldValue + growthRiskYieldValue + hardAssetYieldValue;
 
     const portfolioBucketValues = bucketTotalsForStats.map(
-      (bucket) => bucket.portfolio_total_usd ?? bucket.total_value_usd
+      (bucket) => bucket.portfolio_total_usd
+    );
+    const claimableBucketValues = bucketTotalsForStats.map(
+      (bucket) => bucket.claimable_total_usd
     );
 
     const minPortfolioValue = getMinValue(portfolioBucketValues);
 
-    let totalYieldFlow = null;
-    let dailyRolloverDebug = null;
+    let minClaimableValue = getMinValue(claimableBucketValues, { ignoreZero: true });
+    let maxClaimableValue = getMaxValue(claimableBucketValues);
+    let avgClaimableValue = getAverageValue(claimableBucketValues, { ignoreZero: false });
+    let totalYieldFlow = getRangeFlow(maxClaimableValue, minClaimableValue);
 
-    if (timeframe === "daily") {
-      const dailySummary = buildDailySummary(allSnapshots, timeframeStart);
+    let effectiveRolloverMeta = null;
 
-      totalYieldFlow = safeNumber(dailySummary.current_yield_flow_usd);
-      dailyRolloverDebug = dailySummary.daily_rollover_debug;
-    } else {
-      const claimableBucketValues = bucketTotalsForStats.map(
-        (bucket) => bucket.claimable_total_usd ?? bucket.total_claimable_usd
-      );
+    if (timeframe === "daily" && dailyDisplayBucketTotals.length > 0 && rolloverMeta) {
+      const rolloverTimeMs = new Date(rolloverMeta.rolloverSnapshotTime).getTime();
+      const startMs = new Date(timeframeStart).getTime();
 
-      const minClaimableValue = getMinValue(claimableBucketValues, {
-        ignoreZero: true,
-      });
-      const maxClaimableValue = getMaxValue(claimableBucketValues);
+      if (rolloverTimeMs >= startMs) {
+        const postRolloverClaimableValues = dailyContextBucketTotals
+          .slice(rolloverMeta.rolloverIndex)
+          .map((bucket) => safeNumber(bucket.claimable_total_usd));
+
+        const resetSeries = [
+          safeNumber(rolloverMeta.resetBaselineClaimableUsd),
+          ...postRolloverClaimableValues,
+        ];
+
+        minClaimableValue = safeNumber(rolloverMeta.resetBaselineClaimableUsd);
+        maxClaimableValue = getMaxValue(resetSeries);
+        avgClaimableValue = getAverageValue(resetSeries, { ignoreZero: false });
+        totalYieldFlow = getRangeFlow(maxClaimableValue, minClaimableValue);
+        effectiveRolloverMeta = rolloverMeta;
+      } else if (claimableBucketValues.length > 0) {
+        minClaimableValue = safeNumber(claimableBucketValues[0]);
+        maxClaimableValue = getMaxValue(claimableBucketValues);
+        avgClaimableValue = getAverageValue(claimableBucketValues, {
+          ignoreZero: false,
+        });
+        totalYieldFlow = getRangeFlow(maxClaimableValue, minClaimableValue);
+      }
+    } else if (timeframe === "daily" && claimableBucketValues.length > 0) {
+      minClaimableValue = safeNumber(claimableBucketValues[0]);
+      maxClaimableValue = getMaxValue(claimableBucketValues);
+      avgClaimableValue = getAverageValue(claimableBucketValues, { ignoreZero: false });
       totalYieldFlow = getRangeFlow(maxClaimableValue, minClaimableValue);
     }
 
@@ -461,7 +753,10 @@ module.exports = async function handler(req, res) {
         totalPortfolioValue,
         minPortfolioValue
       ),
-      passive_income_change_pct: null,
+      passive_income_change_pct: getChangePctFromMin(
+        maxClaimableValue,
+        minClaimableValue
+      ),
       realized_gains_change_pct: null,
       realized_losses_change_pct: null,
       allocation_scope_label: "Tracked dashboard assets only",
@@ -485,7 +780,29 @@ module.exports = async function handler(req, res) {
         timeframe
       ),
       wallet_yield_debug: walletYieldDebug,
-      daily_rollover_debug: timeframe === "daily" ? dailyRolloverDebug : null,
+      daily_rollover_debug:
+        timeframe === "daily"
+          ? {
+              detected: Boolean(effectiveRolloverMeta),
+              rollover_index: effectiveRolloverMeta?.rolloverIndex ?? null,
+              rollover_snapshot_time:
+                effectiveRolloverMeta?.rolloverSnapshotTime ?? null,
+              reset_baseline_claimable_usd:
+                effectiveRolloverMeta?.resetBaselineClaimableUsd ?? null,
+              pending_reset_detected:
+                effectiveRolloverMeta?.pendingResetDetected ?? false,
+              claimable_reset_detected:
+                effectiveRolloverMeta?.claimableResetDetected ?? false,
+              claimable_reset_drop:
+                effectiveRolloverMeta?.claimableResetDrop ?? null,
+              reset_min_claimable_usd: minClaimableValue,
+              max_post_rollover_claimable_usd: maxClaimableValue,
+              avg_post_rollover_claimable_usd: avgClaimableValue,
+              effective_daily_current_usd: totalYieldFlow,
+              context_bucket_count: dailyContextBucketTotals.length,
+              display_bucket_count: dailyDisplayBucketTotals.length,
+            }
+          : null,
     });
   } catch (err) {
     console.error("[api/overview] error:", err);
