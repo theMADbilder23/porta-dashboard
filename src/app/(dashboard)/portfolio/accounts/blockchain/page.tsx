@@ -29,6 +29,11 @@ function formatPercent(value: number) {
   return `${value.toFixed(1)}%`;
 }
 
+function formatApy(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "—";
+  return `${value.toFixed(1)}%`;
+}
+
 function formatPrice(value: number) {
   if (!Number.isFinite(value) || value <= 0) return "—";
 
@@ -198,6 +203,27 @@ function Tooltip({
       </div>
     </div>
   );
+}
+
+function getRewardDyfContribution(rewardDailyUsd: number) {
+  return Number.isFinite(rewardDailyUsd) ? Math.max(0, rewardDailyUsd) : 0;
+}
+
+function getRewardProjectedMonthly(rewardDailyUsd: number) {
+  return getRewardDyfContribution(rewardDailyUsd) * 30;
+}
+
+function getRewardProjectedAnnual(rewardDailyUsd: number) {
+  return getRewardDyfContribution(rewardDailyUsd) * 365;
+}
+
+function getRewardApy(rewardDailyUsd: number, parentValueUsd: number) {
+  const dailyUsd = getRewardDyfContribution(rewardDailyUsd);
+  const safeParent = Number.isFinite(parentValueUsd) ? parentValueUsd : 0;
+
+  if (dailyUsd <= 0 || safeParent <= 0) return 0;
+
+  return (dailyUsd * 365 * 100) / safeParent;
 }
 
 export default function BlockchainAccountsPage() {
@@ -940,95 +966,176 @@ export default function BlockchainAccountsPage() {
                                                   className="inline-flex w-fit rounded-xl border border-[#D9C7FF] bg-white px-4 py-2 text-sm font-medium text-[#6D28D9] transition-colors hover:bg-[#F3E8FF] dark:border-[#3A2559] dark:bg-[#100A19] dark:text-[#D8B4FE] dark:hover:bg-[#1A1226]"
                                                   onClick={(event) => event.stopPropagation()}
                                                 >
-                                                  View Asset
+                                                  View Parent Asset
                                                 </Link>
                                               </div>
 
                                               <div className="mt-4 space-y-3">
-                                                {holding.rewards.map((reward, rewardIndex) => (
-                                                  <div
-                                                    key={`${holdingKey}::reward::${reward.asset_id || reward.token_symbol}-${rewardIndex}`}
-                                                    className="flex flex-col gap-3 rounded-xl border border-[#F0E8FF] bg-[#FCFAFF] p-4 dark:border-[#241533] dark:bg-[#140D20] desktop:flex-row desktop:items-start desktop:justify-between"
-                                                  >
-                                                    <div className="min-w-0">
-                                                      <div className="flex items-center gap-2">
-                                                        <span className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                                                          ↳ {reward.token_symbol}
-                                                        </span>
+                                                {holding.rewards.map((reward, rewardIndex) => {
+                                                  const rewardBalanceUsd =
+                                                    Number.isFinite(reward.reward_balance_usd)
+                                                      ? reward.reward_balance_usd
+                                                      : reward.value_usd;
 
-                                                        <span className="rounded-full bg-[#F5F3FF] px-2 py-0.5 text-[10px] font-medium text-[#7C3AED] dark:bg-[#1E1430] dark:text-[#C4B5FD]">
-                                                          Reward
-                                                        </span>
+                                                  const rewardDailyUsd =
+                                                    getRewardDyfContribution(
+                                                      reward.reward_daily_usd
+                                                    );
 
-                                                        {reward.network ? (
-                                                          <span className="rounded-full bg-[#EEF4FF] px-2 py-0.5 text-[10px] font-medium text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]">
-                                                            {reward.network}
-                                                          </span>
-                                                        ) : null}
+                                                  const projectedMonthly =
+                                                    getRewardProjectedMonthly(
+                                                      reward.reward_daily_usd
+                                                    );
+
+                                                  const projectedAnnual =
+                                                    getRewardProjectedAnnual(
+                                                      reward.reward_daily_usd
+                                                    );
+
+                                                  const rewardApy = getRewardApy(
+                                                    reward.reward_daily_usd,
+                                                    holding.value_usd
+                                                  );
+
+                                                  return (
+                                                    <div
+                                                      key={`${holdingKey}::reward::${reward.asset_id || reward.token_symbol}-${rewardIndex}`}
+                                                      className="flex flex-col gap-4 rounded-xl border border-[#F0E8FF] bg-[#FCFAFF] p-4 dark:border-[#241533] dark:bg-[#140D20]"
+                                                    >
+                                                      <div className="flex flex-col gap-3 desktop:flex-row desktop:items-start desktop:justify-between">
+                                                        <div className="min-w-0">
+                                                          <div className="flex items-center gap-2">
+                                                            <span className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              ↳ {reward.token_symbol}
+                                                            </span>
+
+                                                            <span className="rounded-full bg-[#F5F3FF] px-2 py-0.5 text-[10px] font-medium text-[#7C3AED] dark:bg-[#1E1430] dark:text-[#C4B5FD]">
+                                                              Reward
+                                                            </span>
+
+                                                            {reward.network ? (
+                                                              <span className="rounded-full bg-[#EEF4FF] px-2 py-0.5 text-[10px] font-medium text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]">
+                                                                {reward.network}
+                                                              </span>
+                                                            ) : null}
+                                                          </div>
+
+                                                          <p className="mt-1 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
+                                                            {reward.token_name}
+                                                          </p>
+
+                                                          <div className="mt-2 flex flex-wrap gap-2">
+                                                            {reward.protocol ? (
+                                                              <span className="rounded-full bg-[#F3E8FF] px-2 py-0.5 text-[10px] font-medium text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]">
+                                                                {reward.protocol}
+                                                              </span>
+                                                            ) : null}
+
+                                                            {reward.yield_profile ? (
+                                                              <span className="rounded-full bg-[#ECFDF3] px-2 py-0.5 text-[10px] font-medium text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]">
+                                                                {formatRoleLabel(reward.yield_profile)}
+                                                              </span>
+                                                            ) : null}
+                                                          </div>
+
+                                                          <p className="mt-2 text-xs text-[#8A79A8] dark:text-[#A78BCE]">
+                                                            Amount: {formatAmount(reward.amount)}
+                                                          </p>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-2 gap-4 desktop:min-w-[460px] desktop:grid-cols-4">
+                                                          <div>
+                                                            <Tooltip label="Current reward balance value sitting within this reward stream.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                Value
+                                                              </p>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {formatCurrency(rewardBalanceUsd)}
+                                                            </p>
+                                                          </div>
+
+                                                          <div>
+                                                            <Tooltip label="Current price per reward token based on the latest tracked source.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                Price
+                                                              </p>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {formatPrice(reward.price_usd)}
+                                                            </p>
+                                                          </div>
+
+                                                          <div>
+                                                            <Tooltip label="Derived daily yield flow contribution assigned to this reward stream.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                DYF Contribution
+                                                              </p>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {formatCurrency(rewardDailyUsd)}
+                                                            </p>
+                                                          </div>
+
+                                                          <div>
+                                                            <Tooltip label="Implied annualized yield generated by this reward stream relative to its parent asset value.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                Current APY
+                                                              </p>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {formatApy(rewardApy)}
+                                                            </p>
+                                                          </div>
+
+                                                          <div>
+                                                            <Tooltip label="Projected 30-day reward output using the current derived daily reward pace.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                Projected Monthly
+                                                              </p>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {formatCurrency(projectedMonthly)}
+                                                            </p>
+                                                          </div>
+
+                                                          <div>
+                                                            <Tooltip label="Projected annual reward output using the current derived daily reward pace.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                Projected Annual
+                                                              </p>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {formatCurrency(projectedAnnual)}
+                                                            </p>
+                                                          </div>
+
+                                                          <div>
+                                                            <Tooltip label="Current price/value source used for this reward stream.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                Source
+                                                              </p>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {reward.price_source || "—"}
+                                                            </p>
+                                                          </div>
+
+                                                          <div>
+                                                            <Tooltip label="Role classification assigned to this reward stream inside the position structure.">
+                                                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                                                                Role
+                                                              </p>
+                                                            </Tooltip>
+                                                            <p className="mt-1 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                              {formatRoleLabel(reward.position_role)}
+                                                            </p>
+                                                          </div>
+                                                        </div>
                                                       </div>
-
-                                                      <p className="mt-1 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
-                                                        {reward.token_name}
-                                                      </p>
-
-                                                      <div className="mt-2 flex flex-wrap gap-2">
-                                                        {reward.protocol ? (
-                                                          <span className="rounded-full bg-[#F3E8FF] px-2 py-0.5 text-[10px] font-medium text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]">
-                                                            {reward.protocol}
-                                                          </span>
-                                                        ) : null}
-
-                                                        {reward.yield_profile ? (
-                                                          <span className="rounded-full bg-[#ECFDF3] px-2 py-0.5 text-[10px] font-medium text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]">
-                                                            {formatRoleLabel(reward.yield_profile)}
-                                                          </span>
-                                                        ) : null}
-                                                      </div>
-
-                                                      <p className="mt-2 text-xs text-[#8A79A8] dark:text-[#A78BCE]">
-                                                        Amount: {formatAmount(reward.amount)}
-                                                      </p>
                                                     </div>
-
-                                                    <div className="grid grid-cols-2 gap-4 desktop:min-w-[320px]">
-                                                      <div>
-                                                        <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                                                          Value
-                                                        </p>
-                                                        <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                                                          {formatCurrency(reward.value_usd)}
-                                                        </p>
-                                                      </div>
-
-                                                      <div>
-                                                        <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                                                          Price
-                                                        </p>
-                                                        <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                                                          {formatPrice(reward.price_usd)}
-                                                        </p>
-                                                      </div>
-
-                                                      <div>
-                                                        <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                                                          Source
-                                                        </p>
-                                                        <p className="mt-1 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                                                          {reward.price_source || "—"}
-                                                        </p>
-                                                      </div>
-
-                                                      <div>
-                                                        <p className="text-[11px] uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                                                          Role
-                                                        </p>
-                                                        <p className="mt-1 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                                                          {formatRoleLabel(reward.position_role)}
-                                                        </p>
-                                                      </div>
-                                                    </div>
-                                                  </div>
-                                                ))}
+                                                  );
+                                                })}
                                               </div>
                                             </div>
                                           </td>

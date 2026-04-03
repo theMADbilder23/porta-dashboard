@@ -152,6 +152,8 @@ function buildRewardMatchKeys(holding) {
 }
 
 function normalizeRewardHolding(holding) {
+  const rewardBalanceUsd = safeNumber(holding.value_usd);
+
   return {
     asset_id: holding.asset_id || null,
     token_symbol: String(holding.token_symbol || "").trim() || "—",
@@ -160,7 +162,9 @@ function normalizeRewardHolding(holding) {
       ? formatChainLabel(holding.network)
       : "Unknown",
     amount: safeNumber(holding.amount),
-    value_usd: safeNumber(holding.value_usd),
+    value_usd: rewardBalanceUsd,
+    reward_balance_usd: rewardBalanceUsd,
+    reward_daily_usd: 0,
     price_usd: deriveHoldingPrice(holding),
     asset_class: String(holding.asset_class || "").trim() || null,
     yield_profile: String(holding.yield_profile || "").trim() || null,
@@ -202,7 +206,65 @@ function normalizeParentHolding(holding, totalValue) {
   };
 }
 
-function groupWalletHoldings(walletHoldings, totalValue) {
+function getParentRewardBalanceTotal(holding) {
+  if (Array.isArray(holding.rewards) && holding.rewards.length > 0) {
+    return holding.rewards.reduce(
+      (sum, reward) => sum + safeNumber(reward.reward_balance_usd ?? reward.value_usd),
+      0
+    );
+  }
+
+  if (normalizeText(holding.position_role) === "reward") {
+    return safeNumber(holding.value_usd);
+  }
+
+  return 0;
+}
+
+function isYieldEligibleParent(holding) {
+  return (
+    Boolean(holding.is_yield_position) ||
+    (Array.isArray(holding.rewards) && holding.rewards.length > 0) ||
+    normalizeText(holding.position_role) === "reward" ||
+    normalizeText(holding.yield_profile) !== "none"
+  );
+}
+
+function distributeTotalByWeight(items, total, getWeight) {
+  const safeTotal = safeNumber(total);
+
+  if (!Array.isArray(items) || items.length === 0 || safeTotal <= 0) {
+    return items.map(() => 0);
+  }
+
+  const weights = items.map((item) => Math.max(0, safeNumber(getWeight(item))));
+  const weightSum = weights.reduce((sum, weight) => sum + weight, 0);
+
+  if (weightSum <= 0) {
+    const equalWeight = safeTotal / items.length;
+    let remaining = safeTotal;
+
+    return items.map((_, index) => {
+      const allocated = index === items.length - 1 ? remaining : equalWeight;
+      remaining -= allocated;
+      return Math.max(0, allocated);
+    });
+  }
+
+  let remaining = safeTotal;
+
+  return items.map((_, index) => {
+    const allocated =
+      index === items.length - 1
+        ? remaining
+        : safeTotal * (weights[index] / weightSum);
+
+    remaining -= allocated;
+    return Math.max(0, allocated);
+  });
+}
+
+function groupWalletHoldings(walletHoldings, totalValue, walletYieldContribution) {
   const principalRows = [];
   const rewardRows = [];
   const parentLookup = new Map();
@@ -246,20 +308,57 @@ function groupWalletHoldings(walletHoldings, totalValue) {
 
     unmatchedRewards.push({
       ...normalizeParentHolding(reward, totalValue),
-      yield_contribution: safeNumber(reward.value_usd),
+      yield_contribution: 0,
       rewards: [],
     });
   }
 
   const combinedRows = [...principalRows, ...unmatchedRewards];
 
+  const eligibleParents = combinedRows.filter(isYieldEligibleParent);
+  const parentAllocations = distributeTotalByWeight(
+    eligibleParents,
+    walletYieldContribution,
+    (holding) => {
+      const rewardBalance = getParentRewardBalanceTotal(holding);
+      if (rewardBalance > 0) return rewardBalance;
+      return safeNumber(holding.value_usd);
+    }
+  );
+
+  for (let index = 0; index < eligibleParents.length; index += 1) {
+    eligibleParents[index].yield_contribution = safeNumber(parentAllocations[index]);
+  }
+
   for (const holding of combinedRows) {
-    const rewardTotal = holding.rewards.reduce(
-      (sum, reward) => sum + safeNumber(reward.value_usd),
-      0
+    for (const reward of holding.rewards) {
+      reward.reward_daily_usd = 0;
+    }
+
+    if (!holding.rewards.length || holding.yield_contribution <= 0) {
+      continue;
+    }
+
+    const rewardAllocations = distributeTotalByWeight(
+      holding.rewards,
+      holding.yield_contribution,
+      (reward) => safeNumber(reward.reward_balance_usd ?? reward.value_usd)
     );
-    holding.yield_contribution = rewardTotal;
-    holding.rewards.sort((a, b) => b.value_usd - a.value_usd);
+
+    for (let index = 0; index < holding.rewards.length; index += 1) {
+      holding.rewards[index].reward_daily_usd = safeNumber(rewardAllocations[index]);
+    }
+
+    holding.rewards.sort((a, b) => {
+      const dailyDiff =
+        safeNumber(b.reward_daily_usd) - safeNumber(a.reward_daily_usd);
+      if (dailyDiff !== 0) return dailyDiff;
+
+      return (
+        safeNumber(b.reward_balance_usd ?? b.value_usd) -
+        safeNumber(a.reward_balance_usd ?? a.value_usd)
+      );
+    });
   }
 
   combinedRows.sort((a, b) => b.value_usd - a.value_usd);
@@ -398,13 +497,18 @@ module.exports = async function handler(req, res) {
         }
 
         const totalValue = getPortfolioSnapshotValue(snapshot);
+        const walletDailyYield = getClaimableSnapshotValue(snapshot);
 
         const holdingsValueSum = walletHoldings.reduce(
           (sum, holding) => sum + safeNumber(holding.value_usd),
           0
         );
 
-        const groupedHoldings = groupWalletHoldings(walletHoldings, totalValue);
+        const groupedHoldings = groupWalletHoldings(
+          walletHoldings,
+          totalValue,
+          walletDailyYield
+        );
 
         return {
           wallet_id: snapshot.wallet_id,
@@ -413,7 +517,7 @@ module.exports = async function handler(req, res) {
           role: formatRoleLabel(wallet?.role),
           network_group: wallet?.network_group || null,
           total_value: totalValue,
-          yield_contribution: getClaimableSnapshotValue(snapshot),
+          yield_contribution: walletDailyYield,
           portfolio_share_pct:
             totalBlockchainValue > 0
               ? (totalValue / totalBlockchainValue) * 100

@@ -66,6 +66,8 @@ export type BlockchainAccountRewardItem = {
   network: string;
   amount: number;
   value_usd: number;
+  reward_balance_usd: number;
+  reward_daily_usd: number;
   price_usd: number;
   asset_class: string | null;
   yield_profile: string | null;
