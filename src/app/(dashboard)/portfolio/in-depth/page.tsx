@@ -164,6 +164,38 @@ function MetricCard({
   );
 }
 
+function CompactStat({
+  label,
+  value,
+  sublabel,
+  emphasis = false,
+}: {
+  label: string;
+  value: string;
+  sublabel?: string;
+  emphasis?: boolean;
+}) {
+  return (
+    <div className="rounded-xl bg-[#F8F4FF] p-4 dark:bg-[#140D20]">
+      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+        {label}
+      </p>
+      <p
+        className={`mt-2 text-xl font-semibold ${
+          emphasis
+            ? "text-[#6D28D9] dark:text-[#D8B4FE]"
+            : "text-[#2D1B45] dark:text-[#F3E8FF]"
+        }`}
+      >
+        {value}
+      </p>
+      {sublabel ? (
+        <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">{sublabel}</p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function PortfolioInDepthPage() {
   const [timeframe, setTimeframe] = useState<Timeframe>("daily");
   const [data, setData] = useState<PortfolioInDepthResponse | null>(null);
@@ -206,7 +238,6 @@ export default function PortfolioInDepthPage() {
 
   const strongestDay = useMemo(() => {
     if (!trend.length) return null;
-
     return [...trend].sort(
       (a, b) => safeNumber(b.total_daily_yield_flow) - safeNumber(a.total_daily_yield_flow)
     )[0];
@@ -214,7 +245,6 @@ export default function PortfolioInDepthPage() {
 
   const weakestDay = useMemo(() => {
     if (!trend.length) return null;
-
     return [...trend].sort(
       (a, b) => safeNumber(a.total_daily_yield_flow) - safeNumber(b.total_daily_yield_flow)
     )[0];
@@ -230,7 +260,7 @@ export default function PortfolioInDepthPage() {
 
   return (
     <div className="min-h-screen space-y-6 p-6">
-      <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+      <section className="rounded-2xl border border-[#E9DAFF] bg-gradient-to-br from-white to-[#F8F4FF] p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
         <div className="flex flex-col gap-5 desktop:flex-row desktop:items-end desktop:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8B5CF6] dark:text-[#C084FC]">
@@ -290,9 +320,7 @@ export default function PortfolioInDepthPage() {
           </h2>
           <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
             This timeframe needs at least {data.minimum_required_rows} stored day
-            rows, but only {data.actual_rows} are currently available. The
-            derived table is working — it just needs more daily history before
-            deeper comparisons become meaningful.
+            rows, but only {data.actual_rows} are currently available.
           </p>
         </section>
       ) : null}
@@ -329,161 +357,109 @@ export default function PortfolioInDepthPage() {
             />
           </section>
 
-          <section className="grid grid-cols-1 gap-4 desktop:grid-cols-3">
-            <div className="desktop:col-span-2 rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-              <div className="flex flex-col gap-2">
-                <h2 className="text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                  Historical Claimable & DYF Review
-                </h2>
-                <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                  Stored historical review of the Overview math. This is where
-                  the min / avg / max and daily yield behavior become searchable
-                  and reviewable over time.
-                </p>
-              </div>
-
-              <div className="mt-5 grid grid-cols-1 gap-4 tablet:grid-cols-2 desktop:grid-cols-4">
-                <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                    Min Claimable
-                  </p>
-                  <p className="mt-2 text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                    {formatCurrency(historical?.min_claimable_usd ?? 0)}
-                  </p>
-                </div>
-
-                <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                    Avg Claimable
-                  </p>
-                  <p className="mt-2 text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                    {formatCurrency(historical?.avg_claimable_usd ?? 0)}
-                  </p>
-                </div>
-
-                <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                    Max Claimable
-                  </p>
-                  <p className="mt-2 text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                    {formatCurrency(historical?.max_claimable_usd ?? 0)}
-                  </p>
-                </div>
-
-                <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                    Claimable Range
-                  </p>
-                  <p className="mt-2 text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                    {formatPercent(historical?.range_claimable_pct ?? 0)}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-5 grid grid-cols-1 gap-4 tablet:grid-cols-2 desktop:grid-cols-4">
-                <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                    Min DYF
-                  </p>
-                  <p className="mt-2 text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                    {formatCurrency(historical?.min_daily_yield_flow ?? 0)}
-                  </p>
-                </div>
-
-                <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                    Avg DYF
-                  </p>
-                  <p className="mt-2 text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                    {formatCurrency(historical?.avg_daily_yield_flow ?? 0)}
-                  </p>
-                </div>
-
-                <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                    Max DYF
-                  </p>
-                  <p className="mt-2 text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                    {formatCurrency(historical?.max_daily_yield_flow ?? 0)}
-                  </p>
-                </div>
-
-                <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                    Avg Yield / TVD
-                  </p>
-                  <p className="mt-2 text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                    {formatRatioPercent(historical?.avg_yield_tvd_ratio ?? 0)}
-                  </p>
-                </div>
-              </div>
+          <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+            <div className="flex flex-col gap-2">
+              <h2 className="text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                Historical Claimable & DYF Review
+              </h2>
+              <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+                Stored historical review of the Overview math. This section gives
+                a compact, searchable summary of claimable behavior, DYF range,
+                and yield efficiency across the selected timeframe.
+              </p>
             </div>
 
-            <div className="rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-              <h2 className="text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                Period Highlights
-              </h2>
-
-              <div className="mt-5 space-y-4">
-                <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                    Strongest DYF Day
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                    {strongestDay ? strongestDay.label : "—"}
-                  </p>
-                  <p className="mt-1 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
-                    {strongestDay
-                      ? formatCurrency(strongestDay.total_daily_yield_flow)
-                      : "No data"}
-                  </p>
-                </div>
-
-                <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                    Weakest DYF Day
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                    {weakestDay ? weakestDay.label : "—"}
-                  </p>
-                  <p className="mt-1 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
-                    {weakestDay
-                      ? formatCurrency(weakestDay.total_daily_yield_flow)
-                      : "No data"}
-                  </p>
-                </div>
-
-                <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                    Period TPV Range
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                    {formatPercent(historical?.range_portfolio_pct ?? 0)}
-                  </p>
-                  <p className="mt-1 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
-                    Min {formatCompactCurrency(historical?.min_portfolio_value ?? 0)} → Max{" "}
-                    {formatCompactCurrency(historical?.max_portfolio_value ?? 0)}
-                  </p>
-                </div>
-
-                <div className="rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                    Stored Rows
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                    {data.actual_rows}
-                  </p>
-                  <p className="mt-1 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
-                    Minimum required: {data.minimum_required_rows}
-                  </p>
-                </div>
-              </div>
+            <div className="mt-5 grid grid-cols-2 gap-4 laptop:grid-cols-4 desktop:grid-cols-8">
+              <CompactStat
+                label="Min Claimable"
+                value={formatCurrency(historical?.min_claimable_usd ?? 0)}
+              />
+              <CompactStat
+                label="Avg Claimable"
+                value={formatCurrency(historical?.avg_claimable_usd ?? 0)}
+              />
+              <CompactStat
+                label="Max Claimable"
+                value={formatCurrency(historical?.max_claimable_usd ?? 0)}
+              />
+              <CompactStat
+                label="Claimable Range"
+                value={formatPercent(historical?.range_claimable_pct ?? 0)}
+              />
+              <CompactStat
+                label="Min DYF"
+                value={formatCurrency(historical?.min_daily_yield_flow ?? 0)}
+                emphasis
+              />
+              <CompactStat
+                label="Avg DYF"
+                value={formatCurrency(historical?.avg_daily_yield_flow ?? 0)}
+                emphasis
+              />
+              <CompactStat
+                label="Max DYF"
+                value={formatCurrency(historical?.max_daily_yield_flow ?? 0)}
+                emphasis
+              />
+              <CompactStat
+                label="Avg Yield / TVD"
+                value={formatRatioPercent(historical?.avg_yield_tvd_ratio ?? 0)}
+              />
             </div>
           </section>
 
-          <section className="rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+          <section className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#140D20]">
             <div className="flex flex-col gap-2">
-              <h2 className="text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+              <h2 className="text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                Period Highlights
+              </h2>
+              <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+                Compact highlight strip for the strongest and weakest yield-flow
+                days, stored row coverage, and the overall TPV range across the
+                selected historical window.
+              </p>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-4 tablet:grid-cols-2 desktop:grid-cols-4">
+              <CompactStat
+                label="Strongest DYF Day"
+                value={strongestDay ? strongestDay.label : "—"}
+                sublabel={
+                  strongestDay
+                    ? formatCurrency(strongestDay.total_daily_yield_flow)
+                    : "No data"
+                }
+                emphasis
+              />
+              <CompactStat
+                label="Weakest DYF Day"
+                value={weakestDay ? weakestDay.label : "—"}
+                sublabel={
+                  weakestDay
+                    ? formatCurrency(weakestDay.total_daily_yield_flow)
+                    : "No data"
+                }
+              />
+              <CompactStat
+                label="Period TPV Range"
+                value={formatPercent(historical?.range_portfolio_pct ?? 0)}
+                sublabel={`Min ${formatCompactCurrency(
+                  historical?.min_portfolio_value ?? 0
+                )} → Max ${formatCompactCurrency(
+                  historical?.max_portfolio_value ?? 0
+                )}`}
+              />
+              <CompactStat
+                label="Stored Rows"
+                value={String(data.actual_rows)}
+                sublabel={`Minimum required: ${data.minimum_required_rows}`}
+              />
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+            <div className="flex flex-col gap-2">
+              <h2 className="text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
                 Historical Metrics Table
               </h2>
               <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
@@ -495,7 +471,7 @@ export default function PortfolioInDepthPage() {
 
             <div className="mt-5 overflow-x-auto rounded-2xl border border-[#E9DAFF] dark:border-[#312047]">
               <table className="min-w-full text-left">
-                <thead className="bg-[#FCFAFF] dark:bg-[#140D20]">
+                <thead className="bg-[#F6F0FF] dark:bg-[#140D20]">
                   <tr className="border-b border-[#F0E8FF] dark:border-[#241533]">
                     <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
                       Date
