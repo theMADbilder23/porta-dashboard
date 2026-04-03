@@ -5,6 +5,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+const ROLLOVER_PENDING_HIGH_THRESHOLD = 2.5;
+const ROLLOVER_PENDING_LOW_THRESHOLD = 2.0;
+const ROLLOVER_MIN_PENDING_DROP = 0.75;
+const ROLLOVER_MIN_CLAIMABLE_RESET_DROP = 0.35;
+
 function safeNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
@@ -47,6 +52,10 @@ function getClaimableSnapshotValue(snapshot) {
   return safeNumber(snapshot.total_claimable_usd);
 }
 
+function getPendingSnapshotValue(snapshot) {
+  return safeNumber(snapshot.total_pending_usd);
+}
+
 function buildLatestPerWallet(snapshots) {
   const latestPerWallet = new Map();
 
@@ -68,6 +77,23 @@ function buildLatestPerWallet(snapshots) {
 function getRecentWindowStart() {
   const now = new Date();
   return new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
+}
+
+function getUtcDayStartIso(value) {
+  const date = new Date(value);
+  const safeDate = Number.isFinite(date.getTime()) ? date : new Date();
+
+  return new Date(
+    Date.UTC(
+      safeDate.getUTCFullYear(),
+      safeDate.getUTCMonth(),
+      safeDate.getUTCDate(),
+      0,
+      0,
+      0,
+      0
+    )
+  ).toISOString();
 }
 
 function isRealChain(value) {
@@ -209,7 +235,8 @@ function normalizeParentHolding(holding, totalValue) {
 function getParentRewardBalanceTotal(holding) {
   if (Array.isArray(holding.rewards) && holding.rewards.length > 0) {
     return holding.rewards.reduce(
-      (sum, reward) => sum + safeNumber(reward.reward_balance_usd ?? reward.value_usd),
+      (sum, reward) =>
+        sum + safeNumber(reward.reward_balance_usd ?? reward.value_usd),
       0
     );
   }
@@ -262,6 +289,108 @@ function distributeTotalByWeight(items, total, getWeight) {
     remaining -= allocated;
     return Math.max(0, allocated);
   });
+}
+
+function detectDailyRolloverMeta(snapshots) {
+  if (!Array.isArray(snapshots) || snapshots.length < 2) return null;
+
+  let runningMaxBeforeRollover = getClaimableSnapshotValue(snapshots[0]);
+
+  for (let i = 1; i < snapshots.length; i += 1) {
+    const prev = snapshots[i - 1];
+    const current = snapshots[i];
+
+    const prevPending = getPendingSnapshotValue(prev);
+    const currentPending = getPendingSnapshotValue(current);
+    const pendingDrop = prevPending - currentPending;
+
+    const currentClaimable = getClaimableSnapshotValue(current);
+    const claimableResetDrop = runningMaxBeforeRollover - currentClaimable;
+
+    const pendingResetDetected =
+      prevPending >= ROLLOVER_PENDING_HIGH_THRESHOLD &&
+      currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
+      pendingDrop >= ROLLOVER_MIN_PENDING_DROP;
+
+    const claimableResetDetected =
+      currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
+      claimableResetDrop >= ROLLOVER_MIN_CLAIMABLE_RESET_DROP;
+
+    if (pendingResetDetected || claimableResetDetected) {
+      return {
+        rolloverIndex: i,
+        rolloverSnapshotTime: current.snapshot_time,
+        resetBaselineClaimableUsd: runningMaxBeforeRollover,
+      };
+    }
+
+    runningMaxBeforeRollover = Math.max(
+      runningMaxBeforeRollover,
+      getClaimableSnapshotValue(prev),
+      currentClaimable
+    );
+  }
+
+  return null;
+}
+
+function computeWalletDailyYieldFlow(walletSnapshots, latestSnapshotTime) {
+  if (!Array.isArray(walletSnapshots) || walletSnapshots.length === 0) {
+    return 0;
+  }
+
+  const ordered = [...walletSnapshots].sort(
+    (a, b) =>
+      new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
+  );
+
+  const dayStartIso = getUtcDayStartIso(latestSnapshotTime);
+  const dayStartMs = new Date(dayStartIso).getTime();
+
+  const displayStartIndex = ordered.findIndex(
+    (snapshot) => new Date(snapshot.snapshot_time).getTime() >= dayStartMs
+  );
+
+  if (displayStartIndex === -1) {
+    return 0;
+  }
+
+  const contextStartIndex = Math.max(0, displayStartIndex - 1);
+  const contextSnapshots = ordered.slice(contextStartIndex);
+  const displaySnapshots = ordered.slice(displayStartIndex);
+
+  if (displaySnapshots.length === 0) {
+    return 0;
+  }
+
+  const rolloverMeta = detectDailyRolloverMeta(contextSnapshots);
+
+  if (rolloverMeta) {
+    const rolloverTimeMs = new Date(rolloverMeta.rolloverSnapshotTime).getTime();
+
+    if (rolloverTimeMs >= dayStartMs) {
+      const postRolloverClaimables = contextSnapshots
+        .slice(rolloverMeta.rolloverIndex)
+        .map((snapshot) => getClaimableSnapshotValue(snapshot));
+
+      const resetSeries = [
+        safeNumber(rolloverMeta.resetBaselineClaimableUsd),
+        ...postRolloverClaimables,
+      ];
+
+      const minClaimable = safeNumber(rolloverMeta.resetBaselineClaimableUsd);
+      const maxClaimable = Math.max(...resetSeries.map((value) => safeNumber(value)));
+
+      return Math.max(0, maxClaimable - minClaimable);
+    }
+  }
+
+  const firstClaimable = getClaimableSnapshotValue(displaySnapshots[0]);
+  const maxClaimable = Math.max(
+    ...displaySnapshots.map((snapshot) => getClaimableSnapshotValue(snapshot))
+  );
+
+  return Math.max(0, maxClaimable - firstClaimable);
 }
 
 function groupWalletHoldings(walletHoldings, totalValue, walletYieldContribution) {
@@ -406,7 +535,8 @@ module.exports = async function handler(req, res) {
 
     if (snapshotsError) throw snapshotsError;
 
-    const latestSnapshots = buildLatestPerWallet(snapshots || []);
+    const safeSnapshots = Array.isArray(snapshots) ? snapshots : [];
+    const latestSnapshots = buildLatestPerWallet(safeSnapshots);
     const latestSnapshotIds = latestSnapshots.map((snapshot) => snapshot.id);
 
     let holdings = [];
@@ -446,7 +576,6 @@ module.exports = async function handler(req, res) {
     );
 
     const holdingsByWalletId = new Map();
-
     for (const holding of holdings) {
       const walletId = holding.wallet_id;
       if (!walletId) continue;
@@ -458,15 +587,30 @@ module.exports = async function handler(req, res) {
       holdingsByWalletId.get(walletId).push(holding);
     }
 
+    const snapshotsByWalletId = new Map();
+    for (const snapshot of safeSnapshots) {
+      const walletId = snapshot.wallet_id;
+      if (!walletId) continue;
+
+      if (!snapshotsByWalletId.has(walletId)) {
+        snapshotsByWalletId.set(walletId, []);
+      }
+
+      snapshotsByWalletId.get(walletId).push(snapshot);
+    }
+
     const totalBlockchainValue = latestSnapshots.reduce(
       (sum, snapshot) => sum + getPortfolioSnapshotValue(snapshot),
       0
     );
 
-    const yieldContribution = latestSnapshots.reduce(
-      (sum, snapshot) => sum + getClaimableSnapshotValue(snapshot),
-      0
-    );
+    const totalBlockchainDailyYield = latestSnapshots.reduce((sum, snapshot) => {
+      const walletSnapshots = snapshotsByWalletId.get(snapshot.wallet_id) || [];
+      return (
+        sum +
+        computeWalletDailyYieldFlow(walletSnapshots, snapshot.snapshot_time)
+      );
+    }, 0);
 
     const uniqueChains = new Set();
 
@@ -481,6 +625,7 @@ module.exports = async function handler(req, res) {
       .map((snapshot) => {
         const wallet = walletById.get(snapshot.wallet_id);
         const walletHoldings = holdingsByWalletId.get(snapshot.wallet_id) || [];
+        const walletSnapshots = snapshotsByWalletId.get(snapshot.wallet_id) || [];
 
         const chainSet = new Set();
 
@@ -497,7 +642,10 @@ module.exports = async function handler(req, res) {
         }
 
         const totalValue = getPortfolioSnapshotValue(snapshot);
-        const walletDailyYield = getClaimableSnapshotValue(snapshot);
+        const walletDailyYield = computeWalletDailyYieldFlow(
+          walletSnapshots,
+          snapshot.snapshot_time
+        );
 
         const holdingsValueSum = walletHoldings.reduce(
           (sum, holding) => sum + safeNumber(holding.value_usd),
@@ -534,7 +682,7 @@ module.exports = async function handler(req, res) {
 
     return res.status(200).json({
       total_blockchain_value: totalBlockchainValue,
-      yield_contribution: yieldContribution,
+      yield_contribution: totalBlockchainDailyYield,
       active_accounts: latestSnapshots.length,
       chains_covered: uniqueChains.size,
       accounts,
