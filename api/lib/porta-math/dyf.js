@@ -230,69 +230,6 @@ function splitDailyBucketSeriesForWindow(bucketSeries, timeframeStartIso) {
   return splitDailyBucketTotalsForWindow(bucketSeries, timeframeStartIso);
 }
 
-function detectDailyRolloverMeta(bucketTotals, thresholds = {}) {
-  const {
-    pendingHigh = 2.5,
-    pendingLow = 2.0,
-    minPendingDrop = 0.75,
-    minClaimableResetDrop = 0.35,
-  } = thresholds;
-
-  if (!Array.isArray(bucketTotals) || bucketTotals.length < 2) return null;
-
-  let runningMaxBeforeRollover = safeNumber(
-    bucketTotals[0]?.claimable_total_usd ?? bucketTotals[0]?.total_claimable_usd
-  );
-
-  for (let i = 1; i < bucketTotals.length; i += 1) {
-    const prev = bucketTotals[i - 1];
-    const current = bucketTotals[i];
-
-    const prevPending = safeNumber(
-      prev.pending_total_usd ?? prev.total_pending_usd
-    );
-    const currentPending = safeNumber(
-      current.pending_total_usd ?? current.total_pending_usd
-    );
-    const pendingDrop = prevPending - currentPending;
-
-    const currentClaimable = safeNumber(
-      current.claimable_total_usd ?? current.total_claimable_usd
-    );
-    const claimableResetDrop = runningMaxBeforeRollover - currentClaimable;
-
-    const pendingResetDetected =
-      prevPending >= pendingHigh &&
-      currentPending <= pendingLow &&
-      pendingDrop >= minPendingDrop;
-
-    const claimableResetDetected =
-      currentPending <= pendingLow &&
-      claimableResetDrop >= minClaimableResetDrop;
-
-    if (pendingResetDetected || claimableResetDetected) {
-      return {
-        rolloverIndex: i,
-        prevBucket: prev,
-        rolloverBucket: current,
-        rolloverSnapshotTime: current.snapshot_time,
-        resetBaselineClaimableUsd: runningMaxBeforeRollover,
-        pendingResetDetected,
-        claimableResetDetected,
-        claimableResetDrop,
-      };
-    }
-
-    runningMaxBeforeRollover = Math.max(
-      runningMaxBeforeRollover,
-      safeNumber(prev.claimable_total_usd ?? prev.total_claimable_usd),
-      currentClaimable
-    );
-  }
-
-  return null;
-}
-
 function getAverageValue(values, { ignoreZero = false } = {}) {
   const filtered = (values || [])
     .map((v) => safeNumber(v))
@@ -396,15 +333,149 @@ function makeTrendBucketLabel(bucketKey, timeframe) {
   return bucketKey;
 }
 
+function buildRawDailySnapshotSeries(snapshots) {
+  const ordered = [...(snapshots || [])].sort(
+    (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
+  );
+
+  const latestPerWalletAtMoment = new Map();
+  const series = [];
+
+  for (const snapshot of ordered) {
+    latestPerWalletAtMoment.set(snapshot.wallet_id, snapshot);
+
+    let totalValueUsd = 0;
+    let totalClaimableUsd = 0;
+    let totalPendingUsd = 0;
+
+    for (const currentSnapshot of latestPerWalletAtMoment.values()) {
+      totalValueUsd += getPortfolioSnapshotValue(currentSnapshot);
+      totalClaimableUsd += getClaimableSnapshotValue(currentSnapshot);
+      totalPendingUsd += getPendingSnapshotValue(currentSnapshot);
+    }
+
+    series.push({
+      snapshot_time: snapshot.snapshot_time,
+      total_value_usd: totalValueUsd,
+      total_claimable_usd: totalClaimableUsd,
+      total_pending_usd: totalPendingUsd,
+      wallet_id: snapshot.wallet_id,
+    });
+  }
+
+  return series;
+}
+
+function splitRawDailySnapshotsForWindow(rawSeries, timeframeStartIso) {
+  const startMs = new Date(timeframeStartIso).getTime();
+
+  if (!Array.isArray(rawSeries) || rawSeries.length === 0) {
+    return {
+      contextSnapshots: [],
+      displaySnapshots: [],
+      displayStartIndex: -1,
+    };
+  }
+
+  const displayStartIndex = rawSeries.findIndex(
+    (row) => new Date(row.snapshot_time).getTime() >= startMs
+  );
+
+  if (displayStartIndex === -1) {
+    return {
+      contextSnapshots: rawSeries.slice(-1),
+      displaySnapshots: rawSeries.slice(-1),
+      displayStartIndex: rawSeries.length - 1,
+    };
+  }
+
+  const contextStartIndex = Math.max(0, displayStartIndex - 1);
+
+  return {
+    contextSnapshots: rawSeries.slice(contextStartIndex),
+    displaySnapshots: rawSeries.slice(displayStartIndex),
+    displayStartIndex,
+  };
+}
+
+function detectDailyRolloverMeta(bucketTotals, thresholds = {}) {
+  const {
+    pendingHigh = 2.5,
+    pendingLow = 2.0,
+    minPendingDrop = 0.75,
+    minClaimableResetDrop = 0.35,
+  } = thresholds;
+
+  if (!Array.isArray(bucketTotals) || bucketTotals.length < 2) return null;
+
+  let runningMaxBeforeRollover = safeNumber(
+    bucketTotals[0]?.claimable_total_usd ?? bucketTotals[0]?.total_claimable_usd
+  );
+
+  for (let i = 1; i < bucketTotals.length; i += 1) {
+    const prev = bucketTotals[i - 1];
+    const current = bucketTotals[i];
+
+    const prevPending = safeNumber(
+      prev.pending_total_usd ?? prev.total_pending_usd
+    );
+    const currentPending = safeNumber(
+      current.pending_total_usd ?? current.total_pending_usd
+    );
+    const pendingDrop = prevPending - currentPending;
+
+    const currentClaimable = safeNumber(
+      current.claimable_total_usd ?? current.total_claimable_usd
+    );
+    const claimableResetDrop = runningMaxBeforeRollover - currentClaimable;
+
+    const pendingResetDetected =
+      prevPending >= pendingHigh &&
+      currentPending <= pendingLow &&
+      pendingDrop >= minPendingDrop;
+
+    const claimableResetDetected =
+      currentPending <= pendingLow &&
+      claimableResetDrop >= minClaimableResetDrop;
+
+    if (pendingResetDetected || claimableResetDetected) {
+      return {
+        rolloverIndex: i,
+        prevBucket: prev,
+        rolloverBucket: current,
+        rolloverSnapshotTime: current.snapshot_time,
+        resetBaselineClaimableUsd: runningMaxBeforeRollover,
+        pendingResetDetected,
+        claimableResetDetected,
+        claimableResetDrop,
+      };
+    }
+
+    runningMaxBeforeRollover = Math.max(
+      runningMaxBeforeRollover,
+      safeNumber(prev.claimable_total_usd ?? prev.total_claimable_usd),
+      currentClaimable
+    );
+  }
+
+  return null;
+}
+
 function buildDailySummary(snapshots, timeframeStartIso, thresholds = {}) {
   const fullBucketSeries = buildBucketTotals(snapshots, "daily");
   const currentTotals = buildLatestCurrentTotals(snapshots);
-  const { contextBuckets, displayBuckets } = splitDailyBucketSeriesForWindow(
+  const { displayBuckets } = splitDailyBucketSeriesForWindow(
     fullBucketSeries,
     timeframeStartIso
   );
 
-  const rolloverMeta = detectDailyRolloverMeta(contextBuckets, thresholds);
+  const rawDailySeries = buildRawDailySnapshotSeries(snapshots);
+  const { contextSnapshots } = splitRawDailySnapshotsForWindow(
+    rawDailySeries,
+    timeframeStartIso
+  );
+
+  const rolloverMeta = detectDailyRolloverMeta(contextSnapshots, thresholds);
 
   const portfolioValues = displayBuckets.map((row) =>
     safeNumber(row.total_value_usd)
@@ -429,8 +500,10 @@ function buildDailySummary(snapshots, timeframeStartIso, thresholds = {}) {
     const startMs = new Date(timeframeStartIso).getTime();
 
     if (rolloverTimeMs >= startMs) {
-      const postRolloverClaimables = contextBuckets
-        .slice(rolloverMeta.rolloverIndex)
+      const postRolloverClaimables = displayBuckets
+        .filter(
+          (row) => new Date(row.snapshot_time).getTime() >= rolloverTimeMs
+        )
         .map((row) => safeNumber(row.total_claimable_usd));
 
       const resetSeries = [
@@ -498,10 +571,19 @@ function buildDailySummary(snapshots, timeframeStartIso, thresholds = {}) {
       max_post_rollover_claimable_usd: maxClaimable,
       avg_post_rollover_claimable_usd: avgClaimable,
       effective_daily_current_usd: currentYieldFlow,
-      context_bucket_count: contextBuckets.length,
+      raw_context_snapshot_count: contextSnapshots.length,
       display_bucket_count: displayBuckets.length,
     },
   };
+}
+
+function computeGlobalDailyYieldFlow(
+  snapshots,
+  timeframeStartIso,
+  thresholds = {}
+) {
+  const dailySummary = buildDailySummary(snapshots, timeframeStartIso, thresholds);
+  return safeNumber(dailySummary.current_yield_flow_usd);
 }
 
 module.exports = {
@@ -517,6 +599,8 @@ module.exports = {
   buildBucketTotals,
   splitDailyBucketTotalsForWindow,
   splitDailyBucketSeriesForWindow,
+  buildRawDailySnapshotSeries,
+  splitRawDailySnapshotsForWindow,
   detectDailyRolloverMeta,
   getAverageValue,
   getAverage,
@@ -531,4 +615,5 @@ module.exports = {
   formatDailyLabel,
   makeTrendBucketLabel,
   buildDailySummary,
+  computeGlobalDailyYieldFlow,
 };
