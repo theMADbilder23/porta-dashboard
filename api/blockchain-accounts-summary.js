@@ -393,7 +393,12 @@ function computeWalletDailyYieldFlow(walletSnapshots, latestSnapshotTime) {
   return Math.max(0, maxClaimable - firstClaimable);
 }
 
-function groupWalletHoldings(walletHoldings, totalValue, walletYieldContribution) {
+function groupWalletHoldings(
+  walletHoldings,
+  totalValue,
+  walletClaimableContribution,
+  walletDailyYieldFlow
+) {
   const principalRows = [];
   const rewardRows = [];
   const parentLookup = new Map();
@@ -445,9 +450,10 @@ function groupWalletHoldings(walletHoldings, totalValue, walletYieldContribution
   const combinedRows = [...principalRows, ...unmatchedRewards];
 
   const eligibleParents = combinedRows.filter(isYieldEligibleParent);
-  const parentAllocations = distributeTotalByWeight(
+
+  const parentClaimableAllocations = distributeTotalByWeight(
     eligibleParents,
-    walletYieldContribution,
+    walletClaimableContribution,
     (holding) => {
       const rewardBalance = getParentRewardBalanceTotal(holding);
       if (rewardBalance > 0) return rewardBalance;
@@ -456,26 +462,43 @@ function groupWalletHoldings(walletHoldings, totalValue, walletYieldContribution
   );
 
   for (let index = 0; index < eligibleParents.length; index += 1) {
-    eligibleParents[index].yield_contribution = safeNumber(parentAllocations[index]);
+    eligibleParents[index].yield_contribution = safeNumber(
+      parentClaimableAllocations[index]
+    );
   }
 
-  for (const holding of combinedRows) {
+  const parentDailyFlowAllocations = distributeTotalByWeight(
+    eligibleParents,
+    walletDailyYieldFlow,
+    (holding) => {
+      const rewardBalance = getParentRewardBalanceTotal(holding);
+      if (rewardBalance > 0) return rewardBalance;
+      return safeNumber(holding.value_usd);
+    }
+  );
+
+  for (let index = 0; index < eligibleParents.length; index += 1) {
+    const holding = eligibleParents[index];
+    const parentDailyFlow = safeNumber(parentDailyFlowAllocations[index]);
+
     for (const reward of holding.rewards) {
       reward.reward_daily_usd = 0;
     }
 
-    if (!holding.rewards.length || holding.yield_contribution <= 0) {
+    if (!holding.rewards.length || parentDailyFlow <= 0) {
       continue;
     }
 
-    const rewardAllocations = distributeTotalByWeight(
+    const rewardDailyAllocations = distributeTotalByWeight(
       holding.rewards,
-      holding.yield_contribution,
+      parentDailyFlow,
       (reward) => safeNumber(reward.reward_balance_usd ?? reward.value_usd)
     );
 
-    for (let index = 0; index < holding.rewards.length; index += 1) {
-      holding.rewards[index].reward_daily_usd = safeNumber(rewardAllocations[index]);
+    for (let rewardIndex = 0; rewardIndex < holding.rewards.length; rewardIndex += 1) {
+      holding.rewards[rewardIndex].reward_daily_usd = safeNumber(
+        rewardDailyAllocations[rewardIndex]
+      );
     }
 
     holding.rewards.sort((a, b) => {
@@ -604,13 +627,10 @@ module.exports = async function handler(req, res) {
       0
     );
 
-    const totalBlockchainDailyYield = latestSnapshots.reduce((sum, snapshot) => {
-      const walletSnapshots = snapshotsByWalletId.get(snapshot.wallet_id) || [];
-      return (
-        sum +
-        computeWalletDailyYieldFlow(walletSnapshots, snapshot.snapshot_time)
-      );
-    }, 0);
+    const totalBlockchainClaimable = latestSnapshots.reduce(
+      (sum, snapshot) => sum + getClaimableSnapshotValue(snapshot),
+      0
+    );
 
     const uniqueChains = new Set();
 
@@ -642,7 +662,8 @@ module.exports = async function handler(req, res) {
         }
 
         const totalValue = getPortfolioSnapshotValue(snapshot);
-        const walletDailyYield = computeWalletDailyYieldFlow(
+        const walletClaimableContribution = getClaimableSnapshotValue(snapshot);
+        const walletDailyYieldFlow = computeWalletDailyYieldFlow(
           walletSnapshots,
           snapshot.snapshot_time
         );
@@ -655,7 +676,8 @@ module.exports = async function handler(req, res) {
         const groupedHoldings = groupWalletHoldings(
           walletHoldings,
           totalValue,
-          walletDailyYield
+          walletClaimableContribution,
+          walletDailyYieldFlow
         );
 
         return {
@@ -665,7 +687,7 @@ module.exports = async function handler(req, res) {
           role: formatRoleLabel(wallet?.role),
           network_group: wallet?.network_group || null,
           total_value: totalValue,
-          yield_contribution: walletDailyYield,
+          yield_contribution: walletClaimableContribution,
           portfolio_share_pct:
             totalBlockchainValue > 0
               ? (totalValue / totalBlockchainValue) * 100
@@ -682,7 +704,7 @@ module.exports = async function handler(req, res) {
 
     return res.status(200).json({
       total_blockchain_value: totalBlockchainValue,
-      yield_contribution: totalBlockchainDailyYield,
+      yield_contribution: totalBlockchainClaimable,
       active_accounts: latestSnapshots.length,
       chains_covered: uniqueChains.size,
       accounts,
