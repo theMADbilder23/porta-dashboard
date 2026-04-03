@@ -29,21 +29,48 @@ export async function getStkWellBalance(walletAddress) {
 
     return safeNumber(formatUnits(raw, 18));
   } catch (err) {
-    console.error(`[collector] stkWELL balance lookup failed for ${walletAddress}`, err);
+    console.error(
+      `[collector] stkWELL balance lookup failed for ${walletAddress}`,
+      err
+    );
     return 0;
   }
 }
 
 export function buildStkWellHolding(stakedAmount, wellPrice, snapshotTime) {
-  if (!stakedAmount || stakedAmount <= 0) return null;
+  const safeAmount = safeNumber(stakedAmount);
+  const safePrice = safeNumber(wellPrice);
+
+  if (safeAmount <= 0) return null;
 
   return {
     token_symbol: "stkWELL",
     token_name: "stkWELL",
     network: "base",
-    amount: stakedAmount,
-    value_usd: stakedAmount * wellPrice,
+    amount: safeAmount,
+    value_usd: safeAmount * safePrice,
     category: "protocol",
+    protocol: "Moonwell",
+    is_yield_position: true,
+    snapshot_time: snapshotTime,
+  };
+}
+
+export function buildStkWellRewardHolding(merklRewards, snapshotTime) {
+  const claimableAmount = safeNumber(merklRewards?.claimable || 0);
+  const tokenPrice = safeNumber(merklRewards?.price || 0);
+  const tokenSymbol =
+    String(merklRewards?.token || "WELL").trim().toUpperCase() || "WELL";
+
+  if (claimableAmount <= 0) return null;
+
+  return {
+    token_symbol: tokenSymbol,
+    token_name: `${tokenSymbol} Reward`,
+    network: "base",
+    amount: claimableAmount,
+    value_usd: claimableAmount * tokenPrice,
+    category: "reward",
     protocol: "Moonwell",
     is_yield_position: true,
     snapshot_time: snapshotTime,

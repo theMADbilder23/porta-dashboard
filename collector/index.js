@@ -19,10 +19,15 @@ import {
 import {
   getStkWellBalance,
   buildStkWellHolding,
+  buildStkWellRewardHolding,
 } from "./sources/moonwell.js";
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function isRewardHolding(holding) {
+  return normalizeText(holding?.category) === "reward";
 }
 
 function isMamoHolding(holding) {
@@ -33,8 +38,11 @@ function isMamoHolding(holding) {
   return symbol === "mamo" || name.includes("mamo") || protocol === "mamo";
 }
 
-function isRewardHolding(holding) {
-  return normalizeText(holding?.category) === "reward";
+function isMamoRewardHolding(holding) {
+  return (
+    isRewardHolding(holding) &&
+    normalizeText(holding?.protocol) === "mamo"
+  );
 }
 
 function sumRewardHoldingsUsd(holdings = []) {
@@ -59,6 +67,42 @@ function sumRewardHoldingsAmount(holdings = [], rewardTokenSymbol = null) {
   }, 0);
 }
 
+function getSnapshotRewardSymbol({
+  merklMetrics,
+  customRewardHoldings,
+}) {
+  const hasMamoRewards = customRewardHoldings.some(isMamoRewardHolding);
+
+  if (hasMamoRewards) {
+    return "MAMO";
+  }
+
+  return merklMetrics?.rewards_token_symbol || null;
+}
+
+function getSnapshotClaimableTokenAmount({
+  merklMetrics,
+  customRewardHoldings,
+  rewardsTokenSymbol,
+}) {
+  const normalizedRewardSymbol = normalizeText(rewardsTokenSymbol);
+
+  if (!normalizedRewardSymbol) return 0;
+
+  let total = 0;
+
+  if (
+    normalizeText(merklMetrics?.rewards_token_symbol) ===
+    normalizedRewardSymbol
+  ) {
+    total += safeNumber(merklMetrics?.total_claimable_token || 0);
+  }
+
+  total += sumRewardHoldingsAmount(customRewardHoldings, rewardsTokenSymbol);
+
+  return total;
+}
+
 function buildHoldingInsertRows({
   holdings,
   snapshotId,
@@ -81,7 +125,6 @@ function buildHoldingInsertRows({
       is_yield_position: enriched.is_yield_position,
       snapshot_time: snapshotTime,
 
-      // New metadata columns
       asset_id: enriched.asset_id || null,
       asset_class: enriched.asset_class || null,
       yield_profile: enriched.yield_profile || null,
@@ -214,6 +257,11 @@ async function collectStandardWallet(wallet) {
     snapshotTime
   );
 
+  const stkWellRewardHolding = buildStkWellRewardHolding(
+    merklRewards,
+    snapshotTime
+  );
+
   const merklMetrics = buildSnapshotMetrics(merklRewards);
 
   const hasCustomMamo = customProtocolHoldings.some(isMamoHolding);
@@ -230,16 +278,24 @@ async function collectStandardWallet(wallet) {
     ...filteredTopTokens,
     ...filteredTopProtocols,
     ...(stkWellHolding ? [stkWellHolding] : []),
+    ...(stkWellRewardHolding ? [stkWellRewardHolding] : []),
     ...customProtocolHoldings,
   ];
 
   const customRewardHoldings = customProtocolHoldings.filter(isRewardHolding);
 
   const customRewardsUsd = sumRewardHoldingsUsd(customRewardHoldings);
-  const customRewardsTokenAmount = sumRewardHoldingsAmount(
+
+  const rewardsTokenSymbol = getSnapshotRewardSymbol({
+    merklMetrics,
     customRewardHoldings,
-    merklMetrics.rewards_token_symbol || null
-  );
+  });
+
+  const totalClaimableToken = getSnapshotClaimableTokenAmount({
+    merklMetrics,
+    customRewardHoldings,
+    rewardsTokenSymbol,
+  });
 
   const snapshotPayload = {
     wallet_id: wallet.id,
@@ -252,10 +308,8 @@ async function collectStandardWallet(wallet) {
     total_claimable_usd:
       safeNumber(merklMetrics.total_claimable_usd) +
       safeNumber(customRewardsUsd),
-    total_claimable_token:
-      safeNumber(merklMetrics.total_claimable_token) +
-      safeNumber(customRewardsTokenAmount),
-    rewards_token_symbol: merklMetrics.rewards_token_symbol || null,
+    total_claimable_token: totalClaimableToken,
+    rewards_token_symbol: rewardsTokenSymbol,
     merkl_rewards_json: merklMetrics.merkl_rewards_json || null,
     snapshot_time: snapshotTime,
   };
@@ -291,7 +345,6 @@ async function collectStandardWallet(wallet) {
           total_claimable_token: snapshotPayload.total_claimable_token,
           rewards_token_symbol: snapshotPayload.rewards_token_symbol,
           custom_rewards_usd: customRewardsUsd,
-          custom_rewards_token_amount: customRewardsTokenAmount,
         },
         merkl_rewards: {
           token: merklRewards?.token,
