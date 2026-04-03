@@ -1,7 +1,6 @@
 export function enrichHolding(holding) {
   const {
     token_symbol,
-    token_name,
     network,
     amount,
     value_usd,
@@ -12,28 +11,32 @@ export function enrichHolding(holding) {
 
   const safeAmount = Number(amount || 0);
   const safeValue = Number(value_usd || 0);
+  const suppliedUnitPrice = Number(holding?.price_per_unit_usd || 0);
 
   const price_per_unit_usd =
-    safeAmount > 0 ? safeValue / safeAmount : 0;
+    suppliedUnitPrice > 0
+      ? suppliedUnitPrice
+      : safeAmount > 0
+        ? safeValue / safeAmount
+        : 0;
 
   const symbol = String(token_symbol || "").toUpperCase();
   const normalizedCategory = String(category || "").toLowerCase();
   const normalizedProtocol = String(protocol || "").toLowerCase();
   const normalizedNetwork = String(network || "").toLowerCase();
 
-  let enriched = {
+  const enriched = {
     ...holding,
-    asset_id: `${network || "unknown"}:${token_symbol}`,
-    asset_class: "crypto",
-    yield_profile: "none",
-    mmii_bucket: "growth",
-    mmii_subclass: "realfi10",
-    price_source: "debank_token",
+    asset_id: holding?.asset_id || `${network || "unknown"}:${token_symbol}`,
+    asset_class: holding?.asset_class || "crypto",
+    yield_profile: holding?.yield_profile || "none",
+    mmii_bucket: holding?.mmii_bucket || "growth",
+    mmii_subclass: holding?.mmii_subclass || "realfi10",
+    price_source: holding?.price_source || "debank_token",
     price_per_unit_usd,
-    position_role: "principal",
+    position_role: holding?.position_role || "principal",
   };
 
-  // QCAP
   if (symbol === "QCAP") {
     enriched.is_yield_position = true;
     enriched.yield_profile = "dividends";
@@ -44,7 +47,6 @@ export function enrichHolding(holding) {
     return enriched;
   }
 
-  // QUBIC
   if (symbol === "QUBIC") {
     enriched.is_yield_position = false;
     enriched.yield_profile = "none";
@@ -55,7 +57,6 @@ export function enrichHolding(holding) {
     return enriched;
   }
 
-  // WELL
   if (symbol === "WELL") {
     enriched.mmii_bucket = "growth";
     enriched.mmii_subclass = "realfi10";
@@ -68,7 +69,6 @@ export function enrichHolding(holding) {
     return enriched;
   }
 
-  // stkWELL
   if (symbol === "STKWELL") {
     enriched.is_yield_position = true;
     enriched.yield_profile = "staking";
@@ -79,7 +79,6 @@ export function enrichHolding(holding) {
     return enriched;
   }
 
-  // MAMO principal + rewards
   if (symbol === "MAMO") {
     enriched.yield_profile = "staking";
     enriched.mmii_bucket = "growth";
@@ -94,7 +93,6 @@ export function enrichHolding(holding) {
     return enriched;
   }
 
-  // cbBTC reward from MAMO
   if (symbol === "CBBTC") {
     enriched.yield_profile = "staking";
     enriched.mmii_bucket = "growth";
@@ -104,7 +102,6 @@ export function enrichHolding(holding) {
     return enriched;
   }
 
-  // Stablecoins
   if (["USDC", "USDT", "USDM"].includes(symbol)) {
     enriched.asset_class = "stablecoin";
     enriched.yield_profile = is_yield_position ? "lending" : "none";
@@ -118,7 +115,6 @@ export function enrichHolding(holding) {
     return enriched;
   }
 
-  // Generic reward fallback
   if (normalizedCategory === "reward") {
     enriched.position_role = "reward";
     enriched.yield_profile = "staking";
@@ -129,7 +125,6 @@ export function enrichHolding(holding) {
     return enriched;
   }
 
-  // Qubic-side fallback
   if (normalizedNetwork === "qubic") {
     enriched.price_source = "manual_price";
     return enriched;

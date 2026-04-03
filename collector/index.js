@@ -1,9 +1,15 @@
 import { POLL_INTERVAL_MS } from "./config.js";
-import { fetchWallets, insertSnapshot, insertHoldings } from "./db.js";
+import {
+  fetchWallets,
+  insertSnapshot,
+  insertHoldings,
+  fetchWalletDaySnapshotsWithHoldings,
+} from "./db.js";
 import { cleanWallet, isValidWallet, safeNumber } from "./utils.js";
 import { collectCustomProtocols } from "./protocols/index.js";
 import { collectQubicHoldings } from "./chains/qubic/index.js";
 import { enrichHolding } from "./transforms/holdings.js";
+import { applySnapshotTransforms } from "./transforms/snapshots.js";
 
 import {
   collectDebankData,
@@ -70,7 +76,12 @@ function sumRewardHoldingsAmount(holdings = [], rewardTokenSymbol = null) {
 function getSnapshotRewardSymbol({
   merklMetrics,
   customRewardHoldings,
+  mamoMeta,
 }) {
+  if (mamoMeta?.hasRewards) {
+    return mamoMeta.rewardsTokenSymbol || "MAMO";
+  }
+
   const hasMamoRewards = customRewardHoldings.some(isMamoRewardHolding);
 
   if (hasMamoRewards) {
@@ -228,13 +239,36 @@ async function collectStandardWallet(wallet) {
     getStkWellBalance(cleanedAddress),
   ]);
 
-  const customProtocolHoldings = await collectCustomProtocols(wallet, {
+  const rawCustomProtocolHoldings = await collectCustomProtocols(wallet, {
     walletAddress: cleanedAddress,
     snapshotTime,
     debankData,
     merklRewards,
     stkWellAmount,
   });
+
+  const daySnapshots = await fetchWalletDaySnapshotsWithHoldings(
+    wallet.id,
+    snapshotTime
+  );
+
+  const transformedSnapshot = applySnapshotTransforms({
+    snapshotTime,
+    rawHoldings: rawCustomProtocolHoldings,
+    daySnapshots,
+  });
+
+  const customProtocolHoldings = Array.isArray(transformedSnapshot?.holdings)
+    ? transformedSnapshot.holdings
+    : rawCustomProtocolHoldings;
+
+  const mamoMeta = transformedSnapshot?.mamo || {
+    hasRewards: false,
+    currentPendingUsd: 0,
+    completedCyclesUsd: 0,
+    dailyAccruedUsd: 0,
+    rewardsTokenSymbol: null,
+  };
 
   const totalWalletValue = safeNumber(debankData?.totalWalletValue || 0);
   const chainCount = Array.isArray(debankData?.usedChains)
@@ -283,12 +317,12 @@ async function collectStandardWallet(wallet) {
   ];
 
   const customRewardHoldings = customProtocolHoldings.filter(isRewardHolding);
-
   const customRewardsUsd = sumRewardHoldingsUsd(customRewardHoldings);
 
   const rewardsTokenSymbol = getSnapshotRewardSymbol({
     merklMetrics,
     customRewardHoldings,
+    mamoMeta,
   });
 
   const totalClaimableToken = getSnapshotClaimableTokenAmount({
@@ -337,6 +371,13 @@ async function collectStandardWallet(wallet) {
         chain_count: chainCount,
         snapshot_id: snapshot.id,
         has_custom_mamo: hasCustomMamo,
+        mamo_transform: {
+          has_rewards: mamoMeta.hasRewards,
+          current_pending_usd: mamoMeta.currentPendingUsd,
+          completed_cycles_usd: mamoMeta.completedCyclesUsd,
+          daily_accrued_usd: mamoMeta.dailyAccruedUsd,
+          rewards_token_symbol: mamoMeta.rewardsTokenSymbol,
+        },
         snapshot_metrics: {
           total_rewards_usd: snapshotPayload.total_rewards_usd,
           total_claimed_usd: snapshotPayload.total_claimed_usd,
