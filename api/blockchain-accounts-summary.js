@@ -96,6 +96,222 @@ function getUtcDayStartIso(value) {
   ).toISOString();
 }
 
+function getBucketKey(dateString, timeframe) {
+  const d = new Date(dateString);
+
+  if (timeframe === "daily") {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    const hour = String(d.getUTCHours()).padStart(2, "0");
+    const minuteBucket = d.getUTCMinutes() < 30 ? "00" : "30";
+    return `${year}-${month}-${day}T${hour}:${minuteBucket}:00Z`;
+  }
+
+  if (timeframe === "weekly" || timeframe === "monthly") {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  if (timeframe === "quarterly") {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+    return `${year}-${month}`;
+  }
+
+  const year = d.getUTCFullYear();
+  const quarter = Math.floor(d.getUTCMonth() / 3) + 1;
+  return `${year}-Q${quarter}`;
+}
+
+function buildBucketTotals(snapshots, timeframe) {
+  const latestPerWalletPerBucket = new Map();
+
+  for (const snapshot of snapshots || []) {
+    const bucketKey = getBucketKey(snapshot.snapshot_time, timeframe);
+    const compositeKey = `${bucketKey}__${snapshot.wallet_id}`;
+    const existing = latestPerWalletPerBucket.get(compositeKey);
+
+    if (
+      !existing ||
+      new Date(snapshot.snapshot_time).getTime() >
+        new Date(existing.snapshot_time).getTime()
+    ) {
+      latestPerWalletPerBucket.set(compositeKey, snapshot);
+    }
+  }
+
+  const bucketTotals = new Map();
+
+  for (const [compositeKey, snapshot] of latestPerWalletPerBucket.entries()) {
+    const bucketKey = compositeKey.split("__")[0];
+
+    if (!bucketTotals.has(bucketKey)) {
+      bucketTotals.set(bucketKey, {
+        bucket_key: bucketKey,
+        snapshot_time: snapshot.snapshot_time,
+        portfolio_total_usd: 0,
+        claimable_total_usd: 0,
+        pending_total_usd: 0,
+      });
+    }
+
+    const bucket = bucketTotals.get(bucketKey);
+
+    bucket.portfolio_total_usd += getPortfolioSnapshotValue(snapshot);
+    bucket.claimable_total_usd += getClaimableSnapshotValue(snapshot);
+    bucket.pending_total_usd += getPendingSnapshotValue(snapshot);
+
+    if (
+      new Date(snapshot.snapshot_time).getTime() >
+      new Date(bucket.snapshot_time).getTime()
+    ) {
+      bucket.snapshot_time = snapshot.snapshot_time;
+    }
+  }
+
+  return Array.from(bucketTotals.values()).sort(
+    (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
+  );
+}
+
+function splitDailyBucketTotalsForWindow(bucketTotals, timeframeStartIso) {
+  const startMs = new Date(timeframeStartIso).getTime();
+
+  if (!Array.isArray(bucketTotals) || bucketTotals.length === 0) {
+    return {
+      contextBuckets: [],
+      displayBuckets: [],
+      displayStartIndex: -1,
+    };
+  }
+
+  const displayStartIndex = bucketTotals.findIndex(
+    (bucket) => new Date(bucket.snapshot_time).getTime() >= startMs
+  );
+
+  if (displayStartIndex === -1) {
+    return {
+      contextBuckets: bucketTotals.slice(-1),
+      displayBuckets: bucketTotals.slice(-1),
+      displayStartIndex: bucketTotals.length - 1,
+    };
+  }
+
+  const contextStartIndex = Math.max(0, displayStartIndex - 1);
+
+  return {
+    contextBuckets: bucketTotals.slice(contextStartIndex),
+    displayBuckets: bucketTotals.slice(displayStartIndex),
+    displayStartIndex,
+  };
+}
+
+function detectDailyRolloverMeta(bucketTotals) {
+  if (!Array.isArray(bucketTotals) || bucketTotals.length < 2) return null;
+
+  let runningMaxBeforeRollover = safeNumber(bucketTotals[0]?.claimable_total_usd);
+
+  for (let i = 1; i < bucketTotals.length; i += 1) {
+    const prev = bucketTotals[i - 1];
+    const current = bucketTotals[i];
+
+    const prevPending = safeNumber(prev.pending_total_usd);
+    const currentPending = safeNumber(current.pending_total_usd);
+    const pendingDrop = prevPending - currentPending;
+
+    const currentClaimable = safeNumber(current.claimable_total_usd);
+    const claimableResetDrop = runningMaxBeforeRollover - currentClaimable;
+
+    const pendingResetDetected =
+      prevPending >= ROLLOVER_PENDING_HIGH_THRESHOLD &&
+      currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
+      pendingDrop >= ROLLOVER_MIN_PENDING_DROP;
+
+    const claimableResetDetected =
+      currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
+      claimableResetDrop >= ROLLOVER_MIN_CLAIMABLE_RESET_DROP;
+
+    if (pendingResetDetected || claimableResetDetected) {
+      return {
+        rolloverIndex: i,
+        rolloverSnapshotTime: current.snapshot_time,
+        resetBaselineClaimableUsd: runningMaxBeforeRollover,
+      };
+    }
+
+    runningMaxBeforeRollover = Math.max(
+      runningMaxBeforeRollover,
+      safeNumber(prev.claimable_total_usd),
+      currentClaimable
+    );
+  }
+
+  return null;
+}
+
+function getMaxValue(values) {
+  const filtered = (values || []).map((v) => safeNumber(v));
+  if (filtered.length === 0) return 0;
+  return Math.max(...filtered);
+}
+
+function getRangeFlow(maxValue, minValue) {
+  const max = safeNumber(maxValue);
+  const min = safeNumber(minValue);
+  return Math.max(0, max - min);
+}
+
+function computeGlobalDailyYieldFlow(allSnapshots, latestSnapshotTime) {
+  if (!Array.isArray(allSnapshots) || allSnapshots.length === 0) {
+    return 0;
+  }
+
+  const timeframeStartIso = getUtcDayStartIso(latestSnapshotTime);
+  const fullBucketTotals = buildBucketTotals(allSnapshots, "daily");
+  const { contextBuckets, displayBuckets } = splitDailyBucketTotalsForWindow(
+    fullBucketTotals,
+    timeframeStartIso
+  );
+
+  if (!displayBuckets.length) {
+    return 0;
+  }
+
+  const rolloverMeta = detectDailyRolloverMeta(contextBuckets);
+  const claimableBucketValues = displayBuckets.map((bucket) =>
+    safeNumber(bucket.claimable_total_usd)
+  );
+
+  if (rolloverMeta) {
+    const rolloverTimeMs = new Date(rolloverMeta.rolloverSnapshotTime).getTime();
+    const startMs = new Date(timeframeStartIso).getTime();
+
+    if (rolloverTimeMs >= startMs) {
+      const postRolloverClaimableValues = contextBuckets
+        .slice(rolloverMeta.rolloverIndex)
+        .map((bucket) => safeNumber(bucket.claimable_total_usd));
+
+      const resetSeries = [
+        safeNumber(rolloverMeta.resetBaselineClaimableUsd),
+        ...postRolloverClaimableValues,
+      ];
+
+      const minClaimable = safeNumber(rolloverMeta.resetBaselineClaimableUsd);
+      const maxClaimable = getMaxValue(resetSeries);
+
+      return getRangeFlow(maxClaimable, minClaimable);
+    }
+  }
+
+  const minClaimable = safeNumber(claimableBucketValues[0] ?? 0);
+  const maxClaimable = getMaxValue(claimableBucketValues);
+
+  return getRangeFlow(maxClaimable, minClaimable);
+}
+
 function isRealChain(value) {
   const network = normalizeText(value);
 
@@ -291,114 +507,7 @@ function distributeTotalByWeight(items, total, getWeight) {
   });
 }
 
-function detectDailyRolloverMeta(snapshots) {
-  if (!Array.isArray(snapshots) || snapshots.length < 2) return null;
-
-  let runningMaxBeforeRollover = getClaimableSnapshotValue(snapshots[0]);
-
-  for (let i = 1; i < snapshots.length; i += 1) {
-    const prev = snapshots[i - 1];
-    const current = snapshots[i];
-
-    const prevPending = getPendingSnapshotValue(prev);
-    const currentPending = getPendingSnapshotValue(current);
-    const pendingDrop = prevPending - currentPending;
-
-    const currentClaimable = getClaimableSnapshotValue(current);
-    const claimableResetDrop = runningMaxBeforeRollover - currentClaimable;
-
-    const pendingResetDetected =
-      prevPending >= ROLLOVER_PENDING_HIGH_THRESHOLD &&
-      currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
-      pendingDrop >= ROLLOVER_MIN_PENDING_DROP;
-
-    const claimableResetDetected =
-      currentPending <= ROLLOVER_PENDING_LOW_THRESHOLD &&
-      claimableResetDrop >= ROLLOVER_MIN_CLAIMABLE_RESET_DROP;
-
-    if (pendingResetDetected || claimableResetDetected) {
-      return {
-        rolloverIndex: i,
-        rolloverSnapshotTime: current.snapshot_time,
-        resetBaselineClaimableUsd: runningMaxBeforeRollover,
-      };
-    }
-
-    runningMaxBeforeRollover = Math.max(
-      runningMaxBeforeRollover,
-      getClaimableSnapshotValue(prev),
-      currentClaimable
-    );
-  }
-
-  return null;
-}
-
-function computeWalletDailyYieldFlow(walletSnapshots, latestSnapshotTime) {
-  if (!Array.isArray(walletSnapshots) || walletSnapshots.length === 0) {
-    return 0;
-  }
-
-  const ordered = [...walletSnapshots].sort(
-    (a, b) =>
-      new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
-  );
-
-  const dayStartIso = getUtcDayStartIso(latestSnapshotTime);
-  const dayStartMs = new Date(dayStartIso).getTime();
-
-  const displayStartIndex = ordered.findIndex(
-    (snapshot) => new Date(snapshot.snapshot_time).getTime() >= dayStartMs
-  );
-
-  if (displayStartIndex === -1) {
-    return 0;
-  }
-
-  const contextStartIndex = Math.max(0, displayStartIndex - 1);
-  const contextSnapshots = ordered.slice(contextStartIndex);
-  const displaySnapshots = ordered.slice(displayStartIndex);
-
-  if (displaySnapshots.length === 0) {
-    return 0;
-  }
-
-  const rolloverMeta = detectDailyRolloverMeta(contextSnapshots);
-
-  if (rolloverMeta) {
-    const rolloverTimeMs = new Date(rolloverMeta.rolloverSnapshotTime).getTime();
-
-    if (rolloverTimeMs >= dayStartMs) {
-      const postRolloverClaimables = contextSnapshots
-        .slice(rolloverMeta.rolloverIndex)
-        .map((snapshot) => getClaimableSnapshotValue(snapshot));
-
-      const resetSeries = [
-        safeNumber(rolloverMeta.resetBaselineClaimableUsd),
-        ...postRolloverClaimables,
-      ];
-
-      const minClaimable = safeNumber(rolloverMeta.resetBaselineClaimableUsd);
-      const maxClaimable = Math.max(...resetSeries.map((value) => safeNumber(value)));
-
-      return Math.max(0, maxClaimable - minClaimable);
-    }
-  }
-
-  const firstClaimable = getClaimableSnapshotValue(displaySnapshots[0]);
-  const maxClaimable = Math.max(
-    ...displaySnapshots.map((snapshot) => getClaimableSnapshotValue(snapshot))
-  );
-
-  return Math.max(0, maxClaimable - firstClaimable);
-}
-
-function groupWalletHoldings(
-  walletHoldings,
-  totalValue,
-  walletClaimableContribution,
-  walletDailyYieldFlow
-) {
+function groupWalletHoldings(walletHoldings, totalValue, walletClaimableContribution) {
   const principalRows = [];
   const rewardRows = [];
   const parentLookup = new Map();
@@ -467,55 +576,61 @@ function groupWalletHoldings(
     );
   }
 
-  const parentDailyFlowAllocations = distributeTotalByWeight(
-    eligibleParents,
-    walletDailyYieldFlow,
-    (holding) => {
-      const rewardBalance = getParentRewardBalanceTotal(holding);
-      if (rewardBalance > 0) return rewardBalance;
-      return safeNumber(holding.value_usd);
-    }
-  );
-
-  for (let index = 0; index < eligibleParents.length; index += 1) {
-    const holding = eligibleParents[index];
-    const parentDailyFlow = safeNumber(parentDailyFlowAllocations[index]);
-
-    for (const reward of holding.rewards) {
-      reward.reward_daily_usd = 0;
-    }
-
-    if (!holding.rewards.length || parentDailyFlow <= 0) {
-      continue;
-    }
-
-    const rewardDailyAllocations = distributeTotalByWeight(
-      holding.rewards,
-      parentDailyFlow,
-      (reward) => safeNumber(reward.reward_balance_usd ?? reward.value_usd)
-    );
-
-    for (let rewardIndex = 0; rewardIndex < holding.rewards.length; rewardIndex += 1) {
-      holding.rewards[rewardIndex].reward_daily_usd = safeNumber(
-        rewardDailyAllocations[rewardIndex]
-      );
-    }
-
-    holding.rewards.sort((a, b) => {
-      const dailyDiff =
-        safeNumber(b.reward_daily_usd) - safeNumber(a.reward_daily_usd);
-      if (dailyDiff !== 0) return dailyDiff;
-
-      return (
-        safeNumber(b.reward_balance_usd ?? b.value_usd) -
-        safeNumber(a.reward_balance_usd ?? a.value_usd)
-      );
-    });
-  }
-
   combinedRows.sort((a, b) => b.value_usd - a.value_usd);
 
+  for (const holding of combinedRows) {
+    if (Array.isArray(holding.rewards)) {
+      holding.rewards.sort((a, b) => {
+        return (
+          safeNumber(b.reward_balance_usd ?? b.value_usd) -
+          safeNumber(a.reward_balance_usd ?? a.value_usd)
+        );
+      });
+    }
+  }
+
   return combinedRows;
+}
+
+function applyGlobalRewardDailyFlow(accounts, totalBlockchainDailyYield) {
+  const rewardRefs = [];
+
+  for (const account of accounts || []) {
+    for (const holding of account.holdings || []) {
+      for (const reward of holding.rewards || []) {
+        rewardRefs.push(reward);
+      }
+    }
+  }
+
+  const rewardAllocations = distributeTotalByWeight(
+    rewardRefs,
+    totalBlockchainDailyYield,
+    (reward) => safeNumber(reward.reward_balance_usd ?? reward.value_usd)
+  );
+
+  for (let index = 0; index < rewardRefs.length; index += 1) {
+    rewardRefs[index].reward_daily_usd = safeNumber(rewardAllocations[index]);
+  }
+
+  for (const account of accounts || []) {
+    for (const holding of account.holdings || []) {
+      if (!Array.isArray(holding.rewards) || holding.rewards.length === 0) {
+        continue;
+      }
+
+      holding.rewards.sort((a, b) => {
+        const dailyDiff =
+          safeNumber(b.reward_daily_usd) - safeNumber(a.reward_daily_usd);
+        if (dailyDiff !== 0) return dailyDiff;
+
+        return (
+          safeNumber(b.reward_balance_usd ?? b.value_usd) -
+          safeNumber(a.reward_balance_usd ?? a.value_usd)
+        );
+      });
+    }
+  }
 }
 
 module.exports = async function handler(req, res) {
@@ -599,6 +714,7 @@ module.exports = async function handler(req, res) {
     );
 
     const holdingsByWalletId = new Map();
+
     for (const holding of holdings) {
       const walletId = holding.wallet_id;
       if (!walletId) continue;
@@ -610,18 +726,6 @@ module.exports = async function handler(req, res) {
       holdingsByWalletId.get(walletId).push(holding);
     }
 
-    const snapshotsByWalletId = new Map();
-    for (const snapshot of safeSnapshots) {
-      const walletId = snapshot.wallet_id;
-      if (!walletId) continue;
-
-      if (!snapshotsByWalletId.has(walletId)) {
-        snapshotsByWalletId.set(walletId, []);
-      }
-
-      snapshotsByWalletId.get(walletId).push(snapshot);
-    }
-
     const totalBlockchainValue = latestSnapshots.reduce(
       (sum, snapshot) => sum + getPortfolioSnapshotValue(snapshot),
       0
@@ -631,6 +735,20 @@ module.exports = async function handler(req, res) {
       (sum, snapshot) => sum + getClaimableSnapshotValue(snapshot),
       0
     );
+
+    const latestSnapshotTime = latestSnapshots.reduce((latest, snapshot) => {
+      if (!latest) return snapshot.snapshot_time || null;
+
+      return new Date(snapshot.snapshot_time).getTime() >
+        new Date(latest).getTime()
+        ? snapshot.snapshot_time
+        : latest;
+    }, null);
+
+    const totalBlockchainDailyYield =
+      latestSnapshotTime != null
+        ? computeGlobalDailyYieldFlow(safeSnapshots, latestSnapshotTime)
+        : 0;
 
     const uniqueChains = new Set();
 
@@ -645,7 +763,6 @@ module.exports = async function handler(req, res) {
       .map((snapshot) => {
         const wallet = walletById.get(snapshot.wallet_id);
         const walletHoldings = holdingsByWalletId.get(snapshot.wallet_id) || [];
-        const walletSnapshots = snapshotsByWalletId.get(snapshot.wallet_id) || [];
 
         const chainSet = new Set();
 
@@ -663,10 +780,6 @@ module.exports = async function handler(req, res) {
 
         const totalValue = getPortfolioSnapshotValue(snapshot);
         const walletClaimableContribution = getClaimableSnapshotValue(snapshot);
-        const walletDailyYieldFlow = computeWalletDailyYieldFlow(
-          walletSnapshots,
-          snapshot.snapshot_time
-        );
 
         const holdingsValueSum = walletHoldings.reduce(
           (sum, holding) => sum + safeNumber(holding.value_usd),
@@ -676,8 +789,7 @@ module.exports = async function handler(req, res) {
         const groupedHoldings = groupWalletHoldings(
           walletHoldings,
           totalValue,
-          walletClaimableContribution,
-          walletDailyYieldFlow
+          walletClaimableContribution
         );
 
         return {
@@ -701,6 +813,8 @@ module.exports = async function handler(req, res) {
         };
       })
       .sort((a, b) => b.total_value - a.total_value);
+
+    applyGlobalRewardDailyFlow(accounts, totalBlockchainDailyYield);
 
     return res.status(200).json({
       total_blockchain_value: totalBlockchainValue,
