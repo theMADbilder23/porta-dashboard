@@ -63,12 +63,53 @@ export async function insertHoldings(rows) {
   return Array.isArray(data) ? data : [];
 }
 
+export async function getLatestHoldingForWalletSymbol(walletId, tokenSymbol) {
+  const { data, error } = await supabase
+    .from("wallet_holdings")
+    .select(
+      `
+      id,
+      wallet_id,
+      token_symbol,
+      token_name,
+      network,
+      amount,
+      value_usd,
+      category,
+      protocol,
+      is_yield_position,
+      asset_id,
+      asset_class,
+      yield_profile,
+      mmii_bucket,
+      mmii_subclass,
+      price_source,
+      price_per_unit_usd,
+      position_role,
+      snapshot_time,
+      created_at
+      `
+    )
+    .eq("wallet_id", walletId)
+    .eq("token_symbol", tokenSymbol)
+    .order("snapshot_time", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data || null;
+}
+
 export async function fetchWalletDaySnapshotsWithHoldings(walletId, snapshotTime) {
   const dayStartIso = getUtcDayStartIso(snapshotTime);
 
   const { data: snapshots, error: snapshotsError } = await supabase
     .from("wallet_snapshots")
-    .select(`
+    .select(
+      `
       id,
       wallet_id,
       snapshot_time,
@@ -76,7 +117,8 @@ export async function fetchWalletDaySnapshotsWithHoldings(walletId, snapshotTime
       total_pending_usd,
       total_rewards_usd,
       rewards_token_symbol
-    `)
+      `
+    )
     .eq("wallet_id", walletId)
     .gte("snapshot_time", dayStartIso)
     .lt("snapshot_time", snapshotTime)
@@ -96,7 +138,8 @@ export async function fetchWalletDaySnapshotsWithHoldings(walletId, snapshotTime
 
   const { data: holdings, error: holdingsError } = await supabase
     .from("wallet_holdings")
-    .select(`
+    .select(
+      `
       snapshot_id,
       token_symbol,
       token_name,
@@ -115,7 +158,8 @@ export async function fetchWalletDaySnapshotsWithHoldings(walletId, snapshotTime
       price_per_unit_usd,
       position_role,
       snapshot_time
-    `)
+      `
+    )
     .in("snapshot_id", snapshotIds);
 
   if (holdingsError) {
