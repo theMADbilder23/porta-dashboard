@@ -10,15 +10,19 @@ const client = createPublicClient({
 
 const DEBANK_API_KEY = process.env.DEBANK_API_KEY || "";
 
-// This is the strategy contract that actually holds the Mamo position
+// This is the staking contract being read for principal + rewards
 const MAMO_STAKING = getAddress("0x7855B0821401Ab078f6Cf457dEAFae775fF6c7A3");
 const MAMO_STRATEGY = getAddress("0x51c5290167e933fdDB5B27A1690377dB05813FBa");
 
-// IMPORTANT: only this tracked wallet should emit the Mamo strategy rows
+// Only this tracked wallet should emit the Mamo strategy rows
 const MAMO_OWNER_WALLET = getAddress("0x1B6891DB50377c5bE23878c3C83564e5Df881b30");
 
 const MAMO_TOKEN = getAddress("0x7300b37dfdfab110d83290a29dfb31b1740219fe");
 const CBBTC_TOKEN = getAddress("0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf");
+
+// Keep existing assumptions unless you later confirm different on-chain decimals
+const MAMO_DECIMALS = 18;
+const CBBTC_DECIMALS = 8;
 
 const ABI = [
   {
@@ -42,6 +46,7 @@ const ABI = [
 
 function normalizeAddress(value) {
   if (!value || typeof value !== "string") return null;
+
   try {
     return getAddress(value);
   } catch {
@@ -59,7 +64,10 @@ function formatUnits(value, decimals) {
 }
 
 function getWalletAddress(wallet) {
-  if (typeof wallet === "string") return normalizeAddress(wallet);
+  if (typeof wallet === "string") {
+    return normalizeAddress(wallet);
+  }
+
   return normalizeAddress(wallet?.wallet_address || wallet?.address || null);
 }
 
@@ -102,7 +110,9 @@ async function fetchDebankTokenPrice(chainId, tokenId) {
 
 function getLocalTokenPrices(context = {}) {
   const debankData = context.debankData || {};
-  const allTokens = Array.isArray(debankData.allTokens) ? debankData.allTokens : [];
+  const allTokens = Array.isArray(debankData.allTokens)
+    ? debankData.allTokens
+    : [];
 
   const byAddress = new Map();
   const bySymbol = new Map();
@@ -146,7 +156,6 @@ async function getPriceMap(context = {}) {
   let cbBtcPrice =
     byAddress.get(CBBTC_TOKEN) ||
     bySymbol.get("CBBTC") ||
-    bySymbol.get("CBBTC ") ||
     bySymbol.get("WBTC") ||
     bySymbol.get("BTC") ||
     0;
@@ -213,13 +222,17 @@ export async function collectMamoProtocol(wallet, context = {}) {
     const rawCbBtcRewards =
       cbBtcRewardResult.status === "fulfilled" ? cbBtcRewardResult.value : 0n;
 
-    const principalAmount = formatUnits(rawPrincipal, 18);
-    const mamoRewardAmount = formatUnits(rawMamoRewards, 18);
-    const cbBtcRewardAmount = formatUnits(rawCbBtcRewards, 8);
+    const principalAmount = formatUnits(rawPrincipal, MAMO_DECIMALS);
+    const mamoRewardAmount = formatUnits(rawMamoRewards, MAMO_DECIMALS);
+    const cbBtcRewardAmount = formatUnits(rawCbBtcRewards, CBBTC_DECIMALS);
 
-    const principalValueUsd = principalAmount * prices.MAMO;
-    const mamoRewardValueUsd = mamoRewardAmount * prices.MAMO;
-    const cbBtcRewardValueUsd = cbBtcRewardAmount * prices.CBBTC;
+    const principalPriceUsd = safeNumber(prices.MAMO);
+    const mamoRewardPriceUsd = safeNumber(prices.MAMO);
+    const cbBtcRewardPriceUsd = safeNumber(prices.CBBTC);
+
+    const principalValueUsd = principalAmount * principalPriceUsd;
+    const mamoRewardValueUsd = mamoRewardAmount * mamoRewardPriceUsd;
+    const cbBtcRewardValueUsd = cbBtcRewardAmount * cbBtcRewardPriceUsd;
 
     const rows = [];
 
@@ -230,6 +243,7 @@ export async function collectMamoProtocol(wallet, context = {}) {
         network: "base",
         amount: principalAmount,
         value_usd: principalValueUsd,
+        price_per_unit_usd: principalPriceUsd,
         category: "protocol",
         protocol: "Mamo",
         is_yield_position: true,
@@ -244,6 +258,7 @@ export async function collectMamoProtocol(wallet, context = {}) {
         network: "base",
         amount: mamoRewardAmount,
         value_usd: mamoRewardValueUsd,
+        price_per_unit_usd: mamoRewardPriceUsd,
         category: "reward",
         protocol: "Mamo",
         is_yield_position: true,
@@ -258,6 +273,7 @@ export async function collectMamoProtocol(wallet, context = {}) {
         network: "base",
         amount: cbBtcRewardAmount,
         value_usd: cbBtcRewardValueUsd,
+        price_per_unit_usd: cbBtcRewardPriceUsd,
         category: "reward",
         protocol: "Mamo",
         is_yield_position: true,
@@ -272,6 +288,9 @@ export async function collectMamoProtocol(wallet, context = {}) {
       principalAmount,
       mamoRewardAmount,
       cbBtcRewardAmount,
+      principalPriceUsd,
+      mamoRewardPriceUsd,
+      cbBtcRewardPriceUsd,
       principalValueUsd,
       mamoRewardValueUsd,
       cbBtcRewardValueUsd,
