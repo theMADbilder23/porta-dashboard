@@ -357,34 +357,30 @@ export default function PortfolioInDepthPage() {
             />
           </section>
 
-          <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+          <section className="rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
             <div className="flex flex-col gap-2">
               <h2 className="text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                Historical Claimable & DYF Review
+                Metrics Table Overview
               </h2>
               <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                Stored historical review of the Overview math. This section gives
-                a compact, searchable summary of claimable behavior, DYF range,
-                and yield efficiency across the selected timeframe.
+                Summary layer for the currently selected historical dataset. This
+                panel shows the minimum, average, and maximum values found inside
+                the metrics table for the selected timeframe.
               </p>
             </div>
 
-            <div className="mt-5 grid grid-cols-2 gap-4 laptop:grid-cols-4 desktop:grid-cols-8">
+            <div className="mt-4 grid grid-cols-2 gap-4 laptop:grid-cols-3 desktop:grid-cols-6">
               <CompactStat
-                label="Min Claimable"
-                value={formatCurrency(historical?.min_claimable_usd ?? 0)}
+                label="Min TPV"
+                value={formatCompactCurrency(historical?.min_portfolio_value ?? 0)}
               />
               <CompactStat
-                label="Avg Claimable"
-                value={formatCurrency(historical?.avg_claimable_usd ?? 0)}
+                label="Avg TPV"
+                value={formatCompactCurrency(historical?.avg_portfolio_value ?? 0)}
               />
               <CompactStat
-                label="Max Claimable"
-                value={formatCurrency(historical?.max_claimable_usd ?? 0)}
-              />
-              <CompactStat
-                label="Claimable Range"
-                value={formatPercent(historical?.range_claimable_pct ?? 0)}
+                label="Max TPV"
+                value={formatCompactCurrency(historical?.max_portfolio_value ?? 0)}
               />
               <CompactStat
                 label="Min DYF"
@@ -401,26 +397,22 @@ export default function PortfolioInDepthPage() {
                 value={formatCurrency(historical?.max_daily_yield_flow ?? 0)}
                 emphasis
               />
-              <CompactStat
-                label="Avg Yield / TVD"
-                value={formatRatioPercent(historical?.avg_yield_tvd_ratio ?? 0)}
-              />
             </div>
           </section>
 
-          <section className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#140D20]">
+          <section className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#140D20]">
             <div className="flex flex-col gap-2">
               <h2 className="text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
                 Period Highlights
               </h2>
               <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
                 Compact highlight strip for the strongest and weakest yield-flow
-                days, stored row coverage, and the overall TPV range across the
+                days, stored row coverage, and overall TPV range across the
                 selected historical window.
               </p>
             </div>
 
-            <div className="mt-5 grid grid-cols-1 gap-4 tablet:grid-cols-2 desktop:grid-cols-4">
+            <div className="mt-4 grid grid-cols-2 gap-4 desktop:grid-cols-4">
               <CompactStat
                 label="Strongest DYF Day"
                 value={strongestDay ? strongestDay.label : "—"}
