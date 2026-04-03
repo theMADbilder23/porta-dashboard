@@ -920,12 +920,25 @@ export default function BlockchainAccountsPage() {
                                         </td>
 
                                         <td className="px-4 py-4 align-top">
-                                          <p className="text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                                            {holding.yield_contribution > 0
-                                              ? formatCurrency(holding.yield_contribution)
-                                              : "—"}
+                                          {holding.yield_contribution > 0 && (data?.yield_contribution ?? 0) > 0 ? (
+                                            <>
+                                              <p className="text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                                                {formatCurrency(holding.yield_contribution)}{" "}
+                                                <span className="text-xs text-[#8A79A8] dark:text-[#A78BCE]">
+                                                 (
+                                                 {formatPercent(
+                                                   (holding.yield_contribution / data.yield_contribution) * 100
+                                                 )}
+                                                 )
+                                               </span>
+                                             </p>
+                                           </>
+                                         ) : (
+                                           <p className="text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                                             —
                                           </p>
-                                        </td>
+                                         )}
+                                       </td>
 
                                         <td className="px-4 py-4 align-top">
                                           <div className="space-y-2">
