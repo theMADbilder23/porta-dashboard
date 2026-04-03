@@ -67,16 +67,34 @@ type StrategyFlowResponse = {
   };
 };
 
+type AlignmentTier = {
+  key: string;
+  label: string;
+  actual_pct: number;
+  target_pct: number;
+  deviation_pct: number;
+  status: "aligned" | "watch" | "warning";
+};
+
 type FlowCardData = {
   title: string;
   subtitle?: string;
   value?: string;
   meta?: string;
+  secondary?: string;
   tone?: "root" | "tier_0" | "tier_1" | "tier_2" | "bucket" | "subclass" | "wallet";
+  width?: number;
+  minHeight?: number;
+  warning?: boolean;
+  pulse?: boolean;
 };
 
 function safeNumber(value: number | null | undefined) {
   return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function formatCurrency(value: number, digits = 2) {
@@ -101,60 +119,220 @@ function formatPercent(value: number, digits = 1) {
   return `${safeNumber(value).toFixed(digits)}%`;
 }
 
-function getToneClasses(tone: FlowCardData["tone"]) {
+function formatDateTime(value: string | null) {
+  if (!value) return "No snapshot";
+
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "No snapshot";
+
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function getTierTargets() {
+  return {
+    tier_0: 40,
+    tier_1: 30,
+    tier_2: 30,
+  };
+}
+
+function getToneClasses(tone: FlowCardData["tone"], warning?: boolean, pulse?: boolean) {
+  const glow = warning
+    ? pulse
+      ? "shadow-[0_0_0_1px_rgba(244,63,94,0.25),0_0_20px_rgba(244,63,94,0.22)] animate-pulse"
+      : "shadow-[0_0_0_1px_rgba(244,63,94,0.22),0_0_16px_rgba(244,63,94,0.18)]"
+    : "shadow-sm";
+
   switch (tone) {
     case "root":
       return {
-        shell:
-          "border-[#D8B4FE] bg-gradient-to-br from-white to-[#F8F4FF] dark:border-[#4B2A6B] dark:from-[#100A19] dark:to-[#171022]",
+        shell: `border-[#D8B4FE] bg-gradient-to-br from-white to-[#F8F4FF] dark:border-[#4B2A6B] dark:from-[#100A19] dark:to-[#171022] ${glow}`,
         badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
       };
     case "tier_0":
       return {
-        shell:
-          "border-[#BBF7D0] bg-[#F4FFF7] dark:border-[#1E4D2B] dark:bg-[#0F1A13]",
+        shell: `border-[#BBF7D0] bg-[#F4FFF7] dark:border-[#1E4D2B] dark:bg-[#0F1A13] ${glow}`,
         badge: "bg-[#DCFCE7] text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]",
       };
     case "tier_1":
       return {
-        shell:
-          "border-[#E9D5FF] bg-[#FCF8FF] dark:border-[#4B2A6B] dark:bg-[#17111F]",
+        shell: `border-[#E9D5FF] bg-[#FCF8FF] dark:border-[#4B2A6B] dark:bg-[#17111F] ${glow}`,
         badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
       };
     case "tier_2":
       return {
-        shell:
-          "border-[#BFDBFE] bg-[#F8FBFF] dark:border-[#294A78] dark:bg-[#101722]",
+        shell: `border-[#BFDBFE] bg-[#F8FBFF] dark:border-[#294A78] dark:bg-[#101722] ${glow}`,
         badge: "bg-[#DBEAFE] text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]",
       };
     case "bucket":
       return {
-        shell:
-          "border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]",
+        shell: `border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19] ${glow}`,
         badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
       };
     case "subclass":
       return {
-        shell:
-          "border-[#E9DAFF] bg-[#FCFAFF] dark:border-[#312047] dark:bg-[#140D20]",
+        shell: `border-[#E9DAFF] bg-[#FCFAFF] dark:border-[#312047] dark:bg-[#140D20] ${glow}`,
         badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
       };
     case "wallet":
     default:
       return {
-        shell:
-          "border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]",
+        shell: `border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19] ${glow}`,
         badge: "bg-[#EEF4FF] text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]",
       };
   }
 }
 
+function getTierTone(tierKey: string): FlowCardData["tone"] {
+  if (tierKey === "tier_0") return "tier_0";
+  if (tierKey === "tier_1") return "tier_1";
+  return "tier_2";
+}
+
+function getTierEdgeColor(tierKey: string) {
+  if (tierKey === "tier_0") return "#22C55E";
+  if (tierKey === "tier_1") return "#A855F7";
+  return "#3B82F6";
+}
+
+function computeNodeWidth(level: "root" | "tier" | "bucket" | "subclass" | "wallet", allocationPct: number) {
+  const pct = safeNumber(allocationPct);
+
+  switch (level) {
+    case "root":
+      return 320;
+    case "tier":
+      return clamp(240 + pct * 2.1, 240, 420);
+    case "bucket":
+      return clamp(210 + pct * 1.6, 210, 360);
+    case "subclass":
+      return clamp(190 + pct * 1.0, 190, 290);
+    case "wallet":
+    default:
+      return clamp(190 + pct * 0.9, 190, 300);
+  }
+}
+
+function computeMinHeight(level: "root" | "tier" | "bucket" | "subclass" | "wallet", allocationPct: number) {
+  const pct = safeNumber(allocationPct);
+
+  switch (level) {
+    case "root":
+      return 130;
+    case "tier":
+      return clamp(116 + pct * 0.5, 116, 160);
+    case "bucket":
+      return clamp(104 + pct * 0.35, 104, 145);
+    case "subclass":
+      return clamp(92 + pct * 0.2, 92, 125);
+    case "wallet":
+    default:
+      return clamp(92 + pct * 0.18, 92, 120);
+  }
+}
+
+function getTierAlignmentStatus(deviationPct: number): AlignmentTier["status"] {
+  const abs = Math.abs(deviationPct);
+  if (abs >= 15) return "warning";
+  if (abs >= 7) return "watch";
+  return "aligned";
+}
+
+function buildAlignmentTiers(structure?: StructureNode): AlignmentTier[] {
+  if (!structure) return [];
+
+  const targets = getTierTargets();
+
+  return (structure.children ?? []).map((tier) => {
+    const targetPct =
+      tier.key === "tier_0"
+        ? targets.tier_0
+        : tier.key === "tier_1"
+          ? targets.tier_1
+          : targets.tier_2;
+
+    const actualPct = safeNumber(tier.allocation_pct);
+    const deviationPct = actualPct - targetPct;
+
+    return {
+      key: tier.key,
+      label: tier.label,
+      actual_pct: actualPct,
+      target_pct: targetPct,
+      deviation_pct: deviationPct,
+      status: getTierAlignmentStatus(deviationPct),
+    };
+  });
+}
+
+function computeAlignmentScore(alignmentTiers: AlignmentTier[]) {
+  if (!alignmentTiers.length) return 0;
+
+  const totalDeviation = alignmentTiers.reduce(
+    (sum, tier) => sum + Math.abs(safeNumber(tier.deviation_pct)),
+    0
+  );
+
+  return Math.max(0, Math.round(100 - totalDeviation));
+}
+
+function getAlignmentHeadline(score: number) {
+  if (score >= 80) return "High MMII Alignment";
+  if (score >= 55) return "Moderate MMII Alignment";
+  if (score >= 35) return "Low MMII Alignment";
+  return "Critical MMII Drift";
+}
+
+function getAlignmentInsight(alignmentTiers: AlignmentTier[]) {
+  if (!alignmentTiers.length) {
+    return "No tier alignment data available yet.";
+  }
+
+  const mostDrifted = [...alignmentTiers].sort(
+    (a, b) => Math.abs(b.deviation_pct) - Math.abs(a.deviation_pct)
+  )[0];
+
+  if (!mostDrifted) {
+    return "MMII structure appears neutral.";
+  }
+
+  const deviation = safeNumber(mostDrifted.deviation_pct);
+
+  if (Math.abs(deviation) < 5) {
+    return "Structure is relatively balanced against current MMII tier targets.";
+  }
+
+  if (deviation > 0) {
+    return `${mostDrifted.label} is overweight by ${formatPercent(
+      deviation
+    )} versus current MMII targets.`;
+  }
+
+  return `${mostDrifted.label} is under-allocated by ${formatPercent(
+    Math.abs(deviation)
+  )} versus current MMII targets.`;
+}
+
+function getTierAlignmentMap(alignmentTiers: AlignmentTier[]) {
+  return new Map(alignmentTiers.map((tier) => [tier.key, tier]));
+}
+
 function FlowCardNode({ data }: NodeProps<FlowCardData>) {
-  const tone = getToneClasses(data.tone);
+  const tone = getToneClasses(data.tone, data.warning, data.pulse);
 
   return (
     <div
-      className={`min-w-[220px] max-w-[260px] rounded-2xl border px-4 py-3 shadow-sm ${tone.shell}`}
+      className={`rounded-2xl border px-4 py-3 ${tone.shell}`}
+      style={{
+        width: data.width ?? 240,
+        minHeight: data.minHeight ?? 100,
+      }}
     >
       <Handle type="target" position={Position.Top} className="!h-2 !w-2 !bg-[#C084FC]" />
       <div className="flex items-start justify-between gap-3">
@@ -179,6 +357,13 @@ function FlowCardNode({ data }: NodeProps<FlowCardData>) {
           {data.subtitle}
         </p>
       ) : null}
+
+      {data.secondary ? (
+        <p className="mt-2 text-[11px] font-medium text-[#8B5CF6] dark:text-[#C084FC]">
+          {data.secondary}
+        </p>
+      ) : null}
+
       <Handle type="source" position={Position.Bottom} className="!h-2 !w-2 !bg-[#8B5CF6]" />
     </div>
   );
@@ -212,7 +397,7 @@ function MetricCard({
   );
 }
 
-function buildTreeElements(structure?: StructureNode) {
+function buildTreeElements(structure?: StructureNode, alignmentMap?: Map<string, AlignmentTier>) {
   const nodes: Node<FlowCardData>[] = [];
   const edges: Edge[] = [];
 
@@ -220,18 +405,18 @@ function buildTreeElements(structure?: StructureNode) {
     return { nodes, edges };
   }
 
-  const ROOT_X = 700;
-  const ROOT_Y = 20;
-  const TIER_Y_START = 220;
-  const TIER_Y_GAP = 420;
-  const BUCKET_Y_OFFSET = 180;
-  const SUBCLASS_Y_OFFSET = 360;
-  const WALLET_Y_OFFSET = 560;
-  const BUCKET_X_GAP = 460;
-  const SUBCLASS_X_OFFSET = 200;
-  const WALLET_X_OFFSET = 220;
-  const SUBCLASS_Y_GAP = 130;
-  const WALLET_Y_GAP = 130;
+  const ROOT_X = 760;
+  const ROOT_Y = 30;
+  const TIER_Y_START = 250;
+  const TIER_Y_GAP = 560;
+  const BUCKET_Y_OFFSET = 230;
+  const SUBCLASS_Y_OFFSET = 420;
+  const WALLET_Y_OFFSET = 420;
+  const BUCKET_X_GAP = 520;
+  const SUBCLASS_X_OFFSET = 260;
+  const WALLET_X_OFFSET = 300;
+  const SUBCLASS_Y_GAP = 150;
+  const WALLET_Y_GAP = 150;
 
   nodes.push({
     id: "root",
@@ -242,7 +427,10 @@ function buildTreeElements(structure?: StructureNode) {
       value: formatCurrency(structure.total_value_usd),
       subtitle: structure.description,
       meta: `${structure.wallet_count} wallets`,
+      secondary: "100.0% of total structure",
       tone: "root",
+      width: computeNodeWidth("root", 100),
+      minHeight: computeMinHeight("root", 100),
     },
     draggable: true,
   });
@@ -250,13 +438,9 @@ function buildTreeElements(structure?: StructureNode) {
   structure.children.forEach((tier, tierIndex) => {
     const tierId = `tier-${tier.key}`;
     const tierY = TIER_Y_START + tierIndex * TIER_Y_GAP;
-
-    const tierTone =
-      tier.key === "tier_0"
-        ? "tier_0"
-        : tier.key === "tier_1"
-          ? "tier_1"
-          : "tier_2";
+    const tierAlignment = alignmentMap?.get(tier.key);
+    const tierTone = getTierTone(tier.key);
+    const tierEdgeColor = getTierEdgeColor(tier.key);
 
     nodes.push({
       id: tierId,
@@ -267,7 +451,16 @@ function buildTreeElements(structure?: StructureNode) {
         value: formatCurrency(tier.total_value_usd),
         subtitle: tier.description,
         meta: `${formatPercent(tier.allocation_pct)} • ${tier.wallet_count} wallets`,
+        secondary: tierAlignment
+          ? `Target ${formatPercent(tierAlignment.target_pct)} • Δ ${formatPercent(
+              tierAlignment.deviation_pct
+            )}`
+          : undefined,
         tone: tierTone,
+        width: computeNodeWidth("tier", tier.allocation_pct),
+        minHeight: computeMinHeight("tier", tier.allocation_pct),
+        warning: tierAlignment?.status === "warning",
+        pulse: tierAlignment?.status === "warning",
       },
       draggable: true,
     });
@@ -278,16 +471,17 @@ function buildTreeElements(structure?: StructureNode) {
       target: tierId,
       animated: true,
       markerEnd: { type: MarkerType.ArrowClosed },
-      style: { strokeWidth: 2, stroke: "#C084FC" },
+      style: { strokeWidth: 3, stroke: tierEdgeColor },
     });
 
-    const bucketCount = tier.children.length;
+    const bucketCount = tier.children.length || 1;
     const bucketCenterOffset = ((bucketCount - 1) * BUCKET_X_GAP) / 2;
 
     tier.children.forEach((bucket, bucketIndex) => {
       const bucketId = `${tierId}-bucket-${bucket.key}`;
       const bucketX = ROOT_X - bucketCenterOffset + bucketIndex * BUCKET_X_GAP;
       const bucketY = tierY + BUCKET_Y_OFFSET;
+      const bucketWarning = safeNumber(bucket.allocation_pct) >= 60;
 
       nodes.push({
         id: bucketId,
@@ -298,7 +492,11 @@ function buildTreeElements(structure?: StructureNode) {
           value: formatCompactCurrency(bucket.total_value_usd),
           subtitle: `${bucket.wallet_count} wallets • ${bucket.holding_count} holdings`,
           meta: formatPercent(bucket.allocation_pct),
+          secondary: `${formatPercent(bucket.allocation_pct)} of total structure`,
           tone: "bucket",
+          width: computeNodeWidth("bucket", bucket.allocation_pct),
+          minHeight: computeMinHeight("bucket", bucket.allocation_pct),
+          warning: bucketWarning,
         },
         draggable: true,
       });
@@ -309,13 +507,18 @@ function buildTreeElements(structure?: StructureNode) {
         target: bucketId,
         animated: true,
         markerEnd: { type: MarkerType.ArrowClosed },
-        style: { strokeWidth: 2, stroke: "#A78BFA" },
+        style: { strokeWidth: 2.5, stroke: tierEdgeColor },
       });
 
       bucket.children.forEach((subclass, subclassIndex) => {
         const subclassId = `${bucketId}-subclass-${subclass.key}`;
         const subclassX = bucketX - SUBCLASS_X_OFFSET;
         const subclassY = bucketY + SUBCLASS_Y_OFFSET + subclassIndex * SUBCLASS_Y_GAP;
+
+        const pctOfParent =
+          bucket.total_value_usd > 0
+            ? (safeNumber(subclass.total_value_usd) / safeNumber(bucket.total_value_usd)) * 100
+            : 0;
 
         nodes.push({
           id: subclassId,
@@ -326,7 +529,10 @@ function buildTreeElements(structure?: StructureNode) {
             value: formatCompactCurrency(subclass.total_value_usd),
             subtitle: `${subclass.holding_count} holdings`,
             meta: formatPercent(subclass.allocation_pct),
+            secondary: `${formatPercent(pctOfParent)} of ${bucket.label}`,
             tone: "subclass",
+            width: computeNodeWidth("subclass", subclass.allocation_pct),
+            minHeight: computeMinHeight("subclass", subclass.allocation_pct),
           },
           draggable: true,
         });
@@ -337,7 +543,7 @@ function buildTreeElements(structure?: StructureNode) {
           target: subclassId,
           animated: false,
           markerEnd: { type: MarkerType.ArrowClosed },
-          style: { strokeWidth: 1.75, stroke: "#C4B5FD" },
+          style: { strokeWidth: 1.8, stroke: "#C4B5FD" },
         });
       });
 
@@ -345,6 +551,11 @@ function buildTreeElements(structure?: StructureNode) {
         const walletId = `${bucketId}-wallet-${wallet.wallet_id ?? wallet.wallet_name}-${walletIndex}`;
         const walletX = bucketX + WALLET_X_OFFSET;
         const walletY = bucketY + WALLET_Y_OFFSET + walletIndex * WALLET_Y_GAP;
+
+        const pctOfParent =
+          bucket.total_value_usd > 0
+            ? (safeNumber(wallet.total_value_usd) / safeNumber(bucket.total_value_usd)) * 100
+            : 0;
 
         nodes.push({
           id: walletId,
@@ -355,7 +566,10 @@ function buildTreeElements(structure?: StructureNode) {
             value: formatCompactCurrency(wallet.total_value_usd),
             subtitle: `${wallet.role} • ${wallet.network_group}`,
             meta: wallet.wallet_address_short,
+            secondary: `${formatPercent(pctOfParent)} of ${bucket.label}`,
             tone: "wallet",
+            width: computeNodeWidth("wallet", wallet.total_value_usd / safeNumber(structure.total_value_usd) * 100),
+            minHeight: computeMinHeight("wallet", wallet.total_value_usd / safeNumber(structure.total_value_usd) * 100),
           },
           draggable: true,
         });
@@ -366,13 +580,41 @@ function buildTreeElements(structure?: StructureNode) {
           target: walletId,
           animated: false,
           markerEnd: { type: MarkerType.ArrowClosed },
-          style: { strokeWidth: 1.75, stroke: "#93C5FD" },
+          style: { strokeWidth: 1.8, stroke: "#60A5FA" },
         });
       });
     });
   });
 
   return { nodes, edges };
+}
+
+function AlignmentChip({ tier }: { tier: AlignmentTier }) {
+  const style =
+    tier.status === "aligned"
+      ? "bg-[#ECFDF3] text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]"
+      : tier.status === "watch"
+        ? "bg-[#FFF7ED] text-[#C2410C] dark:bg-[#26180F] dark:text-[#FDBA74]"
+        : "bg-[#FFF1F2] text-[#BE123C] dark:bg-[#2A1218] dark:text-[#FDA4AF]";
+
+  return (
+    <div className="rounded-xl border border-[#E9DAFF] bg-white p-3 dark:border-[#2A1D3B] dark:bg-[#100A19]">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+          {tier.label}
+        </p>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${style}`}>
+          {tier.status}
+        </span>
+      </div>
+      <p className="mt-2 text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+        {formatPercent(tier.actual_pct)}
+      </p>
+      <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
+        Target {formatPercent(tier.target_pct)} • Δ {formatPercent(tier.deviation_pct)}
+      </p>
+    </div>
+  );
 }
 
 export default function StrategyFlowPage() {
@@ -410,7 +652,16 @@ export default function StrategyFlowPage() {
   const summary = data?.summary;
   const structure = data?.structure;
 
-  const { nodes, edges } = useMemo(() => buildTreeElements(structure), [structure]);
+  const alignmentTiers = useMemo(() => buildAlignmentTiers(structure), [structure]);
+  const alignmentScore = useMemo(() => computeAlignmentScore(alignmentTiers), [alignmentTiers]);
+  const alignmentHeadline = useMemo(() => getAlignmentHeadline(alignmentScore), [alignmentScore]);
+  const alignmentInsight = useMemo(() => getAlignmentInsight(alignmentTiers), [alignmentTiers]);
+  const alignmentMap = useMemo(() => getTierAlignmentMap(alignmentTiers), [alignmentTiers]);
+
+  const { nodes, edges } = useMemo(
+    () => buildTreeElements(structure, alignmentMap),
+    [structure, alignmentMap]
+  );
 
   return (
     <div className="min-h-screen space-y-6 p-6">
@@ -426,7 +677,7 @@ export default function StrategyFlowPage() {
             <p className="mt-2 max-w-4xl text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
               Visual representation of the MMII strategy structure. This page is now
               oriented around structural tiers, strategic buckets, subclass groupings,
-              and wallet placement within the broader MMII system.
+              wallet placement, and MMII alignment drift within the broader system.
             </p>
           </div>
 
@@ -484,25 +735,71 @@ export default function StrategyFlowPage() {
           </section>
 
           <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+            <div className="flex flex-col gap-4 desktop:flex-row desktop:items-start desktop:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                  MMII Alignment Meter
+                </p>
+                <h2 className="mt-2 text-3xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                  {alignmentScore}/100
+                </h2>
+                <p className="mt-1 text-sm font-medium text-[#6D28D9] dark:text-[#D8B4FE]">
+                  {alignmentHeadline}
+                </p>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+                  {alignmentInsight}
+                </p>
+              </div>
+
+              <div className="min-w-[260px] rounded-2xl bg-[#F8F4FF] p-4 dark:bg-[#140D20]">
+                <div className="h-3 overflow-hidden rounded-full bg-[#E9DAFF] dark:bg-[#241533]">
+                  <div
+                    className={`h-full rounded-full ${
+                      alignmentScore >= 80
+                        ? "bg-[#22C55E]"
+                        : alignmentScore >= 55
+                          ? "bg-[#A855F7]"
+                          : alignmentScore >= 35
+                            ? "bg-[#F59E0B]"
+                            : "bg-[#F43F5E]"
+                    }`}
+                    style={{ width: `${alignmentScore}%` }}
+                  />
+                </div>
+                <p className="mt-3 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
+                  First-pass MMII targets: Tier 0 = 40%, Tier 1 = 30%, Tier 2 = 30%.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-3 desktop:grid-cols-3">
+              {alignmentTiers.map((tier) => (
+                <AlignmentChip key={tier.key} tier={tier} />
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
             <div className="flex flex-col gap-2">
               <h2 className="text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
                 MMII Structural Tree
               </h2>
               <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                Interactive tree canvas of the MMII structure. Pan, zoom, and inspect
-                how the strategy flows from the MMII root into tiers, buckets, subclasses,
-                and wallet nodes.
+                Interactive structure canvas of MMII. Pan, zoom, and inspect how
+                the strategy flows from the MMII root into tiers, buckets, subclasses,
+                and wallet nodes. Node scale now reflects portfolio weighting, and
+                warning glow highlights structural drift.
               </p>
             </div>
 
             <div className="mt-5 rounded-2xl border border-dashed border-[#D8B4FE] bg-[#FCFAFF] p-3 dark:border-[#3B2A57] dark:bg-[#140D20]">
-              <div className="h-[1150px] overflow-hidden rounded-2xl border border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]">
+              <div className="h-[1500px] overflow-hidden rounded-2xl border border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]">
                 <ReactFlow
                   nodes={nodes}
                   edges={edges}
                   nodeTypes={nodeTypes}
                   fitView
-                  fitViewOptions={{ padding: 0.2 }}
+                  fitViewOptions={{ padding: 0.18 }}
                   defaultEdgeOptions={{
                     markerEnd: { type: MarkerType.ArrowClosed },
                     style: { strokeWidth: 2, stroke: "#C084FC" },
