@@ -46,8 +46,8 @@ export const navigations: NavigationItem[] = [
         href: "/portfolio/in-depth",
       },
       {
-        name: "Wallet Flow / Structure",
-        href: "/portfolio/wallet-flow",
+        name: "Strategy Flow / Structure",
+        href: "/portfolio/strategy-flow",
       },
       {
         name: "Accounts",
@@ -86,8 +86,8 @@ export const navigations: NavigationItem[] = [
   },
   {
     icon: SlidersHorizontal,
-    name: "Thresholds",
-    href: "/thresholds",
+    name: "Command Center",
+    href: "/commandc",
   },
   {
     icon: Settings,
