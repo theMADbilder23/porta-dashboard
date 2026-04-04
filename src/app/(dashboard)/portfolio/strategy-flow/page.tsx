@@ -83,7 +83,7 @@ type FlowCardData = {
   meta?: string;
   secondary?: string;
   tertiary?: string;
-  tone?: "root" | "tier_0" | "tier_1" | "tier_2" | "bucket" | "subclass" | "wallet";
+  tone?: "root" | "tier_0" | "tier_1" | "tier_2" | "bucket" | "subclass" | "wallet" | "label";
   width?: number;
   minHeight?: number;
   warning?: boolean;
@@ -257,6 +257,14 @@ function getToneClasses(
   pulse?: boolean,
   emphasis?: FlowCardData["emphasis"]
 ) {
+  if (tone === "label") {
+    return {
+      shell:
+        "border-transparent bg-transparent shadow-none",
+      badge: "",
+    };
+  }
+
   const emphasisShadow =
     emphasis === "high"
       ? "shadow-[0_8px_24px_rgba(124,58,237,0.18)]"
@@ -364,6 +372,21 @@ function getEmphasis(
 }
 
 function FlowCardNode({ data }: NodeProps<FlowCardData>) {
+  if (data.tone === "label") {
+    return (
+      <div className="rounded-xl bg-white/80 px-3 py-2 text-center shadow-sm dark:bg-[#100A19]/80">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+          {data.title}
+        </p>
+        {data.subtitle ? (
+          <p className="mt-1 text-[10px] text-[#6B5A86] dark:text-[#BFA9F5]">
+            {data.subtitle}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
   const tone = getToneClasses(data.tone, data.warning, data.pulse, data.emphasis);
 
   return (
@@ -455,18 +478,18 @@ function buildTreeElements(
     return { nodes, edges };
   }
 
-  const ROOT_X = 820;
+  const ROOT_X = 860;
   const ROOT_Y = 40;
-  const TIER_Y_START = 280;
-  const TIER_Y_GAP = 620;
-  const BUCKET_Y_OFFSET = 250;
-  const SUBCLASS_Y_OFFSET = 470;
-  const WALLET_Y_OFFSET = 470;
-  const BUCKET_X_GAP = 620;
-  const SUBCLASS_X_OFFSET = 330;
-  const WALLET_X_OFFSET = 380;
-  const SUBCLASS_Y_GAP = 175;
-  const WALLET_Y_GAP = 175;
+  const TIER_Y_START = 300;
+  const TIER_Y_GAP = 700;
+  const BUCKET_Y_OFFSET = 280;
+  const SUBCLASS_Y_OFFSET = 540;
+  const WALLET_Y_OFFSET = 540;
+  const BUCKET_X_GAP = 720;
+  const SUBCLASS_X_OFFSET = 380;
+  const WALLET_X_OFFSET = 520;
+  const SUBCLASS_Y_GAP = 190;
+  const WALLET_Y_GAP = 190;
 
   nodes.push({
     id: "root",
@@ -484,6 +507,21 @@ function buildTreeElements(
       emphasis: "high",
     },
     draggable: true,
+  });
+
+  nodes.push({
+    id: "label-root-tier",
+    type: "flowCard",
+    position: { x: ROOT_X - 70, y: 185 },
+    data: {
+      title: "Foundation Routing",
+      subtitle: "Root capital staging into structural tiers",
+      tone: "label",
+      width: 180,
+      minHeight: 40,
+    },
+    draggable: false,
+    selectable: false,
   });
 
   structure.children.forEach((tier, tierIndex) => {
@@ -531,11 +569,32 @@ function buildTreeElements(
     const bucketCount = tier.children.length || 1;
     const bucketCenterOffset = ((bucketCount - 1) * BUCKET_X_GAP) / 2;
 
+    if (tier.children.length > 0) {
+      nodes.push({
+        id: `label-${tierId}-bucket`,
+        type: "flowCard",
+        position: { x: ROOT_X - 85, y: tierY + 165 },
+        data: {
+          title: "Strategic Bucket Allocation",
+          subtitle: "Tier capital distributed into MMII sleeves",
+          tone: "label",
+          width: 210,
+          minHeight: 42,
+        },
+        draggable: false,
+        selectable: false,
+      });
+    }
+
     tier.children.forEach((bucket, bucketIndex) => {
       const bucketId = `${tierId}-bucket-${bucket.key}`;
-      const bucketX = ROOT_X - bucketCenterOffset + bucketIndex * BUCKET_X_GAP;
+      let bucketX = ROOT_X - bucketCenterOffset + bucketIndex * BUCKET_X_GAP;
       const bucketY = tierY + BUCKET_Y_OFFSET;
       const bucketWarning = safeNumber(bucket.allocation_pct) >= 60;
+
+      if (bucket.key === "rotational_core") {
+        bucketX += 260;
+      }
 
       nodes.push({
         id: bucketId,
@@ -564,6 +623,23 @@ function buildTreeElements(
         markerEnd: { type: MarkerType.ArrowClosed },
         style: { strokeWidth: 3, stroke: tierEdgeColor },
       });
+
+      if (bucket.children.length > 0 || bucket.wallets.length > 0) {
+        nodes.push({
+          id: `label-${bucketId}-execution`,
+          type: "flowCard",
+          position: { x: bucketX - 40, y: bucketY + 165 },
+          data: {
+            title: "Execution Layer",
+            subtitle: "Subclass sleeves and wallet deployment",
+            tone: "label",
+            width: 180,
+            minHeight: 42,
+          },
+          draggable: false,
+          selectable: false,
+        });
+      }
 
       bucket.children.forEach((subclass, subclassIndex) => {
         const subclassId = `${bucketId}-subclass-${subclass.key}`;
@@ -851,12 +927,12 @@ export default function StrategyFlowPage() {
             </div>
 
             <div className="mt-5 rounded-2xl border border-dashed border-[#D8B4FE] bg-[#FCFAFF] p-3 dark:border-[#3B2A57] dark:bg-[#140D20]">
-              <div className="h-[1700px] overflow-hidden rounded-2xl border border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]">
+              <div className="h-[2100px] overflow-hidden rounded-2xl border border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]">
                 <ReactFlow
                   nodes={nodes}
                   edges={edges}
                   nodeTypes={nodeTypes}
-                  defaultViewport={{ x: -160, y: 0, zoom: 0.78 }}
+                  defaultViewport={{ x: -140, y: 0, zoom: 0.72 }}
                   minZoom={0.35}
                   maxZoom={1.5}
                   defaultEdgeOptions={{
