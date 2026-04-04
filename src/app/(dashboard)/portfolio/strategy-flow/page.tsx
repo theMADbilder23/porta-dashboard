@@ -76,6 +76,16 @@ type AlignmentTier = {
   status: "aligned" | "watch" | "warning";
 };
 
+type FlowCardTone =
+  | "root"
+  | "tier_0"
+  | "tier_1"
+  | "tier_2"
+  | "core_layer"
+  | "subclass"
+  | "wallet"
+  | "label";
+
 type FlowCardData = {
   title: string;
   subtitle?: string;
@@ -83,21 +93,28 @@ type FlowCardData = {
   meta?: string;
   secondary?: string;
   tertiary?: string;
-  tone?:
-    | "root"
-    | "tier_0"
-    | "tier_1"
-    | "tier_2"
-    | "core_layer"
-    | "subclass"
-    | "wallet"
-    | "label";
+  tone?: FlowCardTone;
   width?: number;
   minHeight?: number;
   warning?: boolean;
   pulse?: boolean;
   emphasis?: "high" | "medium" | "low";
 };
+
+type TierKey = "tier_0" | "tier_1" | "tier_2";
+
+type XY = {
+  x: number;
+  y: number;
+};
+
+type TierPositionMap = Record<TierKey, XY>;
+
+type CoreLayerPositionMap = Record<TierKey, Record<string, XY>>;
+
+function isTierKey(value: string): value is TierKey {
+  return value === "tier_0" || value === "tier_1" || value === "tier_2";
+}
 
 function safeNumber(value: number | null | undefined) {
   return Number.isFinite(Number(value)) ? Number(value) : 0;
@@ -149,26 +166,22 @@ function buildAlignmentTiers(structure?: StructureNode): AlignmentTier[] {
 
   const targets = getTierTargets();
 
-  return (structure.children ?? []).map((tier) => {
-    const targetPct =
-      tier.key === "tier_0"
-        ? targets.tier_0
-        : tier.key === "tier_1"
-          ? targets.tier_1
-          : targets.tier_2;
+  return (structure.children ?? [])
+    .filter((tier): tier is StructureNode & { key: TierKey } => isTierKey(tier.key))
+    .map((tier) => {
+      const targetPct = targets[tier.key];
+      const actualPct = safeNumber(tier.allocation_pct);
+      const deviationPct = actualPct - targetPct;
 
-    const actualPct = safeNumber(tier.allocation_pct);
-    const deviationPct = actualPct - targetPct;
-
-    return {
-      key: tier.key,
-      label: tier.label,
-      actual_pct: actualPct,
-      target_pct: targetPct,
-      deviation_pct: deviationPct,
-      status: getTierAlignmentStatus(deviationPct),
-    };
-  });
+      return {
+        key: tier.key,
+        label: tier.label,
+        actual_pct: actualPct,
+        target_pct: targetPct,
+        deviation_pct: deviationPct,
+        status: getTierAlignmentStatus(deviationPct),
+      };
+    });
 }
 
 function computeAlignmentScore(alignmentTiers: AlignmentTier[]) {
@@ -219,13 +232,13 @@ function getTierAlignmentMap(alignmentTiers: AlignmentTier[]) {
   return new Map(alignmentTiers.map((tier) => [tier.key, tier]));
 }
 
-function getTierTone(tierKey: string): FlowCardData["tone"] {
+function getTierTone(tierKey: TierKey): FlowCardTone {
   if (tierKey === "tier_0") return "tier_0";
   if (tierKey === "tier_1") return "tier_1";
   return "tier_2";
 }
 
-function getTierEdgeColor(tierKey: string) {
+function getTierEdgeColor(tierKey: TierKey) {
   if (tierKey === "tier_0") return "#22C55E";
   if (tierKey === "tier_1") return "#A855F7";
   return "#3B82F6";
@@ -483,7 +496,7 @@ function buildTreeElements(
   const rootX = 1080;
   const rootY = 40;
 
-  const tierPositions = {
+  const tierPositions: TierPositionMap = {
     tier_0: { x: 1080, y: 300 },
     tier_1: { x: 520, y: 820 },
     tier_2: { x: 1640, y: 820 },
@@ -523,18 +536,17 @@ function buildTreeElements(
   });
 
   const tiersByKey = new Map((structure.children ?? []).map((tier) => [tier.key, tier]));
-
   const tier0 = tiersByKey.get("tier_0");
   const tier1 = tiersByKey.get("tier_1");
   const tier2 = tiersByKey.get("tier_2");
 
   const tierRenderOrder = [tier0, tier1, tier2].filter(
-    (tier): tier is StructureNode => Boolean(tier)
+    (tier): tier is StructureNode & { key: TierKey } => Boolean(tier && isTierKey(tier.key))
   );
 
   for (const tier of tierRenderOrder) {
     const tierId = `tier-${tier.key}`;
-    const tierPosition = tierPositions[tier.key] || { x: rootX, y: 300 };
+    const tierPosition = tierPositions[tier.key];
     const tierAlignment = alignmentMap?.get(tier.key);
     const tierTone = getTierTone(tier.key);
     const tierEdgeColor = getTierEdgeColor(tier.key);
@@ -586,7 +598,7 @@ function buildTreeElements(
     }
   }
 
-  const tierCoreLayerPositions = {
+  const tierCoreLayerPositions: CoreLayerPositionMap = {
     tier_0: {
       stable_core: { x: 1080, y: 620 },
     },
@@ -603,15 +615,15 @@ function buildTreeElements(
   for (const tier of tierRenderOrder) {
     const tierId = `tier-${tier.key}`;
     const tierEdgeColor = getTierEdgeColor(tier.key);
-    const layerPositions = tierCoreLayerPositions[tier.key] || {};
+    const layerPositions = tierCoreLayerPositions[tier.key];
 
     if (tier.children.length > 0) {
       nodes.push({
         id: `label-${tierId}-corelayer`,
         type: "flowCard",
         position: {
-          x: (tierPositions[tier.key]?.x || rootX) - 90,
-          y: (tierPositions[tier.key]?.y || 300) + 180,
+          x: tierPositions[tier.key].x - 90,
+          y: tierPositions[tier.key].y + 180,
         },
         data: {
           title:
@@ -637,11 +649,10 @@ function buildTreeElements(
 
     for (const coreLayer of tier.children) {
       const coreLayerId = `${tierId}-core-${coreLayer.key}`;
-      const position =
-        layerPositions[coreLayer.key] || {
-          x: (tierPositions[tier.key]?.x || rootX) + 120,
-          y: (tierPositions[tier.key]?.y || 300) + 300,
-        };
+      const position = layerPositions[coreLayer.key] ?? {
+        x: tierPositions[tier.key].x + 120,
+        y: tierPositions[tier.key].y + 300,
+      };
 
       const coreWarning = safeNumber(coreLayer.allocation_pct) >= 60;
 
