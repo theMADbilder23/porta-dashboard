@@ -341,6 +341,9 @@ function makeTrendBucketLabel(bucketKey, timeframe) {
   return bucketKey;
 }
 
+/**
+ * Kept exported for compatibility/debugging, but NOT used by the daily master DYF path.
+ */
 function buildRawDailySnapshotSeries(snapshots) {
   const ordered = [...(snapshots || [])].sort(
     (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
@@ -374,6 +377,9 @@ function buildRawDailySnapshotSeries(snapshots) {
   return series;
 }
 
+/**
+ * Kept exported for compatibility/debugging, but NOT used by the daily master DYF path.
+ */
 function splitRawDailySnapshotsForWindow(rawSeries, timeframeStartIso) {
   const startMs = new Date(timeframeStartIso).getTime();
 
@@ -472,18 +478,13 @@ function detectDailyRolloverMeta(bucketTotals, thresholds = {}) {
 function buildDailySummary(snapshots, timeframeStartIso, thresholds = {}) {
   const fullBucketSeries = buildBucketTotals(snapshots, "daily");
   const currentTotals = buildLatestCurrentTotals(snapshots);
-  const { displayBuckets } = splitDailyBucketSeriesForWindow(
+
+  const { contextBuckets, displayBuckets } = splitDailyBucketSeriesForWindow(
     fullBucketSeries,
     timeframeStartIso
   );
 
-  const rawDailySeries = buildRawDailySnapshotSeries(snapshots);
-  const { contextSnapshots } = splitRawDailySnapshotsForWindow(
-    rawDailySeries,
-    timeframeStartIso
-  );
-
-  const rolloverMeta = detectDailyRolloverMeta(contextSnapshots, thresholds);
+  const rolloverMeta = detectDailyRolloverMeta(contextBuckets, thresholds);
 
   const portfolioValues = displayBuckets.map((row) =>
     safeNumber(row.total_value_usd)
@@ -525,16 +526,23 @@ function buildDailySummary(snapshots, timeframeStartIso, thresholds = {}) {
       currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
       effectiveRolloverMeta = rolloverMeta;
     } else {
-      minClaimable = safeNumber(claimableValues[0] ?? 0);
+      const firstDisplayClaimable = safeNumber(claimableValues[0] ?? 0);
+      minClaimable = firstDisplayClaimable;
       maxClaimable = getMax(claimableValues);
       avgClaimable = getAverage(claimableValues);
       currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
     }
   } else if (claimableValues.length > 0) {
-    minClaimable = safeNumber(claimableValues[0]);
+    const firstDisplayClaimable = safeNumber(claimableValues[0] ?? 0);
+    minClaimable = firstDisplayClaimable;
     maxClaimable = getMax(claimableValues);
     avgClaimable = getAverage(claimableValues);
     currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
+  } else {
+    minClaimable = 0;
+    maxClaimable = 0;
+    avgClaimable = 0;
+    currentYieldFlow = 0;
   }
 
   return {
@@ -561,8 +569,8 @@ function buildDailySummary(snapshots, timeframeStartIso, thresholds = {}) {
       maxClaimable
     ),
     range_current_to_max_total_claimable_pct: getPctChange(
-      maxClaimable,
-      minClaimable
+      currentTotals.total_claimable_usd,
+      maxClaimable
     ),
     snapshot_count: displayBuckets.length,
     daily_rollover_debug: {
@@ -579,7 +587,7 @@ function buildDailySummary(snapshots, timeframeStartIso, thresholds = {}) {
       max_post_rollover_claimable_usd: maxClaimable,
       avg_post_rollover_claimable_usd: avgClaimable,
       effective_daily_current_usd: currentYieldFlow,
-      raw_context_snapshot_count: contextSnapshots.length,
+      context_bucket_count: contextBuckets.length,
       display_bucket_count: displayBuckets.length,
     },
   };
