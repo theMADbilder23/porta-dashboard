@@ -134,25 +134,38 @@ function shouldTreatAsClaimableAnomaly({
 }) {
   if (!priorValidRow) return false;
 
-  const priorClaimable = safeNumber(priorValidRow.total_claimable_usd);
-  const currentClaimable = safeNumber(currentClaimableUsd);
+  const prior = safeNumber(priorValidRow.total_claimable_usd);
+  const current = safeNumber(currentClaimableUsd);
 
-  if (priorClaimable <= 0 || currentClaimable <= 0) return false;
+  if (prior <= 0 || current <= 0) return false;
 
-  const ratio = currentClaimable / priorClaimable;
+  const ratio = current / prior;
 
-  const rolloverDetected = Boolean(summary?.daily_rollover_debug?.detected);
-  const pendingResetDetected = Boolean(
-    summary?.daily_rollover_debug?.pending_reset_detected
-  );
-  const claimableResetDetected = Boolean(
-    summary?.daily_rollover_debug?.claimable_reset_detected
+  const resetBaseline = safeNumber(
+    summary?.daily_rollover_debug?.reset_baseline_claimable_usd
   );
 
-  const hasConfirmedResetSignal =
-    rolloverDetected && (pendingResetDetected || claimableResetDetected);
+  const rolloverDetected = Boolean(
+    summary?.daily_rollover_debug?.detected
+  );
 
-  return ratio < CLAIMABLE_DROP_RATIO_THRESHOLD && !hasConfirmedResetSignal;
+  /**
+   * REAL RESET REQUIREMENTS:
+   * - rollover detected
+   * - AND reset baseline is meaningful (>20% of prior)
+   */
+  const isRealReset =
+    rolloverDetected &&
+    resetBaseline > prior * 0.2;
+
+  /**
+   * ANOMALY:
+   * - massive drop
+   * - but NOT a real reset
+   */
+  const isMassiveDrop = ratio < 0.2;
+
+  return isMassiveDrop && !isRealReset;
 }
 
 function buildStoredRow({
