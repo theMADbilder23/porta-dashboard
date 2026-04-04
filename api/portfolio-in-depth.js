@@ -1,11 +1,6 @@
 const { createClient } = require("@supabase/supabase-js");
 const {
   safeNumber,
-  getTimeframeStart,
-  buildLatestPerWallet,
-  buildBucketTotals,
-  splitDailyBucketTotalsForWindow,
-  buildDailySummary,
   getAverageValue,
   getMinValue,
   getMaxValue,
@@ -78,6 +73,14 @@ function getStartDateIso(timeframe) {
   return start.toISOString().split("T")[0];
 }
 
+function getIntradayStartIso() {
+  const now = new Date();
+
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
+  ).toISOString();
+}
+
 function formatMetricDateLabel(metricDate, timeframe) {
   const date = new Date(`${metricDate}T00:00:00Z`);
 
@@ -101,8 +104,8 @@ function formatMetricDateLabel(metricDate, timeframe) {
   });
 }
 
-function formatDailyBucketLabel(snapshotTime) {
-  const date = new Date(snapshotTime);
+function formatDailyBucketLabel(metricTime) {
+  const date = new Date(metricTime);
 
   if (!Number.isFinite(date.getTime())) return "—";
 
@@ -130,7 +133,23 @@ function buildStoredTrend(rows, timeframe) {
   }));
 }
 
-function buildStoredSummary(rows) {
+function buildIntradayTrend(rows) {
+  return rows.map((row) => ({
+    metric_date: row.metric_date,
+    metric_time: row.metric_time,
+    label: formatDailyBucketLabel(row.metric_time),
+    total_portfolio_value: safeNumber(row.total_portfolio_value),
+    total_claimable_usd: safeNumber(row.total_claimable_usd),
+    total_daily_yield_flow: safeNumber(row.total_daily_yield_flow),
+    min_claimable_usd: safeNumber(row.min_claimable_usd),
+    avg_claimable_usd: safeNumber(row.avg_claimable_usd),
+    max_claimable_usd: safeNumber(row.max_claimable_usd),
+    yield_tvd_ratio: safeNumber(row.yield_tvd_ratio),
+    debug_json: row.debug_json || null,
+  }));
+}
+
+function buildSummary(rows, { intraday = false } = {}) {
   if (!rows.length) {
     return {
       current: {
@@ -183,7 +202,7 @@ function buildStoredSummary(rows) {
   return {
     current: {
       metric_date: latest.metric_date,
-      metric_time: null,
+      metric_time: intraday ? latest.metric_time : null,
       total_portfolio_value: safeNumber(latest.total_portfolio_value),
       total_claimable_usd: safeNumber(latest.total_claimable_usd),
       total_daily_yield_flow: safeNumber(latest.total_daily_yield_flow),
@@ -216,114 +235,7 @@ function buildStoredSummary(rows) {
   };
 }
 
-function buildDailyTrendFromBuckets(displayBuckets, dailySummary) {
-  return displayBuckets.map((bucket) => ({
-    metric_date: bucket.snapshot_time.slice(0, 10),
-    metric_time: bucket.snapshot_time,
-    label: formatDailyBucketLabel(bucket.snapshot_time),
-    total_portfolio_value: safeNumber(bucket.total_value_usd),
-    total_claimable_usd: safeNumber(bucket.total_claimable_usd),
-    total_daily_yield_flow: safeNumber(dailySummary.current_yield_flow_usd),
-    min_claimable_usd: safeNumber(dailySummary.min_total_claimable_usd),
-    avg_claimable_usd: safeNumber(dailySummary.avg_total_claimable_usd),
-    max_claimable_usd: safeNumber(dailySummary.max_total_claimable_usd),
-    yield_tvd_ratio: 0,
-    debug_json: {
-      bucket_key: bucket.bucket_key,
-      bucket_snapshot_time: bucket.snapshot_time,
-      bucket_total_pending_usd: safeNumber(bucket.total_pending_usd),
-      daily_rollover_debug: dailySummary.daily_rollover_debug || null,
-    },
-  }));
-}
-
-function buildDailySummaryResponse(trend) {
-  if (!trend.length) {
-    return {
-      current: {
-        metric_date: null,
-        metric_time: null,
-        total_portfolio_value: 0,
-        total_claimable_usd: 0,
-        total_daily_yield_flow: 0,
-        min_claimable_usd: 0,
-        avg_claimable_usd: 0,
-        max_claimable_usd: 0,
-        yield_tvd_ratio: 0,
-      },
-      historical: {
-        avg_portfolio_value: 0,
-        min_portfolio_value: 0,
-        max_portfolio_value: 0,
-        avg_claimable_usd: 0,
-        min_claimable_usd: 0,
-        max_claimable_usd: 0,
-        avg_daily_yield_flow: 0,
-        min_daily_yield_flow: 0,
-        max_daily_yield_flow: 0,
-        avg_yield_tvd_ratio: 0,
-        min_yield_tvd_ratio: 0,
-        max_yield_tvd_ratio: 0,
-        range_portfolio_pct: 0,
-        range_claimable_pct: 0,
-        range_daily_yield_pct: 0,
-      },
-    };
-  }
-
-  const latest = trend[trend.length - 1];
-
-  const portfolioValues = trend.map((row) => safeNumber(row.total_portfolio_value));
-  const claimableValues = trend.map((row) => safeNumber(row.total_claimable_usd));
-  const dailyYieldValues = trend.map((row) => safeNumber(row.total_daily_yield_flow));
-  const yieldTvdRatios = trend.map((row) => safeNumber(row.yield_tvd_ratio));
-
-  const minPortfolioValue = getMinValue(portfolioValues);
-  const maxPortfolioValue = getMaxValue(portfolioValues);
-
-  const minClaimableUsd = getMinValue(claimableValues);
-  const maxClaimableUsd = getMaxValue(claimableValues);
-
-  const minDailyYieldFlow = getMinValue(dailyYieldValues);
-  const maxDailyYieldFlow = getMaxValue(dailyYieldValues);
-
-  return {
-    current: {
-      metric_date: latest.metric_date,
-      metric_time: latest.metric_time,
-      total_portfolio_value: safeNumber(latest.total_portfolio_value),
-      total_claimable_usd: safeNumber(latest.total_claimable_usd),
-      total_daily_yield_flow: safeNumber(latest.total_daily_yield_flow),
-      min_claimable_usd: safeNumber(latest.min_claimable_usd),
-      avg_claimable_usd: safeNumber(latest.avg_claimable_usd),
-      max_claimable_usd: safeNumber(latest.max_claimable_usd),
-      yield_tvd_ratio: safeNumber(latest.yield_tvd_ratio),
-    },
-    historical: {
-      avg_portfolio_value: getAverageValue(portfolioValues),
-      min_portfolio_value: minPortfolioValue,
-      max_portfolio_value: maxPortfolioValue,
-
-      avg_claimable_usd: getAverageValue(claimableValues),
-      min_claimable_usd: minClaimableUsd,
-      max_claimable_usd: maxClaimableUsd,
-
-      avg_daily_yield_flow: getAverageValue(dailyYieldValues),
-      min_daily_yield_flow: minDailyYieldFlow,
-      max_daily_yield_flow: maxDailyYieldFlow,
-
-      avg_yield_tvd_ratio: getAverageValue(yieldTvdRatios),
-      min_yield_tvd_ratio: getMinValue(yieldTvdRatios),
-      max_yield_tvd_ratio: getMaxValue(yieldTvdRatios),
-
-      range_portfolio_pct: getPctChange(minPortfolioValue, maxPortfolioValue),
-      range_claimable_pct: getPctChange(minClaimableUsd, maxClaimableUsd),
-      range_daily_yield_pct: getPctChange(minDailyYieldFlow, maxDailyYieldFlow),
-    },
-  };
-}
-
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -332,89 +244,46 @@ export default async function handler(req, res) {
     const timeframe = normalizeTimeframe(req.query.timeframe);
 
     if (timeframe === "daily") {
-      const timeframeStartIso = getTimeframeStart("daily").toISOString();
+      const intradayStartIso = getIntradayStartIso();
 
-      const { data: wallets, error: walletsError } = await supabase
-        .from("Wallets")
-        .select("id, is_active")
-        .eq("is_active", true);
+      const { data, error } = await supabase
+        .from("intraday_metric_snapshots")
+        .select("*")
+        .gte("metric_time", intradayStartIso)
+        .order("metric_time", { ascending: true });
 
-      if (walletsError) {
-        console.error("[portfolio-in-depth] wallets fetch error", walletsError);
-        return res.status(500).json({ error: "Failed to load active wallets" });
+      if (error) {
+        console.error("[portfolio-in-depth] intraday fetch error", error);
+        return res.status(500).json({ error: "Failed to load intraday portfolio metrics" });
       }
 
-      const walletIds = Array.isArray(wallets) ? wallets.map((wallet) => wallet.id) : [];
+      const rows = Array.isArray(data) ? data : [];
 
-      if (!walletIds.length) {
+      if (!rows.length) {
         return res.status(200).json({
           timeframe,
           metric_label: "Portfolio In-Depth",
           sufficient_data: false,
           minimum_required_rows: 1,
           actual_rows: 0,
-          summary: buildDailySummaryResponse([]),
+          summary: buildSummary([], { intraday: true }),
           trend: [],
           rows: [],
         });
       }
 
-      const { data: snapshots, error: snapshotsError } = await supabase
-        .from("wallet_snapshots")
-        .select(`
-          id,
-          wallet_id,
-          total_value_usd,
-          total_claimable_usd,
-          total_claimed_usd,
-          total_pending_usd,
-          snapshot_time
-        `)
-        .in("wallet_id", walletIds)
-        .gte(
-          "snapshot_time",
-          new Date(new Date(timeframeStartIso).getTime() - 48 * 60 * 60 * 1000).toISOString()
-        )
-        .order("snapshot_time", { ascending: true });
-
-      if (snapshotsError) {
-        console.error("[portfolio-in-depth] daily snapshots fetch error", snapshotsError);
-        return res.status(500).json({ error: "Failed to load daily snapshot data" });
-      }
-
-      const allSnapshots = Array.isArray(snapshots) ? snapshots : [];
-      const bucketTotals = buildBucketTotals(allSnapshots, "daily");
-      const { displayBuckets } = splitDailyBucketTotalsForWindow(
-        bucketTotals,
-        timeframeStartIso
-      );
-
-      if (!displayBuckets.length) {
-        return res.status(200).json({
-          timeframe,
-          metric_label: "Portfolio In-Depth",
-          sufficient_data: false,
-          minimum_required_rows: 1,
-          actual_rows: 0,
-          summary: buildDailySummaryResponse([]),
-          trend: [],
-          rows: [],
-        });
-      }
-
-      const dailySummary = buildDailySummary(allSnapshots, timeframeStartIso);
-      const trend = buildDailyTrendFromBuckets(displayBuckets, dailySummary);
-      const summary = buildDailySummaryResponse(trend);
+      const trend = buildIntradayTrend(rows);
+      const summary = buildSummary(rows, { intraday: true });
 
       return res.status(200).json({
         timeframe,
         metric_label: "Portfolio In-Depth",
         sufficient_data: true,
         minimum_required_rows: 1,
-        actual_rows: trend.length,
+        actual_rows: rows.length,
         summary,
         trend,
-        rows: trend,
+        rows,
       });
     }
 
@@ -428,7 +297,7 @@ export default async function handler(req, res) {
       .order("metric_date", { ascending: true });
 
     if (error) {
-      console.error("[portfolio-in-depth] fetch error", error);
+      console.error("[portfolio-in-depth] daily_metric_snapshots fetch error", error);
       return res.status(500).json({ error: "Failed to load portfolio in-depth metrics" });
     }
 
@@ -441,14 +310,14 @@ export default async function handler(req, res) {
         sufficient_data: false,
         minimum_required_rows: minimumRequiredRows,
         actual_rows: rows.length,
-        summary: buildStoredSummary([]),
+        summary: buildSummary([], { intraday: false }),
         trend: [],
         rows: [],
       });
     }
 
-    const summary = buildStoredSummary(rows);
     const trend = buildStoredTrend(rows, timeframe);
+    const summary = buildSummary(rows, { intraday: false });
 
     return res.status(200).json({
       timeframe,
@@ -462,6 +331,9 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error("[portfolio-in-depth] unexpected error", error);
-    return res.status(500).json({ error: "Unexpected server error" });
+    return res.status(500).json({
+      error: "Unexpected server error",
+      details: error?.message || "Unknown error",
+    });
   }
-}
+};
