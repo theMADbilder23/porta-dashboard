@@ -22,8 +22,8 @@ type WalletNode = {
   wallet_type: string;
   network_group: string;
   status: string;
-  bucket_key: string;
-  bucket_label: string;
+  core_layer_key: string;
+  core_layer_label: string;
   tier_key: string;
   total_value_usd: number;
   snapshot_time: string | null;
@@ -39,7 +39,7 @@ type ExampleHolding = {
 type StructureNode = {
   key: string;
   label: string;
-  type: "root" | "tier" | "bucket" | "subclass";
+  type: "root" | "tier" | "core_layer" | "subclass";
   description: string;
   total_value_usd: number;
   allocation_pct: number;
@@ -83,7 +83,15 @@ type FlowCardData = {
   meta?: string;
   secondary?: string;
   tertiary?: string;
-  tone?: "root" | "tier_0" | "tier_1" | "tier_2" | "bucket" | "subclass" | "wallet" | "label";
+  tone?:
+    | "root"
+    | "tier_0"
+    | "tier_1"
+    | "tier_2"
+    | "core_layer"
+    | "subclass"
+    | "wallet"
+    | "label";
   width?: number;
   minHeight?: number;
   warning?: boolean;
@@ -182,17 +190,13 @@ function getAlignmentHeadline(score: number) {
 }
 
 function getAlignmentInsight(alignmentTiers: AlignmentTier[]) {
-  if (!alignmentTiers.length) {
-    return "No tier alignment data available yet.";
-  }
+  if (!alignmentTiers.length) return "No tier alignment data available yet.";
 
   const mostDrifted = [...alignmentTiers].sort(
     (a, b) => Math.abs(b.deviation_pct) - Math.abs(a.deviation_pct)
   )[0];
 
-  if (!mostDrifted) {
-    return "MMII structure appears neutral.";
-  }
+  if (!mostDrifted) return "MMII structure appears neutral.";
 
   const deviation = safeNumber(mostDrifted.deviation_pct);
 
@@ -259,8 +263,7 @@ function getToneClasses(
 ) {
   if (tone === "label") {
     return {
-      shell:
-        "border-transparent bg-transparent shadow-none",
+      shell: "border-transparent bg-transparent shadow-none",
       badge: "",
     };
   }
@@ -299,7 +302,7 @@ function getToneClasses(
         shell: `border-[#BFDBFE] bg-[#F8FBFF] dark:border-[#294A78] dark:bg-[#101722] ${glow}`,
         badge: "bg-[#DBEAFE] text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]",
       };
-    case "bucket":
+    case "core_layer":
       return {
         shell: `border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19] ${glow}`,
         badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
@@ -319,7 +322,7 @@ function getToneClasses(
 }
 
 function computeNodeWidth(
-  level: "root" | "tier" | "bucket" | "subclass" | "wallet",
+  level: "root" | "tier" | "core_layer" | "subclass" | "wallet",
   allocationPct: number
 ) {
   const pct = safeNumber(allocationPct);
@@ -328,19 +331,19 @@ function computeNodeWidth(
     case "root":
       return 360;
     case "tier":
-      return clamp(280 + pct * 3.8, 280, 560);
-    case "bucket":
-      return clamp(230 + pct * 3.0, 230, 480);
+      return clamp(290 + pct * 3.4, 290, 540);
+    case "core_layer":
+      return clamp(250 + pct * 2.8, 250, 470);
     case "subclass":
-      return clamp(205 + pct * 1.8, 205, 340);
+      return clamp(210 + pct * 1.7, 210, 340);
     case "wallet":
     default:
-      return clamp(205 + pct * 1.7, 205, 340);
+      return clamp(210 + pct * 1.5, 210, 330);
   }
 }
 
 function computeMinHeight(
-  level: "root" | "tier" | "bucket" | "subclass" | "wallet",
+  level: "root" | "tier" | "core_layer" | "subclass" | "wallet",
   allocationPct: number
 ) {
   const pct = safeNumber(allocationPct);
@@ -349,23 +352,22 @@ function computeMinHeight(
     case "root":
       return 145;
     case "tier":
-      return clamp(125 + pct * 0.9, 125, 200);
-    case "bucket":
-      return clamp(110 + pct * 0.65, 110, 175);
+      return clamp(128 + pct * 0.8, 128, 190);
+    case "core_layer":
+      return clamp(112 + pct * 0.55, 112, 165);
     case "subclass":
-      return clamp(96 + pct * 0.28, 96, 135);
+      return clamp(96 + pct * 0.24, 96, 132);
     case "wallet":
     default:
-      return clamp(94 + pct * 0.25, 94, 132);
+      return clamp(94 + pct * 0.22, 94, 128);
   }
 }
 
 function getEmphasis(
-  level: "root" | "tier" | "bucket" | "subclass" | "wallet",
+  level: "root" | "tier" | "core_layer" | "subclass" | "wallet",
   allocationPct: number
 ): FlowCardData["emphasis"] {
   if (level === "root") return "high";
-
   if (allocationPct >= 40) return "high";
   if (allocationPct >= 12) return "medium";
   return "low";
@@ -478,23 +480,19 @@ function buildTreeElements(
     return { nodes, edges };
   }
 
-  const ROOT_X = 860;
-  const ROOT_Y = 40;
-  const TIER_Y_START = 300;
-  const TIER_Y_GAP = 700;
-  const BUCKET_Y_OFFSET = 280;
-  const SUBCLASS_Y_OFFSET = 540;
-  const WALLET_Y_OFFSET = 540;
-  const BUCKET_X_GAP = 720;
-  const SUBCLASS_X_OFFSET = 380;
-  const WALLET_X_OFFSET = 520;
-  const SUBCLASS_Y_GAP = 190;
-  const WALLET_Y_GAP = 190;
+  const rootX = 1080;
+  const rootY = 40;
+
+  const tierPositions = {
+    tier_0: { x: 1080, y: 300 },
+    tier_1: { x: 520, y: 820 },
+    tier_2: { x: 1640, y: 820 },
+  };
 
   nodes.push({
     id: "root",
     type: "flowCard",
-    position: { x: ROOT_X, y: ROOT_Y },
+    position: { x: rootX, y: rootY },
     data: {
       title: structure.label,
       value: formatCurrency(structure.total_value_usd),
@@ -512,7 +510,7 @@ function buildTreeElements(
   nodes.push({
     id: "label-root-tier",
     type: "flowCard",
-    position: { x: ROOT_X - 70, y: 185 },
+    position: { x: rootX - 70, y: 185 },
     data: {
       title: "Foundation Routing",
       subtitle: "Root capital staging into structural tiers",
@@ -524,9 +522,17 @@ function buildTreeElements(
     selectable: false,
   });
 
-  structure.children.forEach((tier, tierIndex) => {
+  const tiersByKey = new Map((structure.children ?? []).map((tier) => [tier.key, tier]));
+
+  const tier0 = tiersByKey.get("tier_0");
+  const tier1 = tiersByKey.get("tier_1");
+  const tier2 = tiersByKey.get("tier_2");
+
+  const tierRenderOrder = [tier0, tier1, tier2].filter(Boolean);
+
+  for (const tier of tierRenderOrder) {
     const tierId = `tier-${tier.key}`;
-    const tierY = TIER_Y_START + tierIndex * TIER_Y_GAP;
+    const tierPosition = tierPositions[tier.key] || { x: rootX, y: 300 };
     const tierAlignment = alignmentMap?.get(tier.key);
     const tierTone = getTierTone(tier.key);
     const tierEdgeColor = getTierEdgeColor(tier.key);
@@ -535,7 +541,7 @@ function buildTreeElements(
     nodes.push({
       id: tierId,
       type: "flowCard",
-      position: { x: ROOT_X, y: tierY },
+      position: tierPosition,
       data: {
         title: tier.label,
         value: formatCurrency(tier.total_value_usd),
@@ -557,26 +563,67 @@ function buildTreeElements(
       draggable: true,
     });
 
-    edges.push({
-      id: `edge-root-${tierId}`,
-      source: "root",
-      target: tierId,
-      animated: true,
-      markerEnd: { type: MarkerType.ArrowClosed },
-      style: { strokeWidth: 4, stroke: tierEdgeColor },
-    });
+    if (tier.key === "tier_0") {
+      edges.push({
+        id: `edge-root-${tierId}`,
+        source: "root",
+        target: tierId,
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed },
+        style: { strokeWidth: 4, stroke: tierEdgeColor },
+      });
+    } else {
+      edges.push({
+        id: `edge-tier0-${tierId}`,
+        source: "tier-tier_0",
+        target: tierId,
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed },
+        style: { strokeWidth: 4, stroke: tierEdgeColor },
+      });
+    }
+  }
 
-    const bucketCount = tier.children.length || 1;
-    const bucketCenterOffset = ((bucketCount - 1) * BUCKET_X_GAP) / 2;
+  const tierCoreLayerPositions = {
+    tier_0: {
+      stable_core: { x: 1080, y: 620 },
+    },
+    tier_1: {
+      rotational_core: { x: 330, y: 1120 },
+    },
+    tier_2: {
+      rotational_anchors: { x: 1350, y: 1120 },
+      growth: { x: 1700, y: 1120 },
+      swing: { x: 2050, y: 1120 },
+    },
+  };
+
+  for (const tier of tierRenderOrder) {
+    const tierId = `tier-${tier.key}`;
+    const tierEdgeColor = getTierEdgeColor(tier.key);
+    const layerPositions = tierCoreLayerPositions[tier.key] || {};
 
     if (tier.children.length > 0) {
       nodes.push({
-        id: `label-${tierId}-bucket`,
+        id: `label-${tierId}-corelayer`,
         type: "flowCard",
-        position: { x: ROOT_X - 85, y: tierY + 165 },
+        position: {
+          x: (tierPositions[tier.key]?.x || rootX) - 90,
+          y: (tierPositions[tier.key]?.y || 300) + 180,
+        },
         data: {
-          title: "Strategic Bucket Allocation",
-          subtitle: "Tier capital distributed into MMII sleeves",
+          title:
+            tier.key === "tier_0"
+              ? "Stable Core Routing"
+              : tier.key === "tier_1"
+                ? "Collateralized Yield Routing"
+                : "Direct Allocation Routing",
+          subtitle:
+            tier.key === "tier_0"
+              ? "Tier 0 into permanent yield base"
+              : tier.key === "tier_1"
+                ? "Tier 1 into rotational yield sleeves"
+                : "Tier 2 into growth, anchors, and swing",
           tone: "label",
           width: 210,
           minHeight: 42,
@@ -586,49 +633,49 @@ function buildTreeElements(
       });
     }
 
-    tier.children.forEach((bucket, bucketIndex) => {
-      const bucketId = `${tierId}-bucket-${bucket.key}`;
-      let bucketX = ROOT_X - bucketCenterOffset + bucketIndex * BUCKET_X_GAP;
-      const bucketY = tierY + BUCKET_Y_OFFSET;
-      const bucketWarning = safeNumber(bucket.allocation_pct) >= 60;
+    for (const coreLayer of tier.children) {
+      const coreLayerId = `${tierId}-core-${coreLayer.key}`;
+      const position =
+        layerPositions[coreLayer.key] || {
+          x: (tierPositions[tier.key]?.x || rootX) + 120,
+          y: (tierPositions[tier.key]?.y || 300) + 300,
+        };
 
-      if (bucket.key === "rotational_core") {
-        bucketX += 260;
-      }
+      const coreWarning = safeNumber(coreLayer.allocation_pct) >= 60;
 
       nodes.push({
-        id: bucketId,
+        id: coreLayerId,
         type: "flowCard",
-        position: { x: bucketX, y: bucketY },
+        position,
         data: {
-          title: bucket.label,
-          value: formatCompactCurrency(bucket.total_value_usd),
-          subtitle: `${bucket.wallet_count} wallets • ${bucket.holding_count} holdings`,
-          meta: formatPercent(bucket.allocation_pct),
-          secondary: `${formatPercent(bucket.allocation_pct)} of total structure`,
-          tone: "bucket",
-          width: computeNodeWidth("bucket", bucket.allocation_pct),
-          minHeight: computeMinHeight("bucket", bucket.allocation_pct),
-          warning: bucketWarning,
-          emphasis: getEmphasis("bucket", bucket.allocation_pct),
+          title: coreLayer.label,
+          value: formatCompactCurrency(coreLayer.total_value_usd),
+          subtitle: `${coreLayer.wallet_count} wallets • ${coreLayer.holding_count} holdings`,
+          meta: formatPercent(coreLayer.allocation_pct),
+          secondary: `${formatPercent(coreLayer.allocation_pct)} of total structure`,
+          tone: "core_layer",
+          width: computeNodeWidth("core_layer", coreLayer.allocation_pct),
+          minHeight: computeMinHeight("core_layer", coreLayer.allocation_pct),
+          warning: coreWarning,
+          emphasis: getEmphasis("core_layer", coreLayer.allocation_pct),
         },
         draggable: true,
       });
 
       edges.push({
-        id: `edge-${tierId}-${bucketId}`,
+        id: `edge-${tierId}-${coreLayerId}`,
         source: tierId,
-        target: bucketId,
+        target: coreLayerId,
         animated: true,
         markerEnd: { type: MarkerType.ArrowClosed },
         style: { strokeWidth: 3, stroke: tierEdgeColor },
       });
 
-      if (bucket.children.length > 0 || bucket.wallets.length > 0) {
+      if (coreLayer.children.length > 0 || coreLayer.wallets.length > 0) {
         nodes.push({
-          id: `label-${bucketId}-execution`,
+          id: `label-${coreLayerId}-execution`,
           type: "flowCard",
-          position: { x: bucketX - 40, y: bucketY + 165 },
+          position: { x: position.x - 50, y: position.y + 175 },
           data: {
             title: "Execution Layer",
             subtitle: "Subclass sleeves and wallet deployment",
@@ -641,14 +688,18 @@ function buildTreeElements(
         });
       }
 
-      bucket.children.forEach((subclass, subclassIndex) => {
-        const subclassId = `${bucketId}-subclass-${subclass.key}`;
-        const subclassX = bucketX - SUBCLASS_X_OFFSET;
-        const subclassY = bucketY + SUBCLASS_Y_OFFSET + subclassIndex * SUBCLASS_Y_GAP;
+      const subclassBaseX = position.x - 360;
+      const walletBaseX = position.x + 420;
+
+      coreLayer.children.forEach((subclass, subclassIndex) => {
+        const subclassId = `${coreLayerId}-subclass-${subclass.key}`;
+        const subclassX = subclassBaseX;
+        const subclassY = position.y + 260 + subclassIndex * 185;
 
         const pctOfParent =
-          bucket.total_value_usd > 0
-            ? (safeNumber(subclass.total_value_usd) / safeNumber(bucket.total_value_usd)) * 100
+          coreLayer.total_value_usd > 0
+            ? (safeNumber(subclass.total_value_usd) / safeNumber(coreLayer.total_value_usd)) *
+              100
             : 0;
 
         nodes.push({
@@ -660,7 +711,7 @@ function buildTreeElements(
             value: formatCompactCurrency(subclass.total_value_usd),
             subtitle: `${subclass.holding_count} holdings`,
             meta: formatPercent(subclass.allocation_pct),
-            secondary: `${formatPercent(pctOfParent)} of ${bucket.label}`,
+            secondary: `${formatPercent(pctOfParent)} of ${coreLayer.label}`,
             tone: "subclass",
             width: computeNodeWidth("subclass", subclass.allocation_pct),
             minHeight: computeMinHeight("subclass", subclass.allocation_pct),
@@ -670,8 +721,8 @@ function buildTreeElements(
         });
 
         edges.push({
-          id: `edge-${bucketId}-${subclassId}`,
-          source: bucketId,
+          id: `edge-${coreLayerId}-${subclassId}`,
+          source: coreLayerId,
           target: subclassId,
           animated: false,
           markerEnd: { type: MarkerType.ArrowClosed },
@@ -679,14 +730,23 @@ function buildTreeElements(
         });
       });
 
-      bucket.wallets.forEach((wallet, walletIndex) => {
-        const walletId = `${bucketId}-wallet-${wallet.wallet_id ?? wallet.wallet_name}-${walletIndex}`;
-        const walletX = bucketX + WALLET_X_OFFSET;
-        const walletY = bucketY + WALLET_Y_OFFSET + walletIndex * WALLET_Y_GAP;
+      coreLayer.wallets.forEach((wallet, walletIndex) => {
+        const walletId = `${coreLayerId}-wallet-${wallet.wallet_id ?? wallet.wallet_name}-${walletIndex}`;
+        const walletX =
+          coreLayer.key === "stable_core"
+            ? position.x + 360
+            : coreLayer.key === "rotational_core"
+              ? position.x + 360
+              : coreLayer.key === "growth"
+                ? walletBaseX
+                : coreLayer.key === "rotational_anchors"
+                  ? position.x + 330
+                  : position.x + 360;
+        const walletY = position.y + 230 + walletIndex * 185;
 
         const pctOfParent =
-          bucket.total_value_usd > 0
-            ? (safeNumber(wallet.total_value_usd) / safeNumber(bucket.total_value_usd)) * 100
+          coreLayer.total_value_usd > 0
+            ? (safeNumber(wallet.total_value_usd) / safeNumber(coreLayer.total_value_usd)) * 100
             : 0;
 
         const pctOfTotal =
@@ -703,7 +763,7 @@ function buildTreeElements(
             value: formatCompactCurrency(wallet.total_value_usd),
             subtitle: `${wallet.role} • ${wallet.network_group}`,
             meta: wallet.wallet_address_short,
-            secondary: `${formatPercent(pctOfParent)} of ${bucket.label}`,
+            secondary: `${formatPercent(pctOfParent)} of ${coreLayer.label}`,
             tertiary: `${formatPercent(pctOfTotal)} of total MMII`,
             tone: "wallet",
             width: computeNodeWidth("wallet", pctOfTotal),
@@ -714,16 +774,16 @@ function buildTreeElements(
         });
 
         edges.push({
-          id: `edge-${bucketId}-${walletId}`,
-          source: bucketId,
+          id: `edge-${coreLayerId}-${walletId}`,
+          source: coreLayerId,
           target: walletId,
           animated: false,
           markerEnd: { type: MarkerType.ArrowClosed },
           style: { strokeWidth: 2.2, stroke: "#60A5FA" },
         });
       });
-    });
-  });
+    }
+  }
 
   return { nodes, edges };
 }
@@ -809,9 +869,9 @@ export default function StrategyFlowPage() {
               Strategy Flow / Structure
             </h1>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-              Visual representation of the MMII strategy structure. This page is now
-              oriented around structural tiers, strategic buckets, subclass groupings,
-              wallet placement, and MMII alignment drift within the broader system.
+              Visual representation of the MMII strategy structure. This page maps
+              portfolio capital through MMII tiers, core layers, subclass sleeves,
+              wallet placement, and alignment drift.
             </p>
           </div>
 
@@ -920,20 +980,19 @@ export default function StrategyFlowPage() {
               </h2>
               <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
                 Interactive structure canvas of MMII. Pan, zoom, and inspect how
-                the strategy flows from the MMII root into tiers, buckets, subclasses,
-                and wallet nodes. Node scale now reflects portfolio weighting, and
-                warning glow highlights structural drift.
+                the strategy flows from the MMII root into tiers, core layers,
+                subclass sleeves, and wallet nodes.
               </p>
             </div>
 
             <div className="mt-5 rounded-2xl border border-dashed border-[#D8B4FE] bg-[#FCFAFF] p-3 dark:border-[#3B2A57] dark:bg-[#140D20]">
-              <div className="h-[2100px] overflow-hidden rounded-2xl border border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]">
+              <div className="h-[2500px] overflow-hidden rounded-2xl border border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]">
                 <ReactFlow
                   nodes={nodes}
                   edges={edges}
                   nodeTypes={nodeTypes}
-                  defaultViewport={{ x: -140, y: 0, zoom: 0.72 }}
-                  minZoom={0.35}
+                  defaultViewport={{ x: -180, y: 0, zoom: 0.62 }}
+                  minZoom={0.3}
                   maxZoom={1.5}
                   defaultEdgeOptions={{
                     markerEnd: { type: MarkerType.ArrowClosed },
