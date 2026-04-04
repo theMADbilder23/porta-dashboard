@@ -3,7 +3,6 @@ import {
   buildDailySummary,
   safeNumber,
   getPortfolioSnapshotValue,
-  getTimeframeStart,
 } from "../api/lib/porta-math/dyf.js";
 
 const supabase = createClient(
@@ -83,7 +82,7 @@ async function upsertDailyMetric(row) {
 }
 
 async function runBackfill() {
-  console.log("🚀 Starting daily metrics backfill...");
+  console.log("🚀 Starting daily-metrics backfill...");
 
   const now = new Date();
 
@@ -94,7 +93,7 @@ async function runBackfill() {
     const dayStart = startOfDay(date);
     const dayEnd = endOfDay(date);
 
-    console.log(`\n📅 Processing ${toDateString(date)}`);
+    console.log(`\n📅 Processing ${toDateString(date)}...`);
 
     const snapshots = await fetchSnapshots(
       dayStart.toISOString(),
@@ -106,8 +105,7 @@ async function runBackfill() {
       continue;
     }
 
-    const timeframeStartIso = getTimeframeStart("daily").toISOString();
-    const summary = buildDailySummary(snapshots, timeframeStartIso);
+    const summary = buildDailySummary(snapshots, dayStart.toISOString());
 
     const totalPortfolioValue = computeLatestPortfolioValue(snapshots);
     const totalClaimableUsd = safeNumber(summary.total_claimable_usd);
@@ -118,9 +116,7 @@ async function runBackfill() {
     const maxClaimableUsd = safeNumber(summary.max_total_claimable_usd);
 
     const yieldTvdRatio =
-      totalPortfolioValue > 0
-        ? totalDailyYieldFlow / totalPortfolioValue
-        : 0;
+      totalPortfolioValue > 0 ? totalDailyYieldFlow / totalPortfolioValue : 0;
 
     const row = {
       metric_date: toDateString(date),
@@ -132,7 +128,7 @@ async function runBackfill() {
       max_claimable_usd: maxClaimableUsd,
       yield_tvd_ratio: yieldTvdRatio,
       debug_json: {
-        source: "api/lib/porta-math/dyf.buildDailySummary",
+        source: "collector/backfill-daily-metrics",
         snapshot_count: snapshots.length,
         summary_snapshot_time: summary.snapshot_time || null,
         metric_label: summary.metric_label || null,
@@ -147,8 +143,16 @@ async function runBackfill() {
           summary.daily_rollover_debug?.claimable_reset_detected ?? false,
         claimable_reset_drop:
           summary.daily_rollover_debug?.claimable_reset_drop ?? null,
-        raw_context_snapshot_count:
-          summary.daily_rollover_debug?.raw_context_snapshot_count ?? null,
+        reset_min_claimable_usd:
+          summary.daily_rollover_debug?.reset_min_claimable_usd ?? null,
+        max_post_rollover_claimable_usd:
+          summary.daily_rollover_debug?.max_post_rollover_claimable_usd ?? null,
+        avg_post_rollover_claimable_usd:
+          summary.daily_rollover_debug?.avg_post_rollover_claimable_usd ?? null,
+        effective_daily_current_usd:
+          summary.daily_rollover_debug?.effective_daily_current_usd ?? null,
+        context_bucket_count:
+          summary.daily_rollover_debug?.context_bucket_count ?? null,
         display_bucket_count:
           summary.daily_rollover_debug?.display_bucket_count ?? null,
       },
@@ -160,6 +164,7 @@ async function runBackfill() {
     console.log("   Portfolio:", row.total_portfolio_value);
     console.log("   Claimable:", row.total_claimable_usd);
     console.log("   DYF:", row.total_daily_yield_flow);
+    console.log("   Min/Avg/Max:", row.min_claimable_usd, row.avg_claimable_usd, row.max_claimable_usd);
   }
 
   console.log("\n🎉 Backfill complete");
