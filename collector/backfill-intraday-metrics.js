@@ -130,7 +130,6 @@ function getLatestSnapshotTime(snapshots) {
 function shouldTreatAsClaimableAnomaly({
   priorValidRow,
   currentClaimableUsd,
-  summary,
 }) {
   if (!priorValidRow) return false;
 
@@ -141,31 +140,12 @@ function shouldTreatAsClaimableAnomaly({
 
   const ratio = current / prior;
 
-  const resetBaseline = safeNumber(
-    summary?.daily_rollover_debug?.reset_baseline_claimable_usd
-  );
-
-  const rolloverDetected = Boolean(
-    summary?.daily_rollover_debug?.detected
-  );
-
   /**
-   * REAL RESET REQUIREMENTS:
-   * - rollover detected
-   * - AND reset baseline is meaningful (>20% of prior)
+   * HARD RULE:
+   * If claimable drops below 20% of previous → ALWAYS anomaly
+   * No exceptions.
    */
-  const isRealReset =
-    rolloverDetected &&
-    resetBaseline > prior * 0.2;
-
-  /**
-   * ANOMALY:
-   * - massive drop
-   * - but NOT a real reset
-   */
-  const isMassiveDrop = ratio < 0.2;
-
-  return isMassiveDrop && !isRealReset;
+  return ratio < 0.2;
 }
 
 function buildStoredRow({
