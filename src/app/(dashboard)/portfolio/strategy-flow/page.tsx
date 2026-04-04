@@ -7,6 +7,8 @@ import ReactFlow, {
   Handle,
   MarkerType,
   Position,
+  useEdgesState,
+  useNodesState,
   type Edge,
   type Node,
   type NodeProps,
@@ -829,6 +831,23 @@ export default function StrategyFlowPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const summary = data?.summary;
+  const structure = data?.structure;
+
+  const alignmentTiers = useMemo(() => buildAlignmentTiers(structure), [structure]);
+  const alignmentScore = useMemo(() => computeAlignmentScore(alignmentTiers), [alignmentTiers]);
+  const alignmentHeadline = useMemo(() => getAlignmentHeadline(alignmentScore), [alignmentScore]);
+  const alignmentInsight = useMemo(() => getAlignmentInsight(alignmentTiers), [alignmentTiers]);
+  const alignmentMap = useMemo(() => getTierAlignmentMap(alignmentTiers), [alignmentTiers]);
+
+  const builtTree = useMemo(
+    () => buildTreeElements(structure, alignmentMap),
+    [structure, alignmentMap]
+  );
+
+  const [nodes, setNodes, onNodesChange] = useNodesState<FlowCardData>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+
   async function loadData() {
     try {
       setIsLoading(true);
@@ -856,19 +875,10 @@ export default function StrategyFlowPage() {
     loadData();
   }, []);
 
-  const summary = data?.summary;
-  const structure = data?.structure;
-
-  const alignmentTiers = useMemo(() => buildAlignmentTiers(structure), [structure]);
-  const alignmentScore = useMemo(() => computeAlignmentScore(alignmentTiers), [alignmentTiers]);
-  const alignmentHeadline = useMemo(() => getAlignmentHeadline(alignmentScore), [alignmentScore]);
-  const alignmentInsight = useMemo(() => getAlignmentInsight(alignmentTiers), [alignmentTiers]);
-  const alignmentMap = useMemo(() => getTierAlignmentMap(alignmentTiers), [alignmentTiers]);
-
-  const { nodes, edges } = useMemo(
-    () => buildTreeElements(structure, alignmentMap),
-    [structure, alignmentMap]
-  );
+  useEffect(() => {
+    setNodes(builtTree.nodes);
+    setEdges(builtTree.edges);
+  }, [builtTree, setNodes, setEdges]);
 
   return (
     <div className="min-h-screen space-y-6 p-6">
@@ -1004,6 +1014,8 @@ export default function StrategyFlowPage() {
                   nodes={nodes}
                   edges={edges}
                   nodeTypes={nodeTypes}
+                  onNodesChange={onNodesChange}
+                  onEdgesChange={onEdgesChange}
                   defaultViewport={{ x: -180, y: 0, zoom: 0.62 }}
                   minZoom={0.3}
                   maxZoom={1.5}
