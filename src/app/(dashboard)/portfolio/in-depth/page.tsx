@@ -13,6 +13,7 @@ type PortfolioInDepthResponse = {
   summary: {
     current: {
       metric_date: string | null;
+      metric_time?: string | null;
       total_portfolio_value: number;
       total_claimable_usd: number;
       total_daily_yield_flow: number;
@@ -41,6 +42,7 @@ type PortfolioInDepthResponse = {
   };
   trend: Array<{
     metric_date: string;
+    metric_time?: string | null;
     label: string;
     total_portfolio_value: number;
     total_claimable_usd: number;
@@ -54,6 +56,7 @@ type PortfolioInDepthResponse = {
   rows: Array<{
     id?: string;
     metric_date: string;
+    metric_time?: string | null;
     total_portfolio_value: number;
     total_claimable_usd: number;
     total_daily_yield_flow: number;
@@ -107,6 +110,21 @@ function formatDateLabel(value: string | null) {
     month: "short",
     day: "numeric",
     year: "numeric",
+  });
+}
+
+function formatDateTimeLabel(value: string | null | undefined) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
   });
 }
 
@@ -272,6 +290,8 @@ export default function PortfolioInDepthPage() {
     "yearly",
   ];
 
+  const isDaily = timeframe === "daily";
+
   return (
     <div className="min-h-screen space-y-6 p-6">
       <section className="rounded-2xl border border-[#E9DAFF] bg-gradient-to-br from-white to-[#F8F4FF] p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
@@ -330,11 +350,12 @@ export default function PortfolioInDepthPage() {
       {!isLoading && data && !data.sufficient_data ? (
         <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
           <h2 className="text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-            Not enough historical data yet
+            {isDaily ? "No daily snapshot buckets yet" : "Not enough historical data yet"}
           </h2>
           <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-            This timeframe needs at least {data.minimum_required_rows} stored day
-            rows, but only {data.actual_rows} are currently available.
+            {isDaily
+              ? "The daily view now shows live 30-minute portfolio snapshot buckets for the current UTC day. No buckets are available yet."
+              : `This timeframe needs at least ${data.minimum_required_rows} stored day rows, but only ${data.actual_rows} are currently available.`}
           </p>
         </section>
       ) : null}
@@ -345,29 +366,61 @@ export default function PortfolioInDepthPage() {
             <MetricCard
               label="Current TPV"
               value={formatCurrency(current?.total_portfolio_value ?? 0)}
-              sublabel={`Latest stored date: ${formatDateLabel(current?.metric_date ?? null)}`}
-              tooltip="Latest stored Total Portfolio Value from the derived historical metrics table."
+              sublabel={
+                isDaily
+                  ? `Latest bucket: ${formatDateTimeLabel(current?.metric_time ?? null)}`
+                  : `Latest stored date: ${formatDateLabel(current?.metric_date ?? null)}`
+              }
+              tooltip={
+                isDaily
+                  ? "Latest live 30-minute bucket Total Portfolio Value for the current UTC day."
+                  : "Latest stored Total Portfolio Value from the derived historical metrics table."
+              }
             />
 
             <MetricCard
               label="Current Claimable"
               value={formatCurrency(current?.total_claimable_usd ?? 0)}
-              sublabel="Latest stored total claimable value."
-              tooltip="Latest stored total claimable USD from the finalized daily metrics table."
+              sublabel={
+                isDaily
+                  ? "Latest live bucket total claimable value."
+                  : "Latest stored total claimable value."
+              }
+              tooltip={
+                isDaily
+                  ? "Latest live total claimable USD from the current day’s 30-minute snapshot buckets."
+                  : "Latest stored total claimable USD from the finalized daily metrics table."
+              }
             />
 
             <MetricCard
               label="Current DYF"
               value={formatCurrency(current?.total_daily_yield_flow ?? 0)}
-              sublabel="Latest stored daily yield flow."
-              tooltip="Stored daily yield flow for the selected period’s latest finalized day."
+              sublabel={
+                isDaily
+                  ? "Current live daily yield flow across today’s bucket set."
+                  : "Latest stored daily yield flow."
+              }
+              tooltip={
+                isDaily
+                  ? "Live daily yield flow for the current UTC day, derived from the bucketed DYF engine."
+                  : "Stored daily yield flow for the selected period’s latest finalized day."
+              }
             />
 
             <MetricCard
               label="Yield / TVD"
               value={formatRatioPercent(current?.yield_tvd_ratio ?? 0)}
-              sublabel="Latest stored yield efficiency ratio."
-              tooltip="Stored ratio between yield and distributed value for the latest finalized day."
+              sublabel={
+                isDaily
+                  ? "Live daily bucket ratio view."
+                  : "Latest stored yield efficiency ratio."
+              }
+              tooltip={
+                isDaily
+                  ? "Current daily bucket ratio field. Can be expanded later if you want live Yield/TVD logic here."
+                  : "Stored ratio between yield and distributed value for the latest finalized day."
+              }
             />
           </section>
 
@@ -377,9 +430,9 @@ export default function PortfolioInDepthPage() {
                 Metrics Table Overview
               </h2>
               <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                Summary layer for the currently selected historical dataset. This
-                panel shows the minimum, average, and maximum values found inside
-                the metrics table for the selected timeframe.
+                {isDaily
+                  ? "Live in-day summary of the current UTC day’s 30-minute bucket set."
+                  : "Summary layer for the currently selected historical dataset. This panel shows the minimum, average, and maximum values found inside the metrics table for the selected timeframe."}
               </p>
             </div>
 
@@ -421,14 +474,14 @@ export default function PortfolioInDepthPage() {
                   Period Highlights
                 </h2>
                 <p className="text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
-                  Quick scan of the strongest and weakest yield-flow days, stored row coverage, and TPV range.
+                  Quick scan of the strongest and weakest yield-flow entries, row coverage, and TPV range.
                 </p>
               </div>
             </div>
 
             <div className="mt-3 grid grid-cols-2 gap-3 desktop:grid-cols-4">
               <CompactStat
-                label="Strongest DYF Day"
+                label={isDaily ? "Strongest Bucket" : "Strongest DYF Day"}
                 value={strongestDay ? strongestDay.label : "—"}
                 sublabel={
                   strongestDay
@@ -439,7 +492,7 @@ export default function PortfolioInDepthPage() {
                 compact
               />
               <CompactStat
-                label="Weakest DYF Day"
+                label={isDaily ? "Weakest Bucket" : "Weakest DYF Day"}
                 value={weakestDay ? weakestDay.label : "—"}
                 sublabel={
                   weakestDay
@@ -459,9 +512,13 @@ export default function PortfolioInDepthPage() {
                 compact
               />
               <CompactStat
-                label="Stored Rows"
+                label={isDaily ? "Live Buckets" : "Stored Rows"}
                 value={String(data.actual_rows)}
-                sublabel={`Minimum required: ${data.minimum_required_rows}`}
+                sublabel={
+                  isDaily
+                    ? "30-minute buckets in current UTC day"
+                    : `Minimum required: ${data.minimum_required_rows}`
+                }
                 compact
               />
             </div>
@@ -473,9 +530,9 @@ export default function PortfolioInDepthPage() {
                 Historical Metrics Table
               </h2>
               <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                Clean historical review of stored daily metrics. This is the
-                first layer of true Portfolio In-Depth intelligence and can be
-                expanded later with search, charts, and date-specific drilldown.
+                {isDaily
+                  ? "Live 30-minute bucket view for the current UTC day. This gives an in-depth intraday look at TPV, claimable totals, and current DYF context."
+                  : "Clean historical review of stored daily metrics. This is the first layer of true Portfolio In-Depth intelligence and can be expanded later with search, charts, and date-specific drilldown."}
               </p>
             </div>
 
@@ -484,7 +541,7 @@ export default function PortfolioInDepthPage() {
                 <thead className="bg-[#F6F0FF] dark:bg-[#140D20]">
                   <tr className="border-b border-[#F0E8FF] dark:border-[#241533]">
                     <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                      Date
+                      {isDaily ? "Snapshot Time" : "Date"}
                     </th>
                     <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
                       TPV
@@ -511,13 +568,15 @@ export default function PortfolioInDepthPage() {
                 </thead>
 
                 <tbody>
-                  {trend.map((row) => (
+                  {trend.map((row, index) => (
                     <tr
-                      key={row.metric_date}
+                      key={row.metric_time || `${row.metric_date}-${index}`}
                       className="border-b border-[#F7F1FF] dark:border-[#1C1328]"
                     >
                       <td className="px-4 py-4 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                        {formatDateLabel(row.metric_date)}
+                        {isDaily
+                          ? formatDateTimeLabel(row.metric_time ?? null)
+                          : formatDateLabel(row.metric_date)}
                       </td>
                       <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
                         {formatCurrency(row.total_portfolio_value)}
