@@ -12,6 +12,12 @@ const supabase = createClient(
 
 const DAYS_BACK = 1;
 
+/**
+ * If current claimable drops below this share of the prior valid claimable,
+ * and rollover is not confirmed, treat it as an anomaly.
+ */
+const CLAIMABLE_DROP_RATIO_THRESHOLD = 0.2;
+
 function startOfDay(date) {
   const d = new Date(date);
   d.setUTCHours(0, 0, 0, 0);
@@ -121,6 +127,63 @@ function getLatestSnapshotTime(snapshots) {
   }, null);
 }
 
+function shouldTreatAsClaimableAnomaly({
+  priorValidRow,
+  currentClaimableUsd,
+  summary,
+}) {
+  if (!priorValidRow) return false;
+
+  const priorClaimable = safeNumber(priorValidRow.total_claimable_usd);
+  const currentClaimable = safeNumber(currentClaimableUsd);
+
+  if (priorClaimable <= 0 || currentClaimable <= 0) return false;
+
+  const ratio = currentClaimable / priorClaimable;
+
+  const rolloverDetected = Boolean(summary?.daily_rollover_debug?.detected);
+  const pendingResetDetected = Boolean(
+    summary?.daily_rollover_debug?.pending_reset_detected
+  );
+  const claimableResetDetected = Boolean(
+    summary?.daily_rollover_debug?.claimable_reset_detected
+  );
+
+  const hasConfirmedResetSignal =
+    rolloverDetected && (pendingResetDetected || claimableResetDetected);
+
+  return ratio < CLAIMABLE_DROP_RATIO_THRESHOLD && !hasConfirmedResetSignal;
+}
+
+function buildStoredRow({
+  bucketISO,
+  totalPortfolioValue,
+  totalClaimableUsd,
+  totalDailyYieldFlow,
+  minClaimableUsd,
+  avgClaimableUsd,
+  maxClaimableUsd,
+  yieldTvdRatio,
+  debugJson,
+}) {
+  return {
+    metric_date: bucketISO.slice(0, 10),
+    metric_time: bucketISO,
+    bucket_key: toBucketKey(bucketISO),
+
+    total_portfolio_value: totalPortfolioValue,
+    total_claimable_usd: totalClaimableUsd,
+    total_daily_yield_flow: totalDailyYieldFlow,
+
+    min_claimable_usd: minClaimableUsd,
+    avg_claimable_usd: avgClaimableUsd,
+    max_claimable_usd: maxClaimableUsd,
+
+    yield_tvd_ratio: yieldTvdRatio,
+    debug_json: debugJson,
+  };
+}
+
 async function runBackfill() {
   console.log("🚀 Starting intraday metrics backfill...");
 
@@ -177,6 +240,8 @@ async function runBackfill() {
 
     const buckets = getBucketStartTimes(dayStart, dayEnd, maxBucketTime);
 
+    let priorValidRow = null;
+
     for (const bucketTime of buckets) {
       const bucketISO = bucketTime.toISOString();
 
@@ -197,67 +262,99 @@ async function runBackfill() {
         dayStart.toISOString()
       );
 
-      const totalPortfolioValue = computeLatestPortfolioValue(bucketSnapshotsSameDay);
+      const rawTotalPortfolioValue = computeLatestPortfolioValue(bucketSnapshotsSameDay);
+      const rawTotalClaimableUsd = safeNumber(summary.total_claimable_usd);
+      const rawTotalDailyYieldFlow = safeNumber(summary.current_yield_flow_usd);
 
-      const totalClaimableUsd = safeNumber(summary.total_claimable_usd);
-      const totalDailyYieldFlow = safeNumber(summary.current_yield_flow_usd);
+      const rawMinClaimableUsd = safeNumber(summary.min_total_claimable_usd);
+      const rawAvgClaimableUsd = safeNumber(summary.avg_total_claimable_usd);
+      const rawMaxClaimableUsd = safeNumber(summary.max_total_claimable_usd);
 
-      const minClaimableUsd = safeNumber(summary.min_total_claimable_usd);
-      const avgClaimableUsd = safeNumber(summary.avg_total_claimable_usd);
-      const maxClaimableUsd = safeNumber(summary.max_total_claimable_usd);
+      const rawYieldTvdRatio =
+        rawTotalPortfolioValue > 0
+          ? rawTotalDailyYieldFlow / rawTotalPortfolioValue
+          : 0;
 
-      const yieldTvdRatio =
-        totalPortfolioValue > 0 ? totalDailyYieldFlow / totalPortfolioValue : 0;
+      const anomalyDetected = shouldTreatAsClaimableAnomaly({
+        priorValidRow,
+        currentClaimableUsd: rawTotalClaimableUsd,
+        summary,
+      });
 
-      const row = {
-        metric_date: bucketISO.slice(0, 10),
-        metric_time: bucketISO,
-        bucket_key: toBucketKey(bucketISO),
-
-        total_portfolio_value: totalPortfolioValue,
-        total_claimable_usd: totalClaimableUsd,
-        total_daily_yield_flow: totalDailyYieldFlow,
-
-        min_claimable_usd: minClaimableUsd,
-        avg_claimable_usd: avgClaimableUsd,
-        max_claimable_usd: maxClaimableUsd,
-
-        yield_tvd_ratio: yieldTvdRatio,
-
-        debug_json: {
-          source: "collector/backfill-intraday-metrics",
-          context_snapshot_count: bucketSnapshotsWithContext.length,
-          same_day_snapshot_count: bucketSnapshotsSameDay.length,
-          latest_same_day_snapshot_time:
-            getLatestSnapshotTime(bucketSnapshotsSameDay) || null,
-          rollover_detected:
-            summary.daily_rollover_debug?.detected ?? false,
-          rollover_snapshot_time:
-            summary.daily_rollover_debug?.rollover_snapshot_time ?? null,
-          reset_baseline_claimable_usd:
-            summary.daily_rollover_debug?.reset_baseline_claimable_usd ?? null,
-          pending_reset_detected:
-            summary.daily_rollover_debug?.pending_reset_detected ?? false,
-          claimable_reset_detected:
-            summary.daily_rollover_debug?.claimable_reset_detected ?? false,
-          claimable_reset_drop:
-            summary.daily_rollover_debug?.claimable_reset_drop ?? null,
-          reset_min_claimable_usd:
-            summary.daily_rollover_debug?.reset_min_claimable_usd ?? null,
-          max_post_rollover_claimable_usd:
-            summary.daily_rollover_debug?.max_post_rollover_claimable_usd ?? null,
-          avg_post_rollover_claimable_usd:
-            summary.daily_rollover_debug?.avg_post_rollover_claimable_usd ?? null,
-          effective_daily_current_usd:
-            summary.daily_rollover_debug?.effective_daily_current_usd ?? null,
-          context_bucket_count:
-            summary.daily_rollover_debug?.context_bucket_count ?? null,
-          display_bucket_count:
-            summary.daily_rollover_debug?.display_bucket_count ?? null,
-        },
+      const debugJson = {
+        source: "collector/backfill-intraday-metrics",
+        context_snapshot_count: bucketSnapshotsWithContext.length,
+        same_day_snapshot_count: bucketSnapshotsSameDay.length,
+        latest_same_day_snapshot_time:
+          getLatestSnapshotTime(bucketSnapshotsSameDay) || null,
+        rollover_detected:
+          summary.daily_rollover_debug?.detected ?? false,
+        rollover_snapshot_time:
+          summary.daily_rollover_debug?.rollover_snapshot_time ?? null,
+        reset_baseline_claimable_usd:
+          summary.daily_rollover_debug?.reset_baseline_claimable_usd ?? null,
+        pending_reset_detected:
+          summary.daily_rollover_debug?.pending_reset_detected ?? false,
+        claimable_reset_detected:
+          summary.daily_rollover_debug?.claimable_reset_detected ?? false,
+        claimable_reset_drop:
+          summary.daily_rollover_debug?.claimable_reset_drop ?? null,
+        reset_min_claimable_usd:
+          summary.daily_rollover_debug?.reset_min_claimable_usd ?? null,
+        max_post_rollover_claimable_usd:
+          summary.daily_rollover_debug?.max_post_rollover_claimable_usd ?? null,
+        avg_post_rollover_claimable_usd:
+          summary.daily_rollover_debug?.avg_post_rollover_claimable_usd ?? null,
+        effective_daily_current_usd:
+          summary.daily_rollover_debug?.effective_daily_current_usd ?? null,
+        context_bucket_count:
+          summary.daily_rollover_debug?.context_bucket_count ?? null,
+        display_bucket_count:
+          summary.daily_rollover_debug?.display_bucket_count ?? null,
+        anomaly_filtered: anomalyDetected,
+        anomaly_rule:
+          anomalyDetected
+            ? `claimable dropped below ${CLAIMABLE_DROP_RATIO_THRESHOLD * 100}% of prior valid claimable without confirmed rollover`
+            : null,
+        raw_total_claimable_usd: rawTotalClaimableUsd,
+        raw_total_daily_yield_flow: rawTotalDailyYieldFlow,
+        raw_min_claimable_usd: rawMinClaimableUsd,
+        raw_avg_claimable_usd: rawAvgClaimableUsd,
+        raw_max_claimable_usd: rawMaxClaimableUsd,
       };
 
+      const row = anomalyDetected && priorValidRow
+        ? buildStoredRow({
+            bucketISO,
+            totalPortfolioValue: rawTotalPortfolioValue,
+            totalClaimableUsd: safeNumber(priorValidRow.total_claimable_usd),
+            totalDailyYieldFlow: safeNumber(priorValidRow.total_daily_yield_flow),
+            minClaimableUsd: safeNumber(priorValidRow.min_claimable_usd),
+            avgClaimableUsd: safeNumber(priorValidRow.avg_claimable_usd),
+            maxClaimableUsd: safeNumber(priorValidRow.max_claimable_usd),
+            yieldTvdRatio:
+              rawTotalPortfolioValue > 0
+                ? safeNumber(priorValidRow.total_daily_yield_flow) / rawTotalPortfolioValue
+                : 0,
+            debugJson,
+          })
+        : buildStoredRow({
+            bucketISO,
+            totalPortfolioValue: rawTotalPortfolioValue,
+            totalClaimableUsd: rawTotalClaimableUsd,
+            totalDailyYieldFlow: rawTotalDailyYieldFlow,
+            minClaimableUsd: rawMinClaimableUsd,
+            avgClaimableUsd: rawAvgClaimableUsd,
+            maxClaimableUsd: rawMaxClaimableUsd,
+            yieldTvdRatio: rawYieldTvdRatio,
+            debugJson,
+          });
+
       await upsertIntradayMetric(row);
+
+      if (!anomalyDetected) {
+        priorValidRow = row;
+      }
 
       console.log("✅ Bucket:", row.bucket_key);
       console.log("   Claimable:", row.total_claimable_usd);
@@ -268,6 +365,10 @@ async function runBackfill() {
         row.avg_claimable_usd,
         row.max_claimable_usd
       );
+
+      if (anomalyDetected) {
+        console.log("   ⚠️ Anomaly filtered — prior valid metrics carried forward");
+      }
     }
   }
 
