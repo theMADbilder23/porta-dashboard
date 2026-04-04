@@ -10,7 +10,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-const DAYS_BACK = 1; // start with today only for testing
+const DAYS_BACK = 1;
 
 function startOfDay(date) {
   const d = new Date(date);
@@ -28,12 +28,27 @@ function toBucketKey(date) {
   return new Date(date).toISOString().slice(0, 16) + ":00Z";
 }
 
-function getBucketStartTimes(dayStart) {
-  const buckets = [];
+function floorToThirtyMinuteBucket(date) {
+  const d = new Date(date);
+  d.setUTCSeconds(0, 0);
+  d.setUTCMinutes(d.getUTCMinutes() < 30 ? 0 : 30);
+  return d;
+}
 
-  for (let i = 0; i < 48; i++) {
+function getBucketStartTimes(dayStart, dayEnd, maxBucketTime = null) {
+  const buckets = [];
+  const effectiveEnd = maxBucketTime
+    ? new Date(Math.min(dayEnd.getTime(), maxBucketTime.getTime()))
+    : dayEnd;
+
+  for (let i = 0; i < 48; i += 1) {
     const bucket = new Date(dayStart);
     bucket.setUTCMinutes(bucket.getUTCMinutes() + i * 30);
+
+    if (bucket.getTime() > effectiveEnd.getTime()) {
+      break;
+    }
+
     buckets.push(bucket);
   }
 
@@ -57,7 +72,7 @@ async function fetchSnapshots(startISO, endISO) {
 }
 
 function computeLatestPortfolioValue(snapshots) {
-  if (!snapshots.length) return 0;
+  if (!Array.isArray(snapshots) || snapshots.length === 0) return 0;
 
   const latestPerWallet = new Map();
 
@@ -66,8 +81,8 @@ function computeLatestPortfolioValue(snapshots) {
 
     if (
       !existing ||
-      new Date(snapshot.snapshot_time) >
-        new Date(existing.snapshot_time)
+      new Date(snapshot.snapshot_time).getTime() >
+        new Date(existing.snapshot_time).getTime()
     ) {
       latestPerWallet.set(snapshot.wallet_id, snapshot);
     }
@@ -93,12 +108,25 @@ async function upsertIntradayMetric(row) {
   }
 }
 
+function getLatestSnapshotTime(snapshots) {
+  if (!Array.isArray(snapshots) || snapshots.length === 0) return null;
+
+  return snapshots.reduce((latest, snapshot) => {
+    if (!latest) return snapshot.snapshot_time;
+
+    return new Date(snapshot.snapshot_time).getTime() >
+      new Date(latest).getTime()
+      ? snapshot.snapshot_time
+      : latest;
+  }, null);
+}
+
 async function runBackfill() {
   console.log("🚀 Starting intraday metrics backfill...");
 
   const now = new Date();
 
-  for (let d = DAYS_BACK; d >= 0; d--) {
+  for (let d = DAYS_BACK; d >= 0; d -= 1) {
     const date = new Date(now);
     date.setUTCDate(date.getUTCDate() - d);
 
@@ -107,59 +135,79 @@ async function runBackfill() {
 
     console.log(`\n📅 Processing ${dayStart.toISOString().slice(0, 10)}...`);
 
-    const allSnapshots = await fetchSnapshots(
-      dayStart.toISOString(),
+    const contextStart = new Date(dayStart);
+    contextStart.setUTCDate(contextStart.getUTCDate() - 1);
+
+    const allSnapshotsWithContext = await fetchSnapshots(
+      contextStart.toISOString(),
       dayEnd.toISOString()
     );
 
-    if (!allSnapshots.length) {
-      console.log("⚠️ No snapshots for day — skipping");
+    if (!allSnapshotsWithContext.length) {
+      console.log("⚠️ No snapshots in context window — skipping");
       continue;
     }
 
-    const buckets = getBucketStartTimes(dayStart);
+    const daySnapshots = allSnapshotsWithContext.filter((snapshot) => {
+      const snapshotMs = new Date(snapshot.snapshot_time).getTime();
+      return (
+        snapshotMs >= dayStart.getTime() &&
+        snapshotMs <= dayEnd.getTime()
+      );
+    });
+
+    if (!daySnapshots.length) {
+      console.log("⚠️ No same-day snapshots — skipping");
+      continue;
+    }
+
+    const latestSnapshotTime = getLatestSnapshotTime(daySnapshots);
+    const latestSnapshotDate = latestSnapshotTime
+      ? new Date(latestSnapshotTime)
+      : null;
+
+    const isToday =
+      dayStart.toISOString().slice(0, 10) ===
+      startOfDay(now).toISOString().slice(0, 10);
+
+    const maxBucketTime =
+      isToday && latestSnapshotDate
+        ? floorToThirtyMinuteBucket(latestSnapshotDate)
+        : dayEnd;
+
+    const buckets = getBucketStartTimes(dayStart, dayEnd, maxBucketTime);
 
     for (const bucketTime of buckets) {
       const bucketISO = bucketTime.toISOString();
 
-      const bucketSnapshots = allSnapshots.filter(
-        (s) => new Date(s.snapshot_time) <= bucketTime
+      const bucketSnapshotsWithContext = allSnapshotsWithContext.filter(
+        (snapshot) => new Date(snapshot.snapshot_time).getTime() <= bucketTime.getTime()
       );
 
-      if (!bucketSnapshots.length) continue;
+      const bucketSnapshotsSameDay = daySnapshots.filter(
+        (snapshot) => new Date(snapshot.snapshot_time).getTime() <= bucketTime.getTime()
+      );
+
+      if (!bucketSnapshotsSameDay.length) {
+        continue;
+      }
 
       const summary = buildDailySummary(
-        bucketSnapshots,
+        bucketSnapshotsWithContext,
         dayStart.toISOString()
       );
 
-      const totalPortfolioValue =
-        computeLatestPortfolioValue(bucketSnapshots);
+      const totalPortfolioValue = computeLatestPortfolioValue(bucketSnapshotsSameDay);
 
-      const totalClaimableUsd = safeNumber(
-        summary.total_claimable_usd
-      );
+      const totalClaimableUsd = safeNumber(summary.total_claimable_usd);
+      const totalDailyYieldFlow = safeNumber(summary.current_yield_flow_usd);
 
-      const totalDailyYieldFlow = safeNumber(
-        summary.current_yield_flow_usd
-      );
-
-      const minClaimableUsd = safeNumber(
-        summary.min_total_claimable_usd
-      );
-
-      const avgClaimableUsd = safeNumber(
-        summary.avg_total_claimable_usd
-      );
-
-      const maxClaimableUsd = safeNumber(
-        summary.max_total_claimable_usd
-      );
+      const minClaimableUsd = safeNumber(summary.min_total_claimable_usd);
+      const avgClaimableUsd = safeNumber(summary.avg_total_claimable_usd);
+      const maxClaimableUsd = safeNumber(summary.max_total_claimable_usd);
 
       const yieldTvdRatio =
-        totalPortfolioValue > 0
-          ? totalDailyYieldFlow / totalPortfolioValue
-          : 0;
+        totalPortfolioValue > 0 ? totalDailyYieldFlow / totalPortfolioValue : 0;
 
       const row = {
         metric_date: bucketISO.slice(0, 10),
@@ -177,15 +225,31 @@ async function runBackfill() {
         yield_tvd_ratio: yieldTvdRatio,
 
         debug_json: {
-          snapshot_count: bucketSnapshots.length,
+          source: "collector/backfill-intraday-metrics",
+          context_snapshot_count: bucketSnapshotsWithContext.length,
+          same_day_snapshot_count: bucketSnapshotsSameDay.length,
+          latest_same_day_snapshot_time:
+            getLatestSnapshotTime(bucketSnapshotsSameDay) || null,
           rollover_detected:
             summary.daily_rollover_debug?.detected ?? false,
+          rollover_snapshot_time:
+            summary.daily_rollover_debug?.rollover_snapshot_time ?? null,
           reset_baseline_claimable_usd:
-            summary.daily_rollover_debug?.reset_baseline_claimable_usd ??
-            null,
+            summary.daily_rollover_debug?.reset_baseline_claimable_usd ?? null,
+          pending_reset_detected:
+            summary.daily_rollover_debug?.pending_reset_detected ?? false,
+          claimable_reset_detected:
+            summary.daily_rollover_debug?.claimable_reset_detected ?? false,
+          claimable_reset_drop:
+            summary.daily_rollover_debug?.claimable_reset_drop ?? null,
+          reset_min_claimable_usd:
+            summary.daily_rollover_debug?.reset_min_claimable_usd ?? null,
+          max_post_rollover_claimable_usd:
+            summary.daily_rollover_debug?.max_post_rollover_claimable_usd ?? null,
+          avg_post_rollover_claimable_usd:
+            summary.daily_rollover_debug?.avg_post_rollover_claimable_usd ?? null,
           effective_daily_current_usd:
-            summary.daily_rollover_debug?.effective_daily_current_usd ??
-            null,
+            summary.daily_rollover_debug?.effective_daily_current_usd ?? null,
           context_bucket_count:
             summary.daily_rollover_debug?.context_bucket_count ?? null,
           display_bucket_count:
@@ -196,7 +260,14 @@ async function runBackfill() {
       await upsertIntradayMetric(row);
 
       console.log("✅ Bucket:", row.bucket_key);
+      console.log("   Claimable:", row.total_claimable_usd);
       console.log("   DYF:", row.total_daily_yield_flow);
+      console.log(
+        "   Min/Avg/Max:",
+        row.min_claimable_usd,
+        row.avg_claimable_usd,
+        row.max_claimable_usd
+      );
     }
   }
 
