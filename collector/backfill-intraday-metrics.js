@@ -12,12 +12,6 @@ const supabase = createClient(
 
 const DAYS_BACK = 1;
 
-/**
- * If current claimable drops below this share of the prior valid claimable,
- * and rollover is not confirmed, treat it as an anomaly.
- */
-const CLAIMABLE_DROP_RATIO_THRESHOLD = 0.2;
-
 function startOfDay(date) {
   const d = new Date(date);
   d.setUTCHours(0, 0, 0, 0);
@@ -127,47 +121,6 @@ function getLatestSnapshotTime(snapshots) {
   }, null);
 }
 
-function shouldTreatAsClaimableAnomaly({
-  priorValidRow,
-  currentClaimableUsd,
-  summary,
-}) {
-  if (!priorValidRow) return false;
-
-  const prior = safeNumber(priorValidRow.total_claimable_usd);
-  const current = safeNumber(currentClaimableUsd);
-
-  if (prior <= 0 || current <= 0) return false;
-
-  const ratio = current / prior;
-
-  const resetBaseline = safeNumber(
-    summary?.daily_rollover_debug?.reset_baseline_claimable_usd
-  );
-
-  const rolloverDetected = Boolean(
-    summary?.daily_rollover_debug?.detected
-  );
-
-  /**
-   * REAL RESET REQUIREMENTS:
-   * - rollover detected
-   * - AND reset baseline is meaningful (>20% of prior)
-   */
-  const isRealReset =
-    rolloverDetected &&
-    resetBaseline > prior * 0.2;
-
-  /**
-   * ANOMALY:
-   * - massive drop
-   * - but NOT a real reset
-   */
-  const isMassiveDrop = ratio < 0.2;
-
-  return isMassiveDrop && !isRealReset;
-}
-
 function buildStoredRow({
   bucketISO,
   totalPortfolioValue,
@@ -253,8 +206,6 @@ async function runBackfill() {
 
     const buckets = getBucketStartTimes(dayStart, dayEnd, maxBucketTime);
 
-    let priorValidRow = null;
-
     for (const bucketTime of buckets) {
       const bucketISO = bucketTime.toISOString();
 
@@ -275,24 +226,16 @@ async function runBackfill() {
         dayStart.toISOString()
       );
 
-      const rawTotalPortfolioValue = computeLatestPortfolioValue(bucketSnapshotsSameDay);
-      const rawTotalClaimableUsd = safeNumber(summary.total_claimable_usd);
-      const rawTotalDailyYieldFlow = safeNumber(summary.current_yield_flow_usd);
+      const totalPortfolioValue = computeLatestPortfolioValue(bucketSnapshotsSameDay);
+      const totalClaimableUsd = safeNumber(summary.total_claimable_usd);
+      const totalDailyYieldFlow = safeNumber(summary.current_yield_flow_usd);
 
-      const rawMinClaimableUsd = safeNumber(summary.min_total_claimable_usd);
-      const rawAvgClaimableUsd = safeNumber(summary.avg_total_claimable_usd);
-      const rawMaxClaimableUsd = safeNumber(summary.max_total_claimable_usd);
+      const minClaimableUsd = safeNumber(summary.min_total_claimable_usd);
+      const avgClaimableUsd = safeNumber(summary.avg_total_claimable_usd);
+      const maxClaimableUsd = safeNumber(summary.max_total_claimable_usd);
 
-      const rawYieldTvdRatio =
-        rawTotalPortfolioValue > 0
-          ? rawTotalDailyYieldFlow / rawTotalPortfolioValue
-          : 0;
-
-      const anomalyDetected = shouldTreatAsClaimableAnomaly({
-        priorValidRow,
-        currentClaimableUsd: rawTotalClaimableUsd,
-        summary,
-      });
+      const yieldTvdRatio =
+        totalPortfolioValue > 0 ? totalDailyYieldFlow / totalPortfolioValue : 0;
 
       const debugJson = {
         source: "collector/backfill-intraday-metrics",
@@ -324,50 +267,21 @@ async function runBackfill() {
           summary.daily_rollover_debug?.context_bucket_count ?? null,
         display_bucket_count:
           summary.daily_rollover_debug?.display_bucket_count ?? null,
-        anomaly_filtered: anomalyDetected,
-        anomaly_rule:
-          anomalyDetected
-            ? `claimable dropped below ${CLAIMABLE_DROP_RATIO_THRESHOLD * 100}% of prior valid claimable without confirmed rollover`
-            : null,
-        raw_total_claimable_usd: rawTotalClaimableUsd,
-        raw_total_daily_yield_flow: rawTotalDailyYieldFlow,
-        raw_min_claimable_usd: rawMinClaimableUsd,
-        raw_avg_claimable_usd: rawAvgClaimableUsd,
-        raw_max_claimable_usd: rawMaxClaimableUsd,
       };
 
-      const row = anomalyDetected && priorValidRow
-        ? buildStoredRow({
-            bucketISO,
-            totalPortfolioValue: rawTotalPortfolioValue,
-            totalClaimableUsd: safeNumber(priorValidRow.total_claimable_usd),
-            totalDailyYieldFlow: safeNumber(priorValidRow.total_daily_yield_flow),
-            minClaimableUsd: safeNumber(priorValidRow.min_claimable_usd),
-            avgClaimableUsd: safeNumber(priorValidRow.avg_claimable_usd),
-            maxClaimableUsd: safeNumber(priorValidRow.max_claimable_usd),
-            yieldTvdRatio:
-              rawTotalPortfolioValue > 0
-                ? safeNumber(priorValidRow.total_daily_yield_flow) / rawTotalPortfolioValue
-                : 0,
-            debugJson,
-          })
-        : buildStoredRow({
-            bucketISO,
-            totalPortfolioValue: rawTotalPortfolioValue,
-            totalClaimableUsd: rawTotalClaimableUsd,
-            totalDailyYieldFlow: rawTotalDailyYieldFlow,
-            minClaimableUsd: rawMinClaimableUsd,
-            avgClaimableUsd: rawAvgClaimableUsd,
-            maxClaimableUsd: rawMaxClaimableUsd,
-            yieldTvdRatio: rawYieldTvdRatio,
-            debugJson,
-          });
+      const row = buildStoredRow({
+        bucketISO,
+        totalPortfolioValue,
+        totalClaimableUsd,
+        totalDailyYieldFlow,
+        minClaimableUsd,
+        avgClaimableUsd,
+        maxClaimableUsd,
+        yieldTvdRatio,
+        debugJson,
+      });
 
       await upsertIntradayMetric(row);
-
-      if (!anomalyDetected) {
-        priorValidRow = row;
-      }
 
       console.log("✅ Bucket:", row.bucket_key);
       console.log("   Claimable:", row.total_claimable_usd);
@@ -378,10 +292,6 @@ async function runBackfill() {
         row.avg_claimable_usd,
         row.max_claimable_usd
       );
-
-      if (anomalyDetected) {
-        console.log("   ⚠️ Anomaly filtered — prior valid metrics carried forward");
-      }
     }
   }
 
