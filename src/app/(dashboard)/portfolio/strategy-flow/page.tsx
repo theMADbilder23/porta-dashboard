@@ -82,11 +82,13 @@ type FlowCardData = {
   value?: string;
   meta?: string;
   secondary?: string;
+  tertiary?: string;
   tone?: "root" | "tier_0" | "tier_1" | "tier_2" | "bucket" | "subclass" | "wallet";
   width?: number;
   minHeight?: number;
   warning?: boolean;
   pulse?: boolean;
+  emphasis?: "high" | "medium" | "low";
 };
 
 function safeNumber(value: number | null | undefined) {
@@ -119,122 +121,12 @@ function formatPercent(value: number, digits = 1) {
   return `${safeNumber(value).toFixed(digits)}%`;
 }
 
-function formatDateTime(value: string | null) {
-  if (!value) return "No snapshot";
-
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "No snapshot";
-
-  return date.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 function getTierTargets() {
   return {
     tier_0: 40,
     tier_1: 30,
     tier_2: 30,
   };
-}
-
-function getToneClasses(tone: FlowCardData["tone"], warning?: boolean, pulse?: boolean) {
-  const glow = warning
-    ? pulse
-      ? "shadow-[0_0_0_1px_rgba(244,63,94,0.25),0_0_20px_rgba(244,63,94,0.22)] animate-pulse"
-      : "shadow-[0_0_0_1px_rgba(244,63,94,0.22),0_0_16px_rgba(244,63,94,0.18)]"
-    : "shadow-sm";
-
-  switch (tone) {
-    case "root":
-      return {
-        shell: `border-[#D8B4FE] bg-gradient-to-br from-white to-[#F8F4FF] dark:border-[#4B2A6B] dark:from-[#100A19] dark:to-[#171022] ${glow}`,
-        badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
-      };
-    case "tier_0":
-      return {
-        shell: `border-[#BBF7D0] bg-[#F4FFF7] dark:border-[#1E4D2B] dark:bg-[#0F1A13] ${glow}`,
-        badge: "bg-[#DCFCE7] text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]",
-      };
-    case "tier_1":
-      return {
-        shell: `border-[#E9D5FF] bg-[#FCF8FF] dark:border-[#4B2A6B] dark:bg-[#17111F] ${glow}`,
-        badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
-      };
-    case "tier_2":
-      return {
-        shell: `border-[#BFDBFE] bg-[#F8FBFF] dark:border-[#294A78] dark:bg-[#101722] ${glow}`,
-        badge: "bg-[#DBEAFE] text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]",
-      };
-    case "bucket":
-      return {
-        shell: `border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19] ${glow}`,
-        badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
-      };
-    case "subclass":
-      return {
-        shell: `border-[#E9DAFF] bg-[#FCFAFF] dark:border-[#312047] dark:bg-[#140D20] ${glow}`,
-        badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
-      };
-    case "wallet":
-    default:
-      return {
-        shell: `border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19] ${glow}`,
-        badge: "bg-[#EEF4FF] text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]",
-      };
-  }
-}
-
-function getTierTone(tierKey: string): FlowCardData["tone"] {
-  if (tierKey === "tier_0") return "tier_0";
-  if (tierKey === "tier_1") return "tier_1";
-  return "tier_2";
-}
-
-function getTierEdgeColor(tierKey: string) {
-  if (tierKey === "tier_0") return "#22C55E";
-  if (tierKey === "tier_1") return "#A855F7";
-  return "#3B82F6";
-}
-
-function computeNodeWidth(level: "root" | "tier" | "bucket" | "subclass" | "wallet", allocationPct: number) {
-  const pct = safeNumber(allocationPct);
-
-  switch (level) {
-    case "root":
-      return 320;
-    case "tier":
-      return clamp(240 + pct * 2.1, 240, 420);
-    case "bucket":
-      return clamp(210 + pct * 1.6, 210, 360);
-    case "subclass":
-      return clamp(190 + pct * 1.0, 190, 290);
-    case "wallet":
-    default:
-      return clamp(190 + pct * 0.9, 190, 300);
-  }
-}
-
-function computeMinHeight(level: "root" | "tier" | "bucket" | "subclass" | "wallet", allocationPct: number) {
-  const pct = safeNumber(allocationPct);
-
-  switch (level) {
-    case "root":
-      return 130;
-    case "tier":
-      return clamp(116 + pct * 0.5, 116, 160);
-    case "bucket":
-      return clamp(104 + pct * 0.35, 104, 145);
-    case "subclass":
-      return clamp(92 + pct * 0.2, 92, 125);
-    case "wallet":
-    default:
-      return clamp(92 + pct * 0.18, 92, 120);
-  }
 }
 
 function getTierAlignmentStatus(deviationPct: number): AlignmentTier["status"] {
@@ -323,8 +215,156 @@ function getTierAlignmentMap(alignmentTiers: AlignmentTier[]) {
   return new Map(alignmentTiers.map((tier) => [tier.key, tier]));
 }
 
+function getTierTone(tierKey: string): FlowCardData["tone"] {
+  if (tierKey === "tier_0") return "tier_0";
+  if (tierKey === "tier_1") return "tier_1";
+  return "tier_2";
+}
+
+function getTierEdgeColor(tierKey: string) {
+  if (tierKey === "tier_0") return "#22C55E";
+  if (tierKey === "tier_1") return "#A855F7";
+  return "#3B82F6";
+}
+
+function getAlignmentStyle(status?: AlignmentTier["status"]) {
+  if (status === "warning") {
+    return {
+      label: "Warning",
+      className:
+        "bg-[#FFF1F2] text-[#BE123C] dark:bg-[#2A1218] dark:text-[#FDA4AF]",
+    };
+  }
+
+  if (status === "watch") {
+    return {
+      label: "Watch",
+      className:
+        "bg-[#FFF7ED] text-[#C2410C] dark:bg-[#26180F] dark:text-[#FDBA74]",
+    };
+  }
+
+  return {
+    label: "Aligned",
+    className:
+      "bg-[#ECFDF3] text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]",
+  };
+}
+
+function getToneClasses(
+  tone: FlowCardData["tone"],
+  warning?: boolean,
+  pulse?: boolean,
+  emphasis?: FlowCardData["emphasis"]
+) {
+  const emphasisShadow =
+    emphasis === "high"
+      ? "shadow-[0_8px_24px_rgba(124,58,237,0.18)]"
+      : emphasis === "medium"
+        ? "shadow-[0_6px_18px_rgba(124,58,237,0.12)]"
+        : "shadow-sm";
+
+  const glow = warning
+    ? pulse
+      ? "ring-2 ring-[#FB7185]/70 shadow-[0_0_0_1px_rgba(244,63,94,0.3),0_0_26px_rgba(244,63,94,0.28)] animate-pulse"
+      : "ring-2 ring-[#FB7185]/60 shadow-[0_0_0_1px_rgba(244,63,94,0.28),0_0_22px_rgba(244,63,94,0.24)]"
+    : emphasisShadow;
+
+  switch (tone) {
+    case "root":
+      return {
+        shell: `border-[#D8B4FE] bg-gradient-to-br from-white to-[#F8F4FF] dark:border-[#4B2A6B] dark:from-[#100A19] dark:to-[#171022] ${glow}`,
+        badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
+      };
+    case "tier_0":
+      return {
+        shell: `border-[#BBF7D0] bg-[#F4FFF7] dark:border-[#1E4D2B] dark:bg-[#0F1A13] ${glow}`,
+        badge: "bg-[#DCFCE7] text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]",
+      };
+    case "tier_1":
+      return {
+        shell: `border-[#E9D5FF] bg-[#FCF8FF] dark:border-[#4B2A6B] dark:bg-[#17111F] ${glow}`,
+        badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
+      };
+    case "tier_2":
+      return {
+        shell: `border-[#BFDBFE] bg-[#F8FBFF] dark:border-[#294A78] dark:bg-[#101722] ${glow}`,
+        badge: "bg-[#DBEAFE] text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]",
+      };
+    case "bucket":
+      return {
+        shell: `border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19] ${glow}`,
+        badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
+      };
+    case "subclass":
+      return {
+        shell: `border-[#E9DAFF] bg-[#FCFAFF] dark:border-[#312047] dark:bg-[#140D20] ${glow}`,
+        badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
+      };
+    case "wallet":
+    default:
+      return {
+        shell: `border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19] ${glow}`,
+        badge: "bg-[#EEF4FF] text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]",
+      };
+  }
+}
+
+function computeNodeWidth(
+  level: "root" | "tier" | "bucket" | "subclass" | "wallet",
+  allocationPct: number
+) {
+  const pct = safeNumber(allocationPct);
+
+  switch (level) {
+    case "root":
+      return 360;
+    case "tier":
+      return clamp(280 + pct * 3.8, 280, 560);
+    case "bucket":
+      return clamp(230 + pct * 3.0, 230, 480);
+    case "subclass":
+      return clamp(205 + pct * 1.8, 205, 340);
+    case "wallet":
+    default:
+      return clamp(205 + pct * 1.7, 205, 340);
+  }
+}
+
+function computeMinHeight(
+  level: "root" | "tier" | "bucket" | "subclass" | "wallet",
+  allocationPct: number
+) {
+  const pct = safeNumber(allocationPct);
+
+  switch (level) {
+    case "root":
+      return 145;
+    case "tier":
+      return clamp(125 + pct * 0.9, 125, 200);
+    case "bucket":
+      return clamp(110 + pct * 0.65, 110, 175);
+    case "subclass":
+      return clamp(96 + pct * 0.28, 96, 135);
+    case "wallet":
+    default:
+      return clamp(94 + pct * 0.25, 94, 132);
+  }
+}
+
+function getEmphasis(
+  level: "root" | "tier" | "bucket" | "subclass" | "wallet",
+  allocationPct: number
+): FlowCardData["emphasis"] {
+  if (level === "root") return "high";
+
+  if (allocationPct >= 40) return "high";
+  if (allocationPct >= 12) return "medium";
+  return "low";
+}
+
 function FlowCardNode({ data }: NodeProps<FlowCardData>) {
-  const tone = getToneClasses(data.tone, data.warning, data.pulse);
+  const tone = getToneClasses(data.tone, data.warning, data.pulse, data.emphasis);
 
   return (
     <div
@@ -334,7 +374,8 @@ function FlowCardNode({ data }: NodeProps<FlowCardData>) {
         minHeight: data.minHeight ?? 100,
       }}
     >
-      <Handle type="target" position={Position.Top} className="!h-2 !w-2 !bg-[#C084FC]" />
+      <Handle type="target" position={Position.Top} className="!h-2.5 !w-2.5 !bg-[#C084FC]" />
+
       <div className="flex items-start justify-between gap-3">
         <span className={`rounded-full px-2.5 py-1 text-[10px] font-medium ${tone.badge}`}>
           {data.title}
@@ -364,7 +405,13 @@ function FlowCardNode({ data }: NodeProps<FlowCardData>) {
         </p>
       ) : null}
 
-      <Handle type="source" position={Position.Bottom} className="!h-2 !w-2 !bg-[#8B5CF6]" />
+      {data.tertiary ? (
+        <p className="mt-1 text-[10px] font-medium text-[#BE123C] dark:text-[#FDA4AF]">
+          {data.tertiary}
+        </p>
+      ) : null}
+
+      <Handle type="source" position={Position.Bottom} className="!h-2.5 !w-2.5 !bg-[#8B5CF6]" />
     </div>
   );
 }
@@ -397,7 +444,10 @@ function MetricCard({
   );
 }
 
-function buildTreeElements(structure?: StructureNode, alignmentMap?: Map<string, AlignmentTier>) {
+function buildTreeElements(
+  structure?: StructureNode,
+  alignmentMap?: Map<string, AlignmentTier>
+) {
   const nodes: Node<FlowCardData>[] = [];
   const edges: Edge[] = [];
 
@@ -405,18 +455,18 @@ function buildTreeElements(structure?: StructureNode, alignmentMap?: Map<string,
     return { nodes, edges };
   }
 
-  const ROOT_X = 760;
-  const ROOT_Y = 30;
-  const TIER_Y_START = 250;
-  const TIER_Y_GAP = 560;
-  const BUCKET_Y_OFFSET = 230;
-  const SUBCLASS_Y_OFFSET = 420;
-  const WALLET_Y_OFFSET = 420;
-  const BUCKET_X_GAP = 520;
-  const SUBCLASS_X_OFFSET = 260;
-  const WALLET_X_OFFSET = 300;
-  const SUBCLASS_Y_GAP = 150;
-  const WALLET_Y_GAP = 150;
+  const ROOT_X = 820;
+  const ROOT_Y = 40;
+  const TIER_Y_START = 280;
+  const TIER_Y_GAP = 620;
+  const BUCKET_Y_OFFSET = 250;
+  const SUBCLASS_Y_OFFSET = 470;
+  const WALLET_Y_OFFSET = 470;
+  const BUCKET_X_GAP = 620;
+  const SUBCLASS_X_OFFSET = 330;
+  const WALLET_X_OFFSET = 380;
+  const SUBCLASS_Y_GAP = 175;
+  const WALLET_Y_GAP = 175;
 
   nodes.push({
     id: "root",
@@ -431,6 +481,7 @@ function buildTreeElements(structure?: StructureNode, alignmentMap?: Map<string,
       tone: "root",
       width: computeNodeWidth("root", 100),
       minHeight: computeMinHeight("root", 100),
+      emphasis: "high",
     },
     draggable: true,
   });
@@ -441,6 +492,7 @@ function buildTreeElements(structure?: StructureNode, alignmentMap?: Map<string,
     const tierAlignment = alignmentMap?.get(tier.key);
     const tierTone = getTierTone(tier.key);
     const tierEdgeColor = getTierEdgeColor(tier.key);
+    const alignmentStyle = getAlignmentStyle(tierAlignment?.status);
 
     nodes.push({
       id: tierId,
@@ -456,11 +508,13 @@ function buildTreeElements(structure?: StructureNode, alignmentMap?: Map<string,
               tierAlignment.deviation_pct
             )}`
           : undefined,
+        tertiary: tierAlignment ? alignmentStyle.label : undefined,
         tone: tierTone,
         width: computeNodeWidth("tier", tier.allocation_pct),
         minHeight: computeMinHeight("tier", tier.allocation_pct),
         warning: tierAlignment?.status === "warning",
         pulse: tierAlignment?.status === "warning",
+        emphasis: getEmphasis("tier", tier.allocation_pct),
       },
       draggable: true,
     });
@@ -471,7 +525,7 @@ function buildTreeElements(structure?: StructureNode, alignmentMap?: Map<string,
       target: tierId,
       animated: true,
       markerEnd: { type: MarkerType.ArrowClosed },
-      style: { strokeWidth: 3, stroke: tierEdgeColor },
+      style: { strokeWidth: 4, stroke: tierEdgeColor },
     });
 
     const bucketCount = tier.children.length || 1;
@@ -497,6 +551,7 @@ function buildTreeElements(structure?: StructureNode, alignmentMap?: Map<string,
           width: computeNodeWidth("bucket", bucket.allocation_pct),
           minHeight: computeMinHeight("bucket", bucket.allocation_pct),
           warning: bucketWarning,
+          emphasis: getEmphasis("bucket", bucket.allocation_pct),
         },
         draggable: true,
       });
@@ -507,7 +562,7 @@ function buildTreeElements(structure?: StructureNode, alignmentMap?: Map<string,
         target: bucketId,
         animated: true,
         markerEnd: { type: MarkerType.ArrowClosed },
-        style: { strokeWidth: 2.5, stroke: tierEdgeColor },
+        style: { strokeWidth: 3, stroke: tierEdgeColor },
       });
 
       bucket.children.forEach((subclass, subclassIndex) => {
@@ -533,6 +588,7 @@ function buildTreeElements(structure?: StructureNode, alignmentMap?: Map<string,
             tone: "subclass",
             width: computeNodeWidth("subclass", subclass.allocation_pct),
             minHeight: computeMinHeight("subclass", subclass.allocation_pct),
+            emphasis: getEmphasis("subclass", subclass.allocation_pct),
           },
           draggable: true,
         });
@@ -543,7 +599,7 @@ function buildTreeElements(structure?: StructureNode, alignmentMap?: Map<string,
           target: subclassId,
           animated: false,
           markerEnd: { type: MarkerType.ArrowClosed },
-          style: { strokeWidth: 1.8, stroke: "#C4B5FD" },
+          style: { strokeWidth: 2, stroke: "#C4B5FD" },
         });
       });
 
@@ -557,6 +613,11 @@ function buildTreeElements(structure?: StructureNode, alignmentMap?: Map<string,
             ? (safeNumber(wallet.total_value_usd) / safeNumber(bucket.total_value_usd)) * 100
             : 0;
 
+        const pctOfTotal =
+          structure.total_value_usd > 0
+            ? (safeNumber(wallet.total_value_usd) / safeNumber(structure.total_value_usd)) * 100
+            : 0;
+
         nodes.push({
           id: walletId,
           type: "flowCard",
@@ -567,9 +628,11 @@ function buildTreeElements(structure?: StructureNode, alignmentMap?: Map<string,
             subtitle: `${wallet.role} • ${wallet.network_group}`,
             meta: wallet.wallet_address_short,
             secondary: `${formatPercent(pctOfParent)} of ${bucket.label}`,
+            tertiary: `${formatPercent(pctOfTotal)} of total MMII`,
             tone: "wallet",
-            width: computeNodeWidth("wallet", wallet.total_value_usd / safeNumber(structure.total_value_usd) * 100),
-            minHeight: computeMinHeight("wallet", wallet.total_value_usd / safeNumber(structure.total_value_usd) * 100),
+            width: computeNodeWidth("wallet", pctOfTotal),
+            minHeight: computeMinHeight("wallet", pctOfTotal),
+            emphasis: getEmphasis("wallet", pctOfTotal),
           },
           draggable: true,
         });
@@ -580,7 +643,7 @@ function buildTreeElements(structure?: StructureNode, alignmentMap?: Map<string,
           target: walletId,
           animated: false,
           markerEnd: { type: MarkerType.ArrowClosed },
-          style: { strokeWidth: 1.8, stroke: "#60A5FA" },
+          style: { strokeWidth: 2.2, stroke: "#60A5FA" },
         });
       });
     });
@@ -590,12 +653,7 @@ function buildTreeElements(structure?: StructureNode, alignmentMap?: Map<string,
 }
 
 function AlignmentChip({ tier }: { tier: AlignmentTier }) {
-  const style =
-    tier.status === "aligned"
-      ? "bg-[#ECFDF3] text-[#15803D] dark:bg-[#102417] dark:text-[#86EFAC]"
-      : tier.status === "watch"
-        ? "bg-[#FFF7ED] text-[#C2410C] dark:bg-[#26180F] dark:text-[#FDBA74]"
-        : "bg-[#FFF1F2] text-[#BE123C] dark:bg-[#2A1218] dark:text-[#FDA4AF]";
+  const style = getAlignmentStyle(tier.status);
 
   return (
     <div className="rounded-xl border border-[#E9DAFF] bg-white p-3 dark:border-[#2A1D3B] dark:bg-[#100A19]">
@@ -603,8 +661,8 @@ function AlignmentChip({ tier }: { tier: AlignmentTier }) {
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
           {tier.label}
         </p>
-        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${style}`}>
-          {tier.status}
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${style.className}`}>
+          {style.label}
         </span>
       </div>
       <p className="mt-2 text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
@@ -793,13 +851,14 @@ export default function StrategyFlowPage() {
             </div>
 
             <div className="mt-5 rounded-2xl border border-dashed border-[#D8B4FE] bg-[#FCFAFF] p-3 dark:border-[#3B2A57] dark:bg-[#140D20]">
-              <div className="h-[1500px] overflow-hidden rounded-2xl border border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]">
+              <div className="h-[1700px] overflow-hidden rounded-2xl border border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]">
                 <ReactFlow
                   nodes={nodes}
                   edges={edges}
                   nodeTypes={nodeTypes}
-                  fitView
-                  fitViewOptions={{ padding: 0.18 }}
+                  defaultViewport={{ x: -160, y: 0, zoom: 0.78 }}
+                  minZoom={0.35}
+                  maxZoom={1.5}
                   defaultEdgeOptions={{
                     markerEnd: { type: MarkerType.ArrowClosed },
                     style: { strokeWidth: 2, stroke: "#C084FC" },
