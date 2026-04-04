@@ -528,7 +528,9 @@ function buildTreeElements(
   const tier1 = tiersByKey.get("tier_1");
   const tier2 = tiersByKey.get("tier_2");
 
-  const tierRenderOrder = [tier0, tier1, tier2].filter(Boolean);
+  const tierRenderOrder = [tier0, tier1, tier2].filter(
+    (tier): tier is StructureNode => Boolean(tier)
+  );
 
   for (const tier of tierRenderOrder) {
     const tierId = `tier-${tier.key}`;
