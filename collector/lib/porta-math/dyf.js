@@ -602,7 +602,7 @@ function computeGlobalDailyYieldFlow(
   return safeNumber(dailySummary.current_yield_flow_usd);
 }
 
-module.exports = {
+export {
   safeNumber,
   capitalizeTimeframe,
   getTimeframeStart,
