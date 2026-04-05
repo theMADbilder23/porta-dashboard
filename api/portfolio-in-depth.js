@@ -73,16 +73,10 @@ function getStartDateIso(timeframe) {
   return start.toISOString().split("T")[0];
 }
 
-function getIntradayStartIso() {
-  const now = new Date();
-
-  return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
-  ).toISOString();
-}
-
 function formatMetricDateLabel(metricDate, timeframe) {
   const date = new Date(`${metricDate}T00:00:00Z`);
+
+  if (!Number.isFinite(date.getTime())) return "—";
 
   if (timeframe === "daily" || timeframe === "weekly" || timeframe === "monthly") {
     return date.toLocaleDateString("en-US", {
@@ -113,8 +107,23 @@ function formatDailyBucketLabel(metricTime) {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-    timeZone: "UTC",
   });
+}
+
+function getTimeframeYieldLabel(timeframe) {
+  switch (timeframe) {
+    case "weekly":
+      return "WYF";
+    case "monthly":
+      return "MYF";
+    case "quarterly":
+      return "QYF";
+    case "yearly":
+      return "YYF";
+    case "daily":
+    default:
+      return "DYF";
+  }
 }
 
 function buildStoredTrend(rows, timeframe) {
@@ -235,6 +244,112 @@ function buildSummary(rows, { intraday = false } = {}) {
   };
 }
 
+function calculatePeriodYieldTotal(rows) {
+  return safeNumber(
+    rows.reduce((sum, row) => sum + safeNumber(row.total_daily_yield_flow), 0)
+  );
+}
+
+function calculatePeriodClaimableTotal(rows) {
+  if (!rows.length) return 0;
+
+  let total = safeNumber(rows[0].total_claimable_usd);
+  let previous = safeNumber(rows[0].total_claimable_usd);
+
+  for (let i = 1; i < rows.length; i += 1) {
+    const current = safeNumber(rows[i].total_claimable_usd);
+
+    if (current >= previous) {
+      total += current - previous;
+    } else {
+      // reset / claim likely occurred; preserve prior buildup and add new baseline
+      total += current;
+    }
+
+    previous = current;
+  }
+
+  return safeNumber(total);
+}
+
+function calculatePeriodApyRatio(totalYieldFlow, avgPortfolioValue, rowCount) {
+  const safeAvgPortfolioValue = safeNumber(avgPortfolioValue);
+  const safeRowCount = safeNumber(rowCount);
+
+  if (safeAvgPortfolioValue <= 0 || safeRowCount <= 0) return 0;
+
+  return safeNumber((totalYieldFlow / safeAvgPortfolioValue) * (365 / safeRowCount));
+}
+
+function buildPeriodHeader(rows, timeframe, summary, { intraday = false } = {}) {
+  if (!rows.length) {
+    return {
+      timeframe,
+      yield_label: getTimeframeYieldLabel(timeframe),
+      avg_portfolio_value: 0,
+      total_yield_flow: 0,
+      total_claimable_usd: 0,
+      apy_ratio: 0,
+      current_claimable_usd: 0,
+      latest_metric_date: null,
+      latest_metric_time: null,
+    };
+  }
+
+  if (intraday) {
+    const latest = rows[rows.length - 1];
+
+    return {
+      timeframe,
+      yield_label: "DYF",
+      avg_portfolio_value: getAverageValue(
+        rows.map((row) => safeNumber(row.total_portfolio_value))
+      ),
+      total_yield_flow: safeNumber(latest.total_daily_yield_flow),
+      total_claimable_usd: safeNumber(latest.total_claimable_usd),
+      apy_ratio: safeNumber(latest.yield_tvd_ratio),
+      current_claimable_usd: safeNumber(latest.total_claimable_usd),
+      latest_metric_date: latest.metric_date || null,
+      latest_metric_time: latest.metric_time || null,
+    };
+  }
+
+  const totalYieldFlow = calculatePeriodYieldTotal(rows);
+  const totalClaimableUsd = calculatePeriodClaimableTotal(rows);
+  const avgPortfolioValue = safeNumber(summary.historical.avg_portfolio_value);
+  const apyRatio = calculatePeriodApyRatio(totalYieldFlow, avgPortfolioValue, rows.length);
+  const latest = rows[rows.length - 1];
+
+  return {
+    timeframe,
+    yield_label: getTimeframeYieldLabel(timeframe),
+    avg_portfolio_value: avgPortfolioValue,
+    total_yield_flow: totalYieldFlow,
+    total_claimable_usd: totalClaimableUsd,
+    apy_ratio: apyRatio,
+    current_claimable_usd: safeNumber(latest.total_claimable_usd),
+    latest_metric_date: latest.metric_date || null,
+    latest_metric_time: null,
+  };
+}
+
+async function getLatestIntradayMetricDate() {
+  const { data, error } = await supabase
+    .from("intraday_metric_snapshots")
+    .select("metric_date, metric_time")
+    .order("metric_date", { ascending: false })
+    .order("metric_time", { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.error("[portfolio-in-depth] latest intraday metric date fetch error", error);
+    throw error;
+  }
+
+  const latestRow = Array.isArray(data) && data.length ? data[0] : null;
+  return latestRow?.metric_date || null;
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -244,12 +359,28 @@ module.exports = async function handler(req, res) {
     const timeframe = normalizeTimeframe(req.query.timeframe);
 
     if (timeframe === "daily") {
-      const intradayStartIso = getIntradayStartIso();
+      const latestMetricDate = await getLatestIntradayMetricDate();
+
+      if (!latestMetricDate) {
+        return res.status(200).json({
+          timeframe,
+          metric_label: "Portfolio In-Depth",
+          sufficient_data: false,
+          minimum_required_rows: 1,
+          actual_rows: 0,
+          summary: buildSummary([], { intraday: true }),
+          period_header: buildPeriodHeader([], timeframe, buildSummary([], { intraday: true }), {
+            intraday: true,
+          }),
+          trend: [],
+          rows: [],
+        });
+      }
 
       const { data, error } = await supabase
         .from("intraday_metric_snapshots")
         .select("*")
-        .gte("metric_time", intradayStartIso)
+        .eq("metric_date", latestMetricDate)
         .order("metric_time", { ascending: true });
 
       if (error) {
@@ -267,6 +398,9 @@ module.exports = async function handler(req, res) {
           minimum_required_rows: 1,
           actual_rows: 0,
           summary: buildSummary([], { intraday: true }),
+          period_header: buildPeriodHeader([], timeframe, buildSummary([], { intraday: true }), {
+            intraday: true,
+          }),
           trend: [],
           rows: [],
         });
@@ -274,6 +408,9 @@ module.exports = async function handler(req, res) {
 
       const trend = buildIntradayTrend(rows);
       const summary = buildSummary(rows, { intraday: true });
+      const periodHeader = buildPeriodHeader(rows, timeframe, summary, {
+        intraday: true,
+      });
 
       return res.status(200).json({
         timeframe,
@@ -281,7 +418,9 @@ module.exports = async function handler(req, res) {
         sufficient_data: true,
         minimum_required_rows: 1,
         actual_rows: rows.length,
+        latest_metric_date: latestMetricDate,
         summary,
+        period_header: periodHeader,
         trend,
         rows,
       });
@@ -311,6 +450,9 @@ module.exports = async function handler(req, res) {
         minimum_required_rows: minimumRequiredRows,
         actual_rows: rows.length,
         summary: buildSummary([], { intraday: false }),
+        period_header: buildPeriodHeader([], timeframe, buildSummary([], { intraday: false }), {
+          intraday: false,
+        }),
         trend: [],
         rows: [],
       });
@@ -318,6 +460,9 @@ module.exports = async function handler(req, res) {
 
     const trend = buildStoredTrend(rows, timeframe);
     const summary = buildSummary(rows, { intraday: false });
+    const periodHeader = buildPeriodHeader(rows, timeframe, summary, {
+      intraday: false,
+    });
 
     return res.status(200).json({
       timeframe,
@@ -326,6 +471,7 @@ module.exports = async function handler(req, res) {
       minimum_required_rows: minimumRequiredRows,
       actual_rows: rows.length,
       summary,
+      period_header: periodHeader,
       trend,
       rows,
     });
