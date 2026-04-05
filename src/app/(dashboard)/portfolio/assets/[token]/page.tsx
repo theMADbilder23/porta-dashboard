@@ -378,24 +378,18 @@ function ActivityItem({
   );
 }
 
-function resolveBaseUrl() {
-  if (process.env.NEXT_PUBLIC_SITE_URL) {
-    return process.env.NEXT_PUBLIC_SITE_URL;
-  }
-
-  if (process.env.VERCEL_URL) {
-    return process.env.VERCEL_URL.startsWith("http")
-      ? process.env.VERCEL_URL
-      : `https://${process.env.VERCEL_URL}`;
-  }
-
-  return "http://localhost:3000";
-}
-
 async function fetchAssetViewerData(
   token: string
 ): Promise<AssetViewerResponse | null> {
-  const baseUrl = resolveBaseUrl();
+  const headerStore = headers();
+  const host = headerStore.get("host");
+
+  if (!host) {
+    return null;
+  }
+
+  const protocol = host.includes("localhost") ? "http" : "https";
+  const baseUrl = `${protocol}://${host}`;
 
   try {
     const response = await fetch(

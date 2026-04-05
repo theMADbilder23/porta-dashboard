@@ -1,3 +1,5 @@
+import { headers } from "next/headers";
+
 const { createClient } = require("@supabase/supabase-js");
 
 const supabase = createClient(
