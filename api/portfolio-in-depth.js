@@ -12,6 +12,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+const CLAIMABLE_RESET_RATIO_THRESHOLD = 0.6;
+const CLAIMABLE_RESET_MIN_DROP_USD = 5;
+
 function normalizeTimeframe(value) {
   const timeframe = String(value || "daily").toLowerCase();
 
@@ -84,6 +87,8 @@ function getIntradayStartIso() {
 function formatMetricDateLabel(metricDate, timeframe) {
   const date = new Date(`${metricDate}T00:00:00Z`);
 
+  if (!Number.isFinite(date.getTime())) return "—";
+
   if (timeframe === "daily" || timeframe === "weekly" || timeframe === "monthly") {
     return date.toLocaleDateString("en-US", {
       month: "short",
@@ -115,6 +120,38 @@ function formatDailyBucketLabel(metricTime) {
     hour12: true,
     timeZone: "UTC",
   });
+}
+
+function getYieldFlowPrefix(timeframe) {
+  switch (timeframe) {
+    case "weekly":
+      return "WYF";
+    case "monthly":
+      return "MYF";
+    case "quarterly":
+      return "QYF";
+    case "yearly":
+      return "YYF";
+    case "daily":
+    default:
+      return "DYF";
+  }
+}
+
+function getPeriodYieldLabel(timeframe) {
+  switch (timeframe) {
+    case "weekly":
+      return "Weekly Yield %";
+    case "monthly":
+      return "Monthly Yield %";
+    case "quarterly":
+      return "Quarterly Yield %";
+    case "yearly":
+      return "Yearly Yield %";
+    case "daily":
+    default:
+      return "Yield / TVD";
+  }
 }
 
 function buildStoredTrend(rows, timeframe) {
@@ -149,7 +186,136 @@ function buildIntradayTrend(rows) {
   }));
 }
 
-function buildSummary(rows, { intraday = false } = {}) {
+function shouldTreatAsClaimableReset(previousRow, currentRow) {
+  if (!previousRow || !currentRow) return false;
+
+  const previousClaimable = safeNumber(previousRow.total_claimable_usd);
+  const currentClaimable = safeNumber(currentRow.total_claimable_usd);
+
+  if (previousClaimable <= 0) return false;
+
+  const dropUsd = previousClaimable - currentClaimable;
+  const ratio = currentClaimable / previousClaimable;
+
+  return (
+    dropUsd >= CLAIMABLE_RESET_MIN_DROP_USD &&
+    ratio <= CLAIMABLE_RESET_RATIO_THRESHOLD
+  );
+}
+
+function buildResetAwareTotalClaimable(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return {
+      total_claimable_usd: 0,
+      locked_claimable_usd: 0,
+      active_claimable_usd: 0,
+      reset_count: 0,
+      reset_points: [],
+    };
+  }
+
+  let lockedClaimableUsd = 0;
+  let activeClaimableUsd = safeNumber(rows[0].total_claimable_usd);
+  let resetCount = 0;
+  const resetPoints = [];
+
+  for (let i = 1; i < rows.length; i += 1) {
+    const previousRow = rows[i - 1];
+    const currentRow = rows[i];
+
+    if (shouldTreatAsClaimableReset(previousRow, currentRow)) {
+      const lockedAtReset = safeNumber(previousRow.total_claimable_usd);
+
+      lockedClaimableUsd += lockedAtReset;
+      activeClaimableUsd = safeNumber(currentRow.total_claimable_usd);
+      resetCount += 1;
+
+      resetPoints.push({
+        previous_metric_date: previousRow.metric_date,
+        current_metric_date: currentRow.metric_date,
+        locked_claimable_usd: lockedAtReset,
+        restarted_claimable_usd: safeNumber(currentRow.total_claimable_usd),
+      });
+    } else {
+      activeClaimableUsd = safeNumber(currentRow.total_claimable_usd);
+    }
+  }
+
+  return {
+    total_claimable_usd: safeNumber(lockedClaimableUsd + activeClaimableUsd),
+    locked_claimable_usd: safeNumber(lockedClaimableUsd),
+    active_claimable_usd: safeNumber(activeClaimableUsd),
+    reset_count: resetCount,
+    reset_points: resetPoints,
+  };
+}
+
+function buildTimeframeSummary(rows, timeframe) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return {
+      is_live_mode: timeframe === "daily",
+      header_labels: {
+        tpv: timeframe === "daily" ? "Current TPV" : "Avg TPV",
+        claimable: timeframe === "daily" ? "Current Claimable" : "Total Claimable",
+        yield_flow:
+          timeframe === "daily"
+            ? "Current DYF"
+            : `Total ${getYieldFlowPrefix(timeframe)}`,
+        ratio: timeframe === "daily" ? "Yield / TVD" : getPeriodYieldLabel(timeframe),
+      },
+      latest_metric_date: null,
+      latest_metric_time: null,
+      avg_tpv: 0,
+      total_claimable_usd: 0,
+      total_yield_flow_usd: 0,
+      period_yield_ratio: 0,
+      period_yield_pct: 0,
+      locked_claimable_usd: 0,
+      active_claimable_usd: 0,
+      claimable_reset_count: 0,
+      claimable_reset_points: [],
+    };
+  }
+
+  const latest = rows[rows.length - 1];
+  const avgTpv = getAverageValue(rows.map((row) => safeNumber(row.total_portfolio_value)));
+  const totalYieldFlowUsd = rows.reduce(
+    (sum, row) => sum + safeNumber(row.total_daily_yield_flow),
+    0
+  );
+
+  const claimableRollup = buildResetAwareTotalClaimable(rows);
+
+  const periodYieldRatio = avgTpv > 0 ? totalYieldFlowUsd / avgTpv : 0;
+
+  return {
+    is_live_mode: timeframe === "daily",
+    header_labels: {
+      tpv: timeframe === "daily" ? "Current TPV" : "Avg TPV",
+      claimable: timeframe === "daily" ? "Current Claimable" : "Total Claimable",
+      yield_flow:
+        timeframe === "daily"
+          ? "Current DYF"
+          : `Total ${getYieldFlowPrefix(timeframe)}`,
+      ratio: timeframe === "daily" ? "Yield / TVD" : getPeriodYieldLabel(timeframe),
+    },
+    latest_metric_date: latest.metric_date || null,
+    latest_metric_time: latest.metric_time || null,
+    avg_tpv: safeNumber(avgTpv),
+    total_claimable_usd: safeNumber(claimableRollup.total_claimable_usd),
+    total_yield_flow_usd: safeNumber(totalYieldFlowUsd),
+    period_yield_ratio: safeNumber(periodYieldRatio),
+    period_yield_pct: safeNumber(periodYieldRatio * 100),
+    locked_claimable_usd: safeNumber(claimableRollup.locked_claimable_usd),
+    active_claimable_usd: safeNumber(claimableRollup.active_claimable_usd),
+    claimable_reset_count: claimableRollup.reset_count,
+    claimable_reset_points: claimableRollup.reset_points,
+  };
+}
+
+function buildSummary(rows, { intraday = false, timeframe = "daily" } = {}) {
+  const emptyTimeframeSummary = buildTimeframeSummary([], timeframe);
+
   if (!rows.length) {
     return {
       current: {
@@ -180,6 +346,7 @@ function buildSummary(rows, { intraday = false } = {}) {
         range_claimable_pct: 0,
         range_daily_yield_pct: 0,
       },
+      timeframe_summary: emptyTimeframeSummary,
     };
   }
 
@@ -232,6 +399,7 @@ function buildSummary(rows, { intraday = false } = {}) {
       range_claimable_pct: getPctChange(minClaimableUsd, maxClaimableUsd),
       range_daily_yield_pct: getPctChange(minDailyYieldFlow, maxDailyYieldFlow),
     },
+    timeframe_summary: buildTimeframeSummary(rows, timeframe),
   };
 }
 
@@ -254,7 +422,9 @@ module.exports = async function handler(req, res) {
 
       if (error) {
         console.error("[portfolio-in-depth] intraday fetch error", error);
-        return res.status(500).json({ error: "Failed to load intraday portfolio metrics" });
+        return res.status(500).json({
+          error: "Failed to load intraday portfolio metrics",
+        });
       }
 
       const rows = Array.isArray(data) ? data : [];
@@ -266,14 +436,14 @@ module.exports = async function handler(req, res) {
           sufficient_data: false,
           minimum_required_rows: 1,
           actual_rows: 0,
-          summary: buildSummary([], { intraday: true }),
+          summary: buildSummary([], { intraday: true, timeframe }),
           trend: [],
           rows: [],
         });
       }
 
       const trend = buildIntradayTrend(rows);
-      const summary = buildSummary(rows, { intraday: true });
+      const summary = buildSummary(rows, { intraday: true, timeframe });
 
       return res.status(200).json({
         timeframe,
@@ -298,7 +468,9 @@ module.exports = async function handler(req, res) {
 
     if (error) {
       console.error("[portfolio-in-depth] daily_metric_snapshots fetch error", error);
-      return res.status(500).json({ error: "Failed to load portfolio in-depth metrics" });
+      return res.status(500).json({
+        error: "Failed to load portfolio in-depth metrics",
+      });
     }
 
     const rows = Array.isArray(data) ? data : [];
@@ -310,14 +482,14 @@ module.exports = async function handler(req, res) {
         sufficient_data: false,
         minimum_required_rows: minimumRequiredRows,
         actual_rows: rows.length,
-        summary: buildSummary([], { intraday: false }),
+        summary: buildSummary([], { intraday: false, timeframe }),
         trend: [],
         rows: [],
       });
     }
 
     const trend = buildStoredTrend(rows, timeframe);
-    const summary = buildSummary(rows, { intraday: false });
+    const summary = buildSummary(rows, { intraday: false, timeframe });
 
     return res.status(200).json({
       timeframe,

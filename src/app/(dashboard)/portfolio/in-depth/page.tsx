@@ -3,6 +3,22 @@
 import { useEffect, useMemo, useState } from "react";
 
 type Timeframe = "daily" | "weekly" | "monthly" | "quarterly" | "yearly";
+type SortField =
+  | "date"
+  | "tpv"
+  | "claimable"
+  | "dyf"
+  | "min"
+  | "avg"
+  | "max"
+  | "yield_ratio";
+type SortDirection = "asc" | "desc";
+type QuickFilter =
+  | "none"
+  | "strongest-dyf"
+  | "weakest-dyf"
+  | "max-tpv"
+  | "min-tpv";
 
 type PortfolioInDepthResponse = {
   timeframe: Timeframe;
@@ -38,6 +54,31 @@ type PortfolioInDepthResponse = {
       range_portfolio_pct: number;
       range_claimable_pct: number;
       range_daily_yield_pct: number;
+    };
+    timeframe_summary?: {
+      is_live_mode: boolean;
+      header_labels: {
+        tpv: string;
+        claimable: string;
+        yield_flow: string;
+        ratio: string;
+      };
+      latest_metric_date: string | null;
+      latest_metric_time?: string | null;
+      avg_tpv: number;
+      total_claimable_usd: number;
+      total_yield_flow_usd: number;
+      period_yield_ratio: number;
+      period_yield_pct: number;
+      locked_claimable_usd?: number;
+      active_claimable_usd?: number;
+      claimable_reset_count?: number;
+      claimable_reset_points?: Array<{
+        previous_metric_date: string;
+        current_metric_date: string;
+        locked_claimable_usd: number;
+        restarted_claimable_usd: number;
+      }>;
     };
   };
   trend: Array<{
@@ -228,11 +269,56 @@ function CompactStat({
   );
 }
 
+function getRowSearchText(
+  row: PortfolioInDepthResponse["trend"][number],
+  isDaily: boolean
+) {
+  const dateText = row.metric_date || "";
+  const timeText = row.metric_time || "";
+  const labelText = row.label || "";
+
+  return [dateText, timeText, labelText].join(" ").toLowerCase();
+}
+
+function getRowSortValue(
+  row: PortfolioInDepthResponse["trend"][number],
+  field: SortField,
+  isDaily: boolean
+) {
+  switch (field) {
+    case "tpv":
+      return safeNumber(row.total_portfolio_value);
+    case "claimable":
+      return safeNumber(row.total_claimable_usd);
+    case "dyf":
+      return safeNumber(row.total_daily_yield_flow);
+    case "min":
+      return safeNumber(row.min_claimable_usd);
+    case "avg":
+      return safeNumber(row.avg_claimable_usd);
+    case "max":
+      return safeNumber(row.max_claimable_usd);
+    case "yield_ratio":
+      return safeNumber(row.yield_tvd_ratio);
+    case "date":
+    default:
+      if (isDaily) {
+        return new Date(row.metric_time || row.metric_date).getTime();
+      }
+      return new Date(`${row.metric_date}T00:00:00Z`).getTime();
+  }
+}
+
 export default function PortfolioInDepthPage() {
   const [timeframe, setTimeframe] = useState<Timeframe>("daily");
   const [data, setData] = useState<PortfolioInDepthResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortField, setSortField] = useState<SortField>("date");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>("none");
 
   async function loadData(selectedTimeframe: Timeframe) {
     try {
@@ -264,23 +350,17 @@ export default function PortfolioInDepthPage() {
     loadData(timeframe);
   }, [timeframe]);
 
+  useEffect(() => {
+    setSearchTerm("");
+    setSortField("date");
+    setSortDirection("desc");
+    setQuickFilter("none");
+  }, [timeframe]);
+
   const current = data?.summary.current;
   const historical = data?.summary.historical;
+  const timeframeSummary = data?.summary.timeframe_summary;
   const trend = data?.trend ?? [];
-
-  const strongestDay = useMemo(() => {
-    if (!trend.length) return null;
-    return [...trend].sort(
-      (a, b) => safeNumber(b.total_daily_yield_flow) - safeNumber(a.total_daily_yield_flow)
-    )[0];
-  }, [trend]);
-
-  const weakestDay = useMemo(() => {
-    if (!trend.length) return null;
-    return [...trend].sort(
-      (a, b) => safeNumber(a.total_daily_yield_flow) - safeNumber(b.total_daily_yield_flow)
-    )[0];
-  }, [trend]);
 
   const timeframeOptions: Timeframe[] = [
     "daily",
@@ -291,6 +371,149 @@ export default function PortfolioInDepthPage() {
   ];
 
   const isDaily = timeframe === "daily";
+
+  const strongestDay = useMemo(() => {
+    if (!trend.length) return null;
+    return [...trend].sort(
+      (a, b) =>
+        safeNumber(b.total_daily_yield_flow) -
+        safeNumber(a.total_daily_yield_flow)
+    )[0];
+  }, [trend]);
+
+  const weakestDay = useMemo(() => {
+    if (!trend.length) return null;
+    return [...trend].sort(
+      (a, b) =>
+        safeNumber(a.total_daily_yield_flow) -
+        safeNumber(b.total_daily_yield_flow)
+    )[0];
+  }, [trend]);
+
+  const displayTrend = useMemo(() => {
+    let rows = [...trend];
+
+    if (searchTerm.trim()) {
+      const normalizedSearch = searchTerm.trim().toLowerCase();
+      rows = rows.filter((row) =>
+        getRowSearchText(row, isDaily).includes(normalizedSearch)
+      );
+    }
+
+    if (quickFilter === "strongest-dyf") {
+      rows.sort(
+        (a, b) =>
+          safeNumber(b.total_daily_yield_flow) -
+          safeNumber(a.total_daily_yield_flow)
+      );
+      return rows;
+    }
+
+    if (quickFilter === "weakest-dyf") {
+      rows.sort(
+        (a, b) =>
+          safeNumber(a.total_daily_yield_flow) -
+          safeNumber(b.total_daily_yield_flow)
+      );
+      return rows;
+    }
+
+    if (quickFilter === "max-tpv") {
+      rows.sort(
+        (a, b) =>
+          safeNumber(b.total_portfolio_value) -
+          safeNumber(a.total_portfolio_value)
+      );
+      return rows;
+    }
+
+    if (quickFilter === "min-tpv") {
+      rows.sort(
+        (a, b) =>
+          safeNumber(a.total_portfolio_value) -
+          safeNumber(b.total_portfolio_value)
+      );
+      return rows;
+    }
+
+    rows.sort((a, b) => {
+      const valueA = getRowSortValue(a, sortField, isDaily);
+      const valueB = getRowSortValue(b, sortField, isDaily);
+
+      if (sortDirection === "asc") return valueA - valueB;
+      return valueB - valueA;
+    });
+
+    return rows;
+  }, [trend, searchTerm, quickFilter, sortField, sortDirection, isDaily]);
+
+  const headerCardLabels = isDaily
+    ? {
+        tpv: "Current TPV",
+        claimable: "Current Claimable",
+        yieldFlow: "Current DYF",
+        ratio: "Yield / TVD",
+      }
+    : {
+        tpv: timeframeSummary?.header_labels?.tpv || "Avg TPV",
+        claimable:
+          timeframeSummary?.header_labels?.claimable || "Total Claimable",
+        yieldFlow:
+          timeframeSummary?.header_labels?.yield_flow || "Total Yield Flow",
+        ratio: timeframeSummary?.header_labels?.ratio || "Period Yield %",
+      };
+
+  const headerCardValues = isDaily
+    ? {
+        tpv: formatCurrency(current?.total_portfolio_value ?? 0),
+        claimable: formatCurrency(current?.total_claimable_usd ?? 0),
+        yieldFlow: formatCurrency(current?.total_daily_yield_flow ?? 0),
+        ratio: formatRatioPercent(current?.yield_tvd_ratio ?? 0),
+      }
+    : {
+        tpv: formatCurrency(timeframeSummary?.avg_tpv ?? 0),
+        claimable: formatCurrency(timeframeSummary?.total_claimable_usd ?? 0),
+        yieldFlow: formatCurrency(timeframeSummary?.total_yield_flow_usd ?? 0),
+        ratio: formatPercent(timeframeSummary?.period_yield_pct ?? 0),
+      };
+
+  const headerCardSublabels = isDaily
+    ? {
+        tpv: `Latest bucket: ${formatDateTimeLabel(current?.metric_time ?? null)}`,
+        claimable: "Latest live bucket total claimable value.",
+        yieldFlow: "Current live daily yield flow across today’s bucket set.",
+        ratio: "Live daily bucket ratio view.",
+      }
+    : {
+        tpv: `Average portfolio value across selected ${timeframe} window.`,
+        claimable:
+          timeframeSummary?.claimable_reset_count && timeframeSummary.claimable_reset_count > 0
+            ? `Reset-aware total claimable across ${timeframeSummary.claimable_reset_count} detected reset cycle(s).`
+            : "Reset-aware total claimable across selected timeframe.",
+        yieldFlow: `Summed ${headerCardLabels.yieldFlow} across the selected timeframe.`,
+        ratio: "Period yield relative to average TPV across the selected timeframe.",
+      };
+
+  const headerCardTooltips = isDaily
+    ? {
+        tpv: "Latest live 30-minute bucket Total Portfolio Value for the current UTC day.",
+        claimable:
+          "Latest live total claimable USD from the current day’s 30-minute snapshot buckets.",
+        yieldFlow:
+          "Live daily yield flow for the current UTC day, derived from the bucketed DYF engine.",
+        ratio:
+          "Current daily bucket ratio field. Can be expanded later if you want live Yield/TVD logic here.",
+      }
+    : {
+        tpv:
+          "Average Total Portfolio Value across the selected historical timeframe.",
+        claimable:
+          "Reset-aware cumulative claimable total. This uses the active claimable stream until a reset is detected, then locks the pre-reset value and adds the new active claimable stream.",
+        yieldFlow:
+          "Total timeframe yield flow across the selected historical window.",
+        ratio:
+          "Period yield percentage calculated from total timeframe yield flow relative to average TPV.",
+      };
 
   return (
     <div className="min-h-screen space-y-6 p-6">
@@ -364,63 +587,31 @@ export default function PortfolioInDepthPage() {
         <>
           <section className="grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-4">
             <MetricCard
-              label="Current TPV"
-              value={formatCurrency(current?.total_portfolio_value ?? 0)}
-              sublabel={
-                isDaily
-                  ? `Latest bucket: ${formatDateTimeLabel(current?.metric_time ?? null)}`
-                  : `Latest stored date: ${formatDateLabel(current?.metric_date ?? null)}`
-              }
-              tooltip={
-                isDaily
-                  ? "Latest live 30-minute bucket Total Portfolio Value for the current UTC day."
-                  : "Latest stored Total Portfolio Value from the derived historical metrics table."
-              }
+              label={headerCardLabels.tpv}
+              value={headerCardValues.tpv}
+              sublabel={headerCardSublabels.tpv}
+              tooltip={headerCardTooltips.tpv}
             />
 
             <MetricCard
-              label="Current Claimable"
-              value={formatCurrency(current?.total_claimable_usd ?? 0)}
-              sublabel={
-                isDaily
-                  ? "Latest live bucket total claimable value."
-                  : "Latest stored total claimable value."
-              }
-              tooltip={
-                isDaily
-                  ? "Latest live total claimable USD from the current day’s 30-minute snapshot buckets."
-                  : "Latest stored total claimable USD from the finalized daily metrics table."
-              }
+              label={headerCardLabels.claimable}
+              value={headerCardValues.claimable}
+              sublabel={headerCardSublabels.claimable}
+              tooltip={headerCardTooltips.claimable}
             />
 
             <MetricCard
-              label="Current DYF"
-              value={formatCurrency(current?.total_daily_yield_flow ?? 0)}
-              sublabel={
-                isDaily
-                  ? "Current live daily yield flow across today’s bucket set."
-                  : "Latest stored daily yield flow."
-              }
-              tooltip={
-                isDaily
-                  ? "Live daily yield flow for the current UTC day, derived from the bucketed DYF engine."
-                  : "Stored daily yield flow for the selected period’s latest finalized day."
-              }
+              label={headerCardLabels.yieldFlow}
+              value={headerCardValues.yieldFlow}
+              sublabel={headerCardSublabels.yieldFlow}
+              tooltip={headerCardTooltips.yieldFlow}
             />
 
             <MetricCard
-              label="Yield / TVD"
-              value={formatRatioPercent(current?.yield_tvd_ratio ?? 0)}
-              sublabel={
-                isDaily
-                  ? "Live daily bucket ratio view."
-                  : "Latest stored yield efficiency ratio."
-              }
-              tooltip={
-                isDaily
-                  ? "Current daily bucket ratio field. Can be expanded later if you want live Yield/TVD logic here."
-                  : "Stored ratio between yield and distributed value for the latest finalized day."
-              }
+              label={headerCardLabels.ratio}
+              value={headerCardValues.ratio}
+              sublabel={headerCardSublabels.ratio}
+              tooltip={headerCardTooltips.ratio}
             />
           </section>
 
@@ -513,7 +704,7 @@ export default function PortfolioInDepthPage() {
               />
               <CompactStat
                 label={isDaily ? "Live Buckets" : "Stored Rows"}
-                value={String(data.actual_rows)}
+                value={String(displayTrend.length)}
                 sublabel={
                   isDaily
                     ? "30-minute buckets in current UTC day"
@@ -532,8 +723,81 @@ export default function PortfolioInDepthPage() {
               <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
                 {isDaily
                   ? "Live 30-minute bucket view for the current UTC day. This gives an in-depth intraday look at TPV, claimable totals, and current DYF context."
-                  : "Clean historical review of stored daily metrics. This is the first layer of true Portfolio In-Depth intelligence and can be expanded later with search, charts, and date-specific drilldown."}
+                  : "Clean historical review of stored daily metrics. This now includes search and sort controls so larger row sets stay useful as history expands."}
               </p>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-[#E9DAFF] p-4 dark:border-[#312047]">
+              <div className="grid grid-cols-1 gap-3 laptop:grid-cols-2 desktop:grid-cols-5">
+                <div className="desktop:col-span-2">
+                  <label className="mb-1 block text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                    Search
+                  </label>
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder={isDaily ? "Search bucket time..." : "Search date/label..."}
+                    className="w-full rounded-xl border border-[#E9DAFF] bg-white px-3 py-2 text-sm text-[#2D1B45] outline-none transition-colors focus:border-[#8B5CF6] dark:border-[#312047] dark:bg-[#100A19] dark:text-[#F3E8FF]"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                    Sort By
+                  </label>
+                  <select
+                    value={sortField}
+                    onChange={(e) => {
+                      setSortField(e.target.value as SortField);
+                      setQuickFilter("none");
+                    }}
+                    className="w-full rounded-xl border border-[#E9DAFF] bg-white px-3 py-2 text-sm text-[#2D1B45] outline-none transition-colors focus:border-[#8B5CF6] dark:border-[#312047] dark:bg-[#100A19] dark:text-[#F3E8FF]"
+                  >
+                    <option value="date">{isDaily ? "Snapshot Time" : "Date"}</option>
+                    <option value="tpv">TPV</option>
+                    <option value="claimable">Claimable</option>
+                    <option value="dyf">DYF</option>
+                    <option value="min">Min</option>
+                    <option value="avg">Avg</option>
+                    <option value="max">Max</option>
+                    <option value="yield_ratio">Yield / TVD</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                    Direction
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+                      setQuickFilter("none");
+                    }}
+                    className="w-full rounded-xl border border-[#E9DAFF] bg-white px-3 py-2 text-sm font-medium text-[#6D28D9] transition-colors hover:bg-[#F3E8FF] dark:border-[#312047] dark:bg-[#100A19] dark:text-[#D8B4FE] dark:hover:bg-[#1A1226]"
+                  >
+                    {sortDirection === "asc" ? "Ascending" : "Descending"}
+                  </button>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                    Quick Filter
+                  </label>
+                  <select
+                    value={quickFilter}
+                    onChange={(e) => setQuickFilter(e.target.value as QuickFilter)}
+                    className="w-full rounded-xl border border-[#E9DAFF] bg-white px-3 py-2 text-sm text-[#2D1B45] outline-none transition-colors focus:border-[#8B5CF6] dark:border-[#312047] dark:bg-[#100A19] dark:text-[#F3E8FF]"
+                  >
+                    <option value="none">None</option>
+                    <option value="strongest-dyf">Strongest DYF</option>
+                    <option value="weakest-dyf">Weakest DYF</option>
+                    <option value="max-tpv">Max TPV</option>
+                    <option value="min-tpv">Min TPV</option>
+                  </select>
+                </div>
+              </div>
             </div>
 
             <div className="mt-5 overflow-x-auto rounded-2xl border border-[#E9DAFF] dark:border-[#312047]">
@@ -568,7 +832,7 @@ export default function PortfolioInDepthPage() {
                 </thead>
 
                 <tbody>
-                  {trend.map((row, index) => (
+                  {displayTrend.map((row, index) => (
                     <tr
                       key={row.metric_time || `${row.metric_date}-${index}`}
                       className="border-b border-[#F7F1FF] dark:border-[#1C1328]"
@@ -601,6 +865,17 @@ export default function PortfolioInDepthPage() {
                       </td>
                     </tr>
                   ))}
+
+                  {!displayTrend.length ? (
+                    <tr>
+                      <td
+                        colSpan={8}
+                        className="px-4 py-6 text-center text-sm text-[#6B5A86] dark:text-[#BFA9F5]"
+                      >
+                        No rows match the current search/filter settings.
+                      </td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </div>
