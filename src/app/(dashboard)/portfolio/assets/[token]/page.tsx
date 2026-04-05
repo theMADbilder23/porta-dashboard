@@ -383,7 +383,7 @@ function ActivityItem({
 async function fetchAssetViewerData(
   token: string
 ): Promise<AssetViewerResponse | null> {
-  const headerStore = headers();
+  const headerStore = await headers();
   const host = headerStore.get("host");
 
   if (!host) {
