@@ -10,6 +10,7 @@ type PortfolioInDepthResponse = {
   sufficient_data: boolean;
   minimum_required_rows: number;
   actual_rows: number;
+  latest_metric_date?: string | null;
   summary: {
     current: {
       metric_date: string | null;
@@ -39,6 +40,17 @@ type PortfolioInDepthResponse = {
       range_claimable_pct: number;
       range_daily_yield_pct: number;
     };
+  };
+  period_header?: {
+    timeframe: Timeframe;
+    yield_label: string;
+    avg_portfolio_value: number;
+    total_yield_flow: number;
+    total_claimable_usd: number;
+    apy_ratio: number;
+    current_claimable_usd: number;
+    latest_metric_date: string | null;
+    latest_metric_time?: string | null;
   };
   trend: Array<{
     metric_date: string;
@@ -228,6 +240,22 @@ function CompactStat({
   );
 }
 
+function getTimeframeYieldWord(timeframe: Timeframe) {
+  switch (timeframe) {
+    case "weekly":
+      return "Weekly Yield Flow";
+    case "monthly":
+      return "Monthly Yield Flow";
+    case "quarterly":
+      return "Quarterly Yield Flow";
+    case "yearly":
+      return "Yearly Yield Flow";
+    case "daily":
+    default:
+      return "Current DYF";
+  }
+}
+
 export default function PortfolioInDepthPage() {
   const [timeframe, setTimeframe] = useState<Timeframe>("daily");
   const [data, setData] = useState<PortfolioInDepthResponse | null>(null);
@@ -266,6 +294,7 @@ export default function PortfolioInDepthPage() {
 
   const current = data?.summary.current;
   const historical = data?.summary.historical;
+  const periodHeader = data?.period_header;
   const trend = data?.trend ?? [];
 
   const strongestDay = useMemo(() => {
@@ -291,6 +320,76 @@ export default function PortfolioInDepthPage() {
   ];
 
   const isDaily = timeframe === "daily";
+
+  const topCards = useMemo(() => {
+    if (isDaily) {
+      return [
+        {
+          label: "Current TPV",
+          value: formatCurrency(current?.total_portfolio_value ?? 0),
+          sublabel: `Latest bucket: ${formatDateTimeLabel(
+            current?.metric_time ?? periodHeader?.latest_metric_time ?? null
+          )}`,
+          tooltip:
+            "Latest available intraday portfolio value bucket from the stored daily session.",
+        },
+        {
+          label: "Current Claimable",
+          value: formatCurrency(current?.total_claimable_usd ?? 0),
+          sublabel: "Latest stored intraday claimable value.",
+          tooltip:
+            "Latest available claimable USD from the most recent stored intraday bucket.",
+        },
+        {
+          label: "Current DYF",
+          value: formatCurrency(current?.total_daily_yield_flow ?? 0),
+          sublabel: "Latest stored daily yield flow bucket.",
+          tooltip:
+            "Current daily yield flow from the most recent stored intraday bucket for the latest available daily session.",
+        },
+        {
+          label: "Yield / TVD",
+          value: formatRatioPercent(current?.yield_tvd_ratio ?? 0),
+          sublabel: "Latest intraday bucket ratio view.",
+          tooltip:
+            "Yield efficiency ratio from the latest intraday bucket.",
+        },
+      ];
+    }
+
+    return [
+      {
+        label: "Avg TPV",
+        value: formatCurrency(periodHeader?.avg_portfolio_value ?? 0),
+        sublabel: `Selected ${timeframe} average portfolio value.`,
+        tooltip:
+          "Average Total Portfolio Value across the selected stored timeframe rows.",
+      },
+      {
+        label: periodHeader?.yield_label
+          ? `Total ${periodHeader.yield_label}`
+          : getTimeframeYieldWord(timeframe),
+        value: formatCurrency(periodHeader?.total_yield_flow ?? 0),
+        sublabel: `Total stored ${timeframe} yield flow.`,
+        tooltip:
+          "Summed yield flow across the selected stored timeframe rows.",
+      },
+      {
+        label: "Total Claimable",
+        value: formatCurrency(periodHeader?.total_claimable_usd ?? 0),
+        sublabel: `Stored cumulative claimable across selected ${timeframe} period.`,
+        tooltip:
+          "Period claimable total built from stored rows using reset-aware accumulation logic.",
+      },
+      {
+        label: "APY %",
+        value: formatRatioPercent(periodHeader?.apy_ratio ?? 0),
+        sublabel: "Period annualized yield estimate.",
+        tooltip:
+          "Annualized ratio based on total stored period yield flow relative to average TPV across the selected timeframe.",
+      },
+    ];
+  }, [isDaily, current, periodHeader, timeframe]);
 
   return (
     <div className="min-h-screen space-y-6 p-6">
@@ -354,7 +453,7 @@ export default function PortfolioInDepthPage() {
           </h2>
           <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
             {isDaily
-              ? "The daily view now shows live 30-minute portfolio snapshot buckets for the current UTC day. No buckets are available yet."
+              ? "The daily view now loads the latest available intraday bucket set. No stored intraday buckets are available yet."
               : `This timeframe needs at least ${data.minimum_required_rows} stored day rows, but only ${data.actual_rows} are currently available.`}
           </p>
         </section>
@@ -363,65 +462,15 @@ export default function PortfolioInDepthPage() {
       {!isLoading && data && data.sufficient_data ? (
         <>
           <section className="grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-4">
-            <MetricCard
-              label="Current TPV"
-              value={formatCurrency(current?.total_portfolio_value ?? 0)}
-              sublabel={
-                isDaily
-                  ? `Latest bucket: ${formatDateTimeLabel(current?.metric_time ?? null)}`
-                  : `Latest stored date: ${formatDateLabel(current?.metric_date ?? null)}`
-              }
-              tooltip={
-                isDaily
-                  ? "Latest live 30-minute bucket Total Portfolio Value for the current UTC day."
-                  : "Latest stored Total Portfolio Value from the derived historical metrics table."
-              }
-            />
-
-            <MetricCard
-              label="Current Claimable"
-              value={formatCurrency(current?.total_claimable_usd ?? 0)}
-              sublabel={
-                isDaily
-                  ? "Latest live bucket total claimable value."
-                  : "Latest stored total claimable value."
-              }
-              tooltip={
-                isDaily
-                  ? "Latest live total claimable USD from the current day’s 30-minute snapshot buckets."
-                  : "Latest stored total claimable USD from the finalized daily metrics table."
-              }
-            />
-
-            <MetricCard
-              label="Current DYF"
-              value={formatCurrency(current?.total_daily_yield_flow ?? 0)}
-              sublabel={
-                isDaily
-                  ? "Current live daily yield flow across today’s bucket set."
-                  : "Latest stored daily yield flow."
-              }
-              tooltip={
-                isDaily
-                  ? "Live daily yield flow for the current UTC day, derived from the bucketed DYF engine."
-                  : "Stored daily yield flow for the selected period’s latest finalized day."
-              }
-            />
-
-            <MetricCard
-              label="Yield / TVD"
-              value={formatRatioPercent(current?.yield_tvd_ratio ?? 0)}
-              sublabel={
-                isDaily
-                  ? "Live daily bucket ratio view."
-                  : "Latest stored yield efficiency ratio."
-              }
-              tooltip={
-                isDaily
-                  ? "Current daily bucket ratio field. Can be expanded later if you want live Yield/TVD logic here."
-                  : "Stored ratio between yield and distributed value for the latest finalized day."
-              }
-            />
+            {topCards.map((card) => (
+              <MetricCard
+                key={card.label}
+                label={card.label}
+                value={card.value}
+                sublabel={card.sublabel}
+                tooltip={card.tooltip}
+              />
+            ))}
           </section>
 
           <section className="rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
@@ -431,7 +480,7 @@ export default function PortfolioInDepthPage() {
               </h2>
               <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
                 {isDaily
-                  ? "Live in-day summary of the current UTC day’s 30-minute bucket set."
+                  ? "Latest available intraday session summary from the stored bucket set."
                   : "Summary layer for the currently selected historical dataset. This panel shows the minimum, average, and maximum values found inside the metrics table for the selected timeframe."}
               </p>
             </div>
@@ -516,7 +565,7 @@ export default function PortfolioInDepthPage() {
                 value={String(data.actual_rows)}
                 sublabel={
                   isDaily
-                    ? "30-minute buckets in current UTC day"
+                    ? "30-minute buckets in latest stored intraday session"
                     : `Minimum required: ${data.minimum_required_rows}`
                 }
                 compact
@@ -531,7 +580,7 @@ export default function PortfolioInDepthPage() {
               </h2>
               <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
                 {isDaily
-                  ? "Live 30-minute bucket view for the current UTC day. This gives an in-depth intraday look at TPV, claimable totals, and current DYF context."
+                  ? "Latest available stored intraday bucket view. This gives an in-depth look at TPV, claimable totals, and current DYF context."
                   : "Clean historical review of stored daily metrics. This is the first layer of true Portfolio In-Depth intelligence and can be expanded later with search, charts, and date-specific drilldown."}
               </p>
             </div>
