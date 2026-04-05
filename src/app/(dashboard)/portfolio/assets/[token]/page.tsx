@@ -378,14 +378,24 @@ function ActivityItem({
   );
 }
 
-async function fetchAssetViewerData(token: string): Promise<AssetViewerResponse | null> {
-  const baseUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.VERCEL_URL?.startsWith("http")
+function resolveBaseUrl() {
+  if (process.env.NEXT_PUBLIC_SITE_URL) {
+    return process.env.NEXT_PUBLIC_SITE_URL;
+  }
+
+  if (process.env.VERCEL_URL) {
+    return process.env.VERCEL_URL.startsWith("http")
       ? process.env.VERCEL_URL
-      : process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : "http://localhost:3000";
+      : `https://${process.env.VERCEL_URL}`;
+  }
+
+  return "http://localhost:3000";
+}
+
+async function fetchAssetViewerData(
+  token: string
+): Promise<AssetViewerResponse | null> {
+  const baseUrl = resolveBaseUrl();
 
   try {
     const response = await fetch(
@@ -400,7 +410,8 @@ async function fetchAssetViewerData(token: string): Promise<AssetViewerResponse 
     }
 
     return (await response.json()) as AssetViewerResponse;
-  } catch {
+  } catch (error) {
+    console.error("[asset-viewer-page] fetchAssetViewerData failed:", error);
     return null;
   }
 }
@@ -484,7 +495,7 @@ export default async function AssetViewerPage({
     },
     {
       title: "Asset profile scaffolded",
-      meta: "Phase 2A header + position live",
+      meta: data?.found ? "Phase 2A header + position live" : "Phase 2A shell ready",
       value: "Ready",
       badge: "good" as const,
     },
@@ -561,8 +572,9 @@ export default async function AssetViewerPage({
 
       {!data?.found ? (
         <section className="rounded-2xl border border-[#FBE7C6] bg-[#FFF8ED] p-5 text-sm text-[#9A6700] dark:border-[#3A2A14] dark:bg-[#1A140D] dark:text-[#FCD34D]">
-          No live holdings match was found for this asset route yet. The page shell is still available,
-          but header and position values are falling back to safe defaults until matching collector rows exist.
+          No live holdings match was found for this asset route yet. The page shell is still
+          available, but header and position values are falling back to safe defaults until
+          matching collector rows exist.
         </section>
       ) : null}
 
