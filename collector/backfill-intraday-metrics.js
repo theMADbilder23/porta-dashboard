@@ -3,7 +3,7 @@ import {
   buildDailySummary,
   safeNumber,
   getPortfolioSnapshotValue,
-} from "../api/lib/porta-math/dyf.js";
+} from "./lib/porta-math/dyf.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -214,8 +214,7 @@ export async function runIntradayMetrics() {
     const daySnapshots = allSnapshotsWithContext.filter((snapshot) => {
       const snapshotMs = new Date(snapshot.snapshot_time).getTime();
       return (
-        snapshotMs >= dayStart.getTime() &&
-        snapshotMs <= dayEnd.getTime()
+        snapshotMs >= dayStart.getTime() && snapshotMs <= dayEnd.getTime()
       );
     });
 
@@ -246,11 +245,13 @@ export async function runIntradayMetrics() {
       const bucketISO = bucketTime.toISOString();
 
       const bucketSnapshotsWithContext = allSnapshotsWithContext.filter(
-        (snapshot) => new Date(snapshot.snapshot_time).getTime() <= bucketTime.getTime()
+        (snapshot) =>
+          new Date(snapshot.snapshot_time).getTime() <= bucketTime.getTime()
       );
 
       const bucketSnapshotsSameDay = daySnapshots.filter(
-        (snapshot) => new Date(snapshot.snapshot_time).getTime() <= bucketTime.getTime()
+        (snapshot) =>
+          new Date(snapshot.snapshot_time).getTime() <= bucketTime.getTime()
       );
 
       if (!bucketSnapshotsSameDay.length) {
@@ -262,7 +263,8 @@ export async function runIntradayMetrics() {
         dayStart.toISOString()
       );
 
-      const rawTotalPortfolioValue = computeLatestPortfolioValue(bucketSnapshotsSameDay);
+      const rawTotalPortfolioValue =
+        computeLatestPortfolioValue(bucketSnapshotsSameDay);
       const rawTotalClaimableUsd = safeNumber(summary.total_claimable_usd);
       const rawTotalDailyYieldFlow = safeNumber(summary.current_yield_flow_usd);
 
@@ -287,8 +289,7 @@ export async function runIntradayMetrics() {
         same_day_snapshot_count: bucketSnapshotsSameDay.length,
         latest_same_day_snapshot_time:
           getLatestSnapshotTime(bucketSnapshotsSameDay) || null,
-        rollover_detected:
-          summary.daily_rollover_debug?.detected ?? false,
+        rollover_detected: summary.daily_rollover_debug?.detected ?? false,
         rollover_snapshot_time:
           summary.daily_rollover_debug?.rollover_snapshot_time ?? null,
         reset_baseline_claimable_usd:
@@ -312,10 +313,9 @@ export async function runIntradayMetrics() {
         display_bucket_count:
           summary.daily_rollover_debug?.display_bucket_count ?? null,
         anomaly_filtered: anomalyDetected,
-        anomaly_rule:
-          anomalyDetected
-            ? `claimable dropped below ${CLAIMABLE_DROP_RATIO_THRESHOLD * 100}% of prior valid claimable without confirmed rollover`
-            : null,
+        anomaly_rule: anomalyDetected
+          ? `claimable dropped below ${CLAIMABLE_DROP_RATIO_THRESHOLD * 100}% of prior valid claimable without confirmed rollover`
+          : null,
         raw_total_claimable_usd: rawTotalClaimableUsd,
         raw_total_daily_yield_flow: rawTotalDailyYieldFlow,
         raw_min_claimable_usd: rawMinClaimableUsd,
@@ -323,32 +323,36 @@ export async function runIntradayMetrics() {
         raw_max_claimable_usd: rawMaxClaimableUsd,
       };
 
-      const row = anomalyDetected && priorValidRow
-        ? buildStoredRow({
-            bucketISO,
-            totalPortfolioValue: rawTotalPortfolioValue,
-            totalClaimableUsd: safeNumber(priorValidRow.total_claimable_usd),
-            totalDailyYieldFlow: safeNumber(priorValidRow.total_daily_yield_flow),
-            minClaimableUsd: safeNumber(priorValidRow.min_claimable_usd),
-            avgClaimableUsd: safeNumber(priorValidRow.avg_claimable_usd),
-            maxClaimableUsd: safeNumber(priorValidRow.max_claimable_usd),
-            yieldTvdRatio:
-              rawTotalPortfolioValue > 0
-                ? safeNumber(priorValidRow.total_daily_yield_flow) / rawTotalPortfolioValue
-                : 0,
-            debugJson,
-          })
-        : buildStoredRow({
-            bucketISO,
-            totalPortfolioValue: rawTotalPortfolioValue,
-            totalClaimableUsd: rawTotalClaimableUsd,
-            totalDailyYieldFlow: rawTotalDailyYieldFlow,
-            minClaimableUsd: rawMinClaimableUsd,
-            avgClaimableUsd: rawAvgClaimableUsd,
-            maxClaimableUsd: rawMaxClaimableUsd,
-            yieldTvdRatio: rawYieldTvdRatio,
-            debugJson,
-          });
+      const row =
+        anomalyDetected && priorValidRow
+          ? buildStoredRow({
+              bucketISO,
+              totalPortfolioValue: rawTotalPortfolioValue,
+              totalClaimableUsd: safeNumber(priorValidRow.total_claimable_usd),
+              totalDailyYieldFlow: safeNumber(
+                priorValidRow.total_daily_yield_flow
+              ),
+              minClaimableUsd: safeNumber(priorValidRow.min_claimable_usd),
+              avgClaimableUsd: safeNumber(priorValidRow.avg_claimable_usd),
+              maxClaimableUsd: safeNumber(priorValidRow.max_claimable_usd),
+              yieldTvdRatio:
+                rawTotalPortfolioValue > 0
+                  ? safeNumber(priorValidRow.total_daily_yield_flow) /
+                    rawTotalPortfolioValue
+                  : 0,
+              debugJson,
+            })
+          : buildStoredRow({
+              bucketISO,
+              totalPortfolioValue: rawTotalPortfolioValue,
+              totalClaimableUsd: rawTotalClaimableUsd,
+              totalDailyYieldFlow: rawTotalDailyYieldFlow,
+              minClaimableUsd: rawMinClaimableUsd,
+              avgClaimableUsd: rawAvgClaimableUsd,
+              maxClaimableUsd: rawMaxClaimableUsd,
+              yieldTvdRatio: rawYieldTvdRatio,
+              debugJson,
+            });
 
       await upsertIntradayMetric(row);
 
@@ -367,7 +371,9 @@ export async function runIntradayMetrics() {
       );
 
       if (anomalyDetected) {
-        console.log("   ⚠️ Anomaly filtered — prior valid metrics carried forward");
+        console.log(
+          "   ⚠️ Anomaly filtered — prior valid metrics carried forward"
+        );
       }
     }
   }
