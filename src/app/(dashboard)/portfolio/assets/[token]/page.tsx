@@ -410,8 +410,7 @@ async function fetchAssetViewerData(
     }
 
     return (await response.json()) as AssetViewerResponse;
-  } catch (error) {
-    console.error("[asset-viewer-page] fetchAssetViewerData failed:", error);
+  } catch {
     return null;
   }
 }
