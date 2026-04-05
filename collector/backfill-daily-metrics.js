@@ -3,7 +3,7 @@ import {
   buildDailySummary,
   buildLatestCurrentTotals,
   safeNumber,
-} from "../api/lib/porta-math/dyf.js";
+} from "./api/lib/porta-math/dyf.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
