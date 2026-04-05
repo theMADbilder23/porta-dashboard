@@ -4,6 +4,68 @@ type AssetViewerPageProps = {
   }>;
 };
 
+type AssetViewerResponse = {
+  found: boolean;
+  asset: {
+    route_param: string;
+    asset_id: string;
+    token_symbol: string;
+    token_name: string;
+    network: string;
+    asset_class: string;
+    protocol: string | null;
+    category_tags: string[];
+    yield_profile: string;
+    mmii_bucket: string;
+    mmii_subclass: string | null;
+    position_role: string;
+    is_yield_position: boolean;
+  };
+  market: {
+    price_per_unit_usd: number;
+    price_source: string | null;
+    change_24h_percent: number | null;
+    change_7d_percent: number | null;
+    market_cap_usd: number | null;
+    fdv_usd: number | null;
+    volume_24h_usd: number | null;
+    liquidity_usd: number | null;
+  };
+  position: {
+    total_amount: number;
+    total_value_usd: number;
+    principal_amount: number;
+    principal_value_usd: number;
+    reward_amount: number;
+    reward_value_usd: number;
+    yield_position_value_usd: number;
+    non_yield_position_value_usd: number;
+    wallet_count: number;
+    wallet_breakdown: Array<{
+      wallet_id: string;
+      wallet_name: string;
+      wallet_address: string | null;
+      network_group: string | null;
+      role: string | null;
+      total_amount: number;
+      total_value_usd: number;
+      principal_value_usd: number;
+      reward_value_usd: number;
+      latest_snapshot_time: string | null;
+      row_count: number;
+    }>;
+  };
+  latest_snapshot: {
+    snapshot_time: string | null;
+  };
+  debug?: {
+    matched_rows?: number;
+    matched_wallets?: number;
+    resolver?: string;
+  };
+  error?: string;
+};
+
 function decodeToken(value: string) {
   try {
     return decodeURIComponent(value);
@@ -22,9 +84,70 @@ function parseAssetRoute(token: string) {
 }
 
 function formatCategoryLabel(value: string) {
-  return value
+  return String(value || "")
+    .replace(/_/g, " ")
     .replace(/-/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function safeNumber(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatCurrency(value: unknown, digits = 2) {
+  return `$${safeNumber(value).toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`;
+}
+
+function formatCompactCurrency(value: unknown) {
+  const safeValue = safeNumber(value);
+  const abs = Math.abs(safeValue);
+
+  if (abs >= 1_000_000_000) {
+    return `$${(safeValue / 1_000_000_000).toFixed(2)}B`;
+  }
+
+  if (abs >= 1_000_000) {
+    return `$${(safeValue / 1_000_000).toFixed(2)}M`;
+  }
+
+  if (abs >= 1_000) {
+    return `$${(safeValue / 1_000).toFixed(2)}K`;
+  }
+
+  return formatCurrency(safeValue);
+}
+
+function formatPercent(value: number | null, digits = 2) {
+  if (value === null || value === undefined) return "—";
+  return `${safeNumber(value).toFixed(digits)}%`;
+}
+
+function formatTokenAmount(value: unknown) {
+  const safeValue = safeNumber(value);
+
+  return safeValue.toLocaleString(undefined, {
+    minimumFractionDigits: safeValue >= 1000 ? 0 : 2,
+    maximumFractionDigits: 4,
+  });
+}
+
+function formatDateTimeLabel(value: string | null | undefined) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function StatCard({
@@ -255,21 +378,98 @@ function ActivityItem({
   );
 }
 
+async function fetchAssetViewerData(token: string): Promise<AssetViewerResponse | null> {
+  const baseUrl =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.VERCEL_URL?.startsWith("http")
+      ? process.env.VERCEL_URL
+      : process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : "http://localhost:3000";
+
+  try {
+    const response = await fetch(
+      `${baseUrl}/api/asset-viewer?asset=${encodeURIComponent(token)}`,
+      {
+        cache: "no-store",
+      }
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as AssetViewerResponse;
+  } catch {
+    return null;
+  }
+}
+
 export default async function AssetViewerPage({
   params,
 }: AssetViewerPageProps) {
   const { token: rawToken } = await params;
   const token = decodeToken(rawToken);
-  const asset = parseAssetRoute(token);
+  const routeAsset = parseAssetRoute(token);
 
-  const categoryTags = [
-    "growth",
-    "yield-tracked",
-    "defi",
-    "threshold-ready",
-  ];
+  const data = await fetchAssetViewerData(token);
+
+  const asset = data?.asset || {
+    route_param: token,
+    asset_id: token,
+    token_symbol: routeAsset.symbol,
+    token_name: routeAsset.symbol,
+    network: routeAsset.network,
+    asset_class: "crypto",
+    protocol: null,
+    category_tags: [],
+    yield_profile: "none",
+    mmii_bucket: "growth",
+    mmii_subclass: null,
+    position_role: "principal",
+    is_yield_position: false,
+  };
+
+  const market = data?.market || {
+    price_per_unit_usd: 0,
+    price_source: null,
+    change_24h_percent: null,
+    change_7d_percent: null,
+    market_cap_usd: null,
+    fdv_usd: null,
+    volume_24h_usd: null,
+    liquidity_usd: null,
+  };
+
+  const position = data?.position || {
+    total_amount: 0,
+    total_value_usd: 0,
+    principal_amount: 0,
+    principal_value_usd: 0,
+    reward_amount: 0,
+    reward_value_usd: 0,
+    yield_position_value_usd: 0,
+    non_yield_position_value_usd: 0,
+    wallet_count: 0,
+    wallet_breakdown: [],
+  };
+
+  const latestSnapshotTime = data?.latest_snapshot?.snapshot_time || null;
+
+  const categoryTags =
+    asset.category_tags && asset.category_tags.length > 0
+      ? asset.category_tags
+      : ["threshold-ready"];
 
   const mockActivities = [
+    {
+      title: data?.found ? "Asset data resolved" : "Asset lookup pending",
+      meta: data?.found
+        ? `Latest snapshot • ${formatDateTimeLabel(latestSnapshotTime)}`
+        : "No live asset rows matched yet",
+      value: data?.found ? "Live" : "Pending",
+      badge: data?.found ? ("good" as const) : ("warn" as const),
+    },
     {
       title: "Threshold review scheduled",
       meta: "Porta placeholder event • Today at 10:30 AM",
@@ -283,24 +483,30 @@ export default async function AssetViewerPage({
       badge: "default" as const,
     },
     {
-      title: "Position sync placeholder",
-      meta: "Holdings data layer pending • Yesterday",
-      value: "Pending",
-      badge: "warn" as const,
-    },
-    {
       title: "Asset profile scaffolded",
-      meta: "Phase 1 shell created",
+      meta: "Phase 2A header + position live",
       value: "Ready",
       badge: "good" as const,
     },
   ];
 
   const mockNotes = [
-    "Initial thesis shell created for future bull/bear case tracking.",
-    "Threshold panel reserved for price, RSI, MACD, and take-profit configuration.",
-    "This asset page will later drive Telegram Porta alerts and insights.",
+    "Header and position snapshot are now wired to live wallet_holdings data.",
+    "Chart, thresholds, and thesis sections remain front-end shell panels for the next phases.",
+    "Wallet breakdown and role/bucket identity are now being resolved from the asset-viewer API.",
   ];
+
+  const liveRoleLabel =
+    asset.position_role === "mixed"
+      ? "Principal + Reward"
+      : formatCategoryLabel(asset.position_role);
+
+  const yieldStatusLabel =
+    asset.yield_profile && asset.yield_profile !== "none"
+      ? formatCategoryLabel(asset.yield_profile)
+      : asset.is_yield_position
+        ? "Yield Tracked"
+        : "None";
 
   return (
     <div className="min-h-screen space-y-6 p-6">
@@ -313,17 +519,18 @@ export default async function AssetViewerPage({
 
             <div className="mt-2 flex flex-wrap items-center gap-3">
               <h1 className="text-3xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                {asset.symbol} Asset Viewer
+                {asset.token_symbol} Asset Viewer
               </h1>
               <Badge variant="info">{asset.network}</Badge>
-              <Badge>Phase 1.5 Shell</Badge>
+              <Badge>{data?.found ? "Phase 2A Live" : "Phase 2A Shell"}</Badge>
             </div>
 
             <p className="mt-3 max-w-4xl text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
               Dedicated asset intelligence page for charting, holdings context,
               thesis tracking, thresholds, alerts, and future Telegram Porta
-              automation. This version upgrades the shell into a more interactive
-              prototype so we can refine the workflow before deeper data wiring.
+              automation. This version now resolves live asset identity and
+              position data from the collector holdings layer while the rest of
+              the intelligence shell continues to be built out.
             </p>
 
             <div className="mt-4 flex flex-wrap gap-2">
@@ -342,28 +549,46 @@ export default async function AssetViewerPage({
             </p>
             <div className="mt-4 space-y-2">
               <InsightRow label="Network" value={asset.network} />
-              <InsightRow label="Asset Symbol" value={asset.symbol} />
-              <InsightRow label="Profile Status" value="Interactive Shell" />
+              <InsightRow label="Asset Symbol" value={asset.token_symbol} />
+              <InsightRow
+                label="Profile Status"
+                value={data?.found ? "Live Header + Position" : "Shell / No Match Yet"}
+              />
             </div>
           </div>
         </div>
       </section>
 
+      {!data?.found ? (
+        <section className="rounded-2xl border border-[#FBE7C6] bg-[#FFF8ED] p-5 text-sm text-[#9A6700] dark:border-[#3A2A14] dark:bg-[#1A140D] dark:text-[#FCD34D]">
+          No live holdings match was found for this asset route yet. The page shell is still available,
+          but header and position values are falling back to safe defaults until matching collector rows exist.
+        </section>
+      ) : null}
+
       <section className="grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-4">
         <StatCard
           label="Asset Price"
-          value="$0.0000"
-          sublabel="Live market pricing will be wired in during data phase."
+          value={formatCurrency(market.price_per_unit_usd, 4)}
+          sublabel={
+            market.price_source
+              ? `Latest price source: ${formatCategoryLabel(market.price_source)}`
+              : "Latest market price from holdings layer."
+          }
         />
         <StatCard
           label="24H Move"
-          value="+0.00%"
-          sublabel="Price fluctuation metrics placeholder."
+          value={formatPercent(market.change_24h_percent, 2)}
+          sublabel="Market move feed will be added in the next data phase."
         />
         <StatCard
           label="Market Cap"
-          value="$0.00"
-          sublabel="Can later be sourced from CoinMarketCap / DefiLlama."
+          value={
+            market.market_cap_usd !== null
+              ? formatCompactCurrency(market.market_cap_usd)
+              : "—"
+          }
+          sublabel="External market-cap enrichment comes next."
         />
         <StatCard
           label="Porta Signal State"
@@ -405,7 +630,7 @@ export default async function AssetViewerPage({
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-dashed border-[#D9C5FF] bg-[#FCFAFF] p-6 dark:border-[#3A2952] dark:bg-[#140D20] min-h-[420px]">
+              <div className="min-h-[420px] rounded-2xl border border-dashed border-[#D9C5FF] bg-[#FCFAFF] p-6 dark:border-[#3A2952] dark:bg-[#140D20]">
                 <p className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
                   Chart Embed Zone
                 </p>
@@ -451,19 +676,43 @@ export default async function AssetViewerPage({
             description="Core user-specific holdings intelligence for this asset."
           >
             <div className="space-y-3">
-              <InsightRow label="Total Holdings" value="0.00 units" />
-              <InsightRow label="Holdings Value" value="$0.00" />
-              <InsightRow label="Average Entry" value="$0.00" />
-              <InsightRow label="Unrealized P/L" value="$0.00 (0.00%)" />
-              <InsightRow label="Portfolio Allocation" value="0.00%" />
-              <InsightRow label="MMII Bucket" value="Growth" />
-              <InsightRow label="Role" value="Tracked Asset" />
-              <InsightRow label="Held Since" value="—" />
+              <InsightRow
+                label="Total Holdings"
+                value={`${formatTokenAmount(position.total_amount)} units`}
+              />
+              <InsightRow
+                label="Holdings Value"
+                value={formatCurrency(position.total_value_usd)}
+              />
+              <InsightRow
+                label="Principal Value"
+                value={formatCurrency(position.principal_value_usd)}
+              />
+              <InsightRow
+                label="Reward Value"
+                value={formatCurrency(position.reward_value_usd)}
+              />
+              <InsightRow
+                label="Wallet Count"
+                value={String(position.wallet_count)}
+              />
+              <InsightRow
+                label="MMII Bucket"
+                value={formatCategoryLabel(asset.mmii_bucket)}
+              />
+              <InsightRow label="Role" value={liveRoleLabel} />
+              <InsightRow
+                label="Held Since"
+                value={formatDateTimeLabel(latestSnapshotTime)}
+              />
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-3">
-              <ShellSelect label="MMII Bucket Selector" value="Growth" />
-              <ShellSelect label="Role Selector" value="Tracked Asset" />
+              <ShellSelect
+                label="MMII Bucket Selector"
+                value={formatCategoryLabel(asset.mmii_bucket)}
+              />
+              <ShellSelect label="Role Selector" value={liveRoleLabel} />
             </div>
           </SectionCard>
         </div>
@@ -507,7 +756,7 @@ export default async function AssetViewerPage({
             <div className="grid grid-cols-1 gap-4 laptop:grid-cols-2">
               <ShellInput
                 label="Price Alert"
-                value="$0.0000"
+                value={formatCurrency(market.price_per_unit_usd, 4)}
                 placeholder="Set price threshold"
               />
               <ShellInput
@@ -556,17 +805,29 @@ export default async function AssetViewerPage({
             <div className="grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-3">
               <StatCard
                 label="Volume"
-                value="$0.00"
-                sublabel="Market activity placeholder."
+                value={
+                  market.volume_24h_usd !== null
+                    ? formatCompactCurrency(market.volume_24h_usd)
+                    : "—"
+                }
+                sublabel="Market activity enrichment comes next."
               />
               <StatCard
                 label="Liquidity"
-                value="$0.00"
+                value={
+                  market.liquidity_usd !== null
+                    ? formatCompactCurrency(market.liquidity_usd)
+                    : "—"
+                }
                 sublabel="Useful for Dex assets and execution risk."
               />
               <StatCard
                 label="FDV"
-                value="$0.00"
+                value={
+                  market.fdv_usd !== null
+                    ? formatCompactCurrency(market.fdv_usd)
+                    : "—"
+                }
                 sublabel="Future fully diluted valuation metric."
               />
               <StatCard
@@ -576,12 +837,12 @@ export default async function AssetViewerPage({
               />
               <StatCard
                 label="Yield Status"
-                value="Unknown"
-                sublabel="Will later show staking/lending state."
+                value={yieldStatusLabel}
+                sublabel="Resolved from enriched holdings profile."
               />
               <StatCard
                 label="Risk Context"
-                value="Pending"
+                value={asset.protocol ? formatCategoryLabel(asset.protocol) : "Pending"}
                 sublabel="Protocol / market condition summary."
               />
             </div>
@@ -597,8 +858,14 @@ export default async function AssetViewerPage({
             <div className="space-y-3">
               <InsightRow label="Signal State" value="Neutral" />
               <InsightRow label="Alert Priority" value="Normal" />
-              <InsightRow label="Asset Health" value="Awaiting data" />
-              <InsightRow label="Sizing Status" value="Not assessed" />
+              <InsightRow
+                label="Asset Health"
+                value={data?.found ? "Live position resolved" : "Awaiting data"}
+              />
+              <InsightRow
+                label="Sizing Status"
+                value={position.wallet_count > 0 ? "Tracked" : "Not assessed"}
+              />
               <InsightRow label="Action Bias" value="Observe" />
             </div>
 
@@ -657,6 +924,75 @@ export default async function AssetViewerPage({
           </SectionCard>
         </div>
       </section>
+
+      {position.wallet_breakdown.length > 0 ? (
+        <SectionCard
+          eyebrow="Wallet Distribution"
+          title="Wallet Breakdown"
+          description="Current per-wallet position distribution for this asset from the latest matched holdings snapshot per wallet."
+        >
+          <div className="overflow-x-auto rounded-2xl border border-[#E9DAFF] dark:border-[#312047]">
+            <table className="min-w-full text-left">
+              <thead className="bg-[#F6F0FF] dark:bg-[#140D20]">
+                <tr className="border-b border-[#F0E8FF] dark:border-[#241533]">
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                    Wallet
+                  </th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                    Role
+                  </th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                    Total Amount
+                  </th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                    Total Value
+                  </th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                    Principal
+                  </th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                    Reward
+                  </th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                    Latest Snapshot
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {position.wallet_breakdown.map((wallet) => (
+                  <tr
+                    key={wallet.wallet_id}
+                    className="border-b border-[#F7F1FF] dark:border-[#1C1328]"
+                  >
+                    <td className="px-4 py-4 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                      {wallet.wallet_name}
+                    </td>
+                    <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                      {wallet.role ? formatCategoryLabel(wallet.role) : "—"}
+                    </td>
+                    <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                      {formatTokenAmount(wallet.total_amount)}
+                    </td>
+                    <td className="px-4 py-4 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                      {formatCurrency(wallet.total_value_usd)}
+                    </td>
+                    <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                      {formatCurrency(wallet.principal_value_usd)}
+                    </td>
+                    <td className="px-4 py-4 text-sm text-[#6D28D9] dark:text-[#D8B4FE]">
+                      {formatCurrency(wallet.reward_value_usd)}
+                    </td>
+                    <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                      {formatDateTimeLabel(wallet.latest_snapshot_time)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
+      ) : null}
     </div>
   );
 }
