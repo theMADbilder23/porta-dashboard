@@ -184,7 +184,7 @@ function buildStoredRow({
   };
 }
 
-async function runBackfill() {
+export async function runIntradayMetrics() {
   console.log("🚀 Starting intraday metrics backfill...");
 
   const now = new Date();
@@ -375,7 +375,9 @@ async function runBackfill() {
   console.log("\n🎉 Intraday backfill complete");
 }
 
-runBackfill().catch((err) => {
-  console.error("❌ Fatal error:", err);
-  process.exit(1);
-});
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runIntradayMetrics().catch((err) => {
+    console.error("❌ Fatal error:", err);
+    process.exit(1);
+  });
+}

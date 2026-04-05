@@ -28,6 +28,9 @@ import {
   buildStkWellRewardHolding,
 } from "./sources/moonwell.js";
 
+import { runIntradayMetrics } from "./backfill-intraday-metrics.js";
+import { runDailyMetrics } from "./backfill-daily-metrics.js";
+
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -418,7 +421,38 @@ async function collectOneWallet(wallet) {
   await collectStandardWallet(wallet);
 }
 
+async function runMetricsPipeline() {
+  try {
+    console.log(`[metrics] Intraday run started at ${new Date().toISOString()}`);
+    await runIntradayMetrics();
+    console.log(
+      `[metrics] Intraday run finished at ${new Date().toISOString()}`
+    );
+  } catch (err) {
+    console.error("[metrics] Intraday metrics failed:", err);
+  }
+
+  try {
+    console.log(`[metrics] Daily run started at ${new Date().toISOString()}`);
+    await runDailyMetrics();
+    console.log(`[metrics] Daily run finished at ${new Date().toISOString()}`);
+  } catch (err) {
+    console.error("[metrics] Daily metrics failed:", err);
+  }
+}
+
+let isCollectorRunning = false;
+
 async function runCollector() {
+  if (isCollectorRunning) {
+    console.warn(
+      `[collector] Skipping run at ${new Date().toISOString()} because previous run is still in progress`
+    );
+    return;
+  }
+
+  isCollectorRunning = true;
+
   console.log(`[collector] Run started at ${new Date().toISOString()}`);
 
   try {
@@ -440,9 +474,13 @@ async function runCollector() {
       }
     }
 
+    await runMetricsPipeline();
+
     console.log(`[collector] Run finished at ${new Date().toISOString()}`);
   } catch (err) {
     console.error("[collector] Fatal run error:", err);
+  } finally {
+    isCollectorRunning = false;
   }
 }
 
