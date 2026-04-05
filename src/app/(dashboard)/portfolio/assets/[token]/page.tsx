@@ -1,3 +1,5 @@
+import { headers } from "next/headers";
+
 type AssetViewerPageProps = {
   params: Promise<{
     token: string;
