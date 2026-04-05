@@ -198,7 +198,8 @@ function buildBucketTotals(snapshots, timeframe) {
   }
 
   return Array.from(bucketTotals.values()).sort(
-    (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
+    (a, b) =>
+      new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
   );
 }
 
@@ -346,7 +347,8 @@ function makeTrendBucketLabel(bucketKey, timeframe) {
  */
 function buildRawDailySnapshotSeries(snapshots) {
   const ordered = [...(snapshots || [])].sort(
-    (a, b) => new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
+    (a, b) =>
+      new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime()
   );
 
   const latestPerWalletAtMoment = new Map();
@@ -505,7 +507,9 @@ function buildDailySummary(snapshots, timeframeStartIso, thresholds = {}) {
   let effectiveRolloverMeta = null;
 
   if (displayBuckets.length > 0 && rolloverMeta) {
-    const rolloverTimeMs = new Date(rolloverMeta.rolloverSnapshotTime).getTime();
+    const rolloverTimeMs = new Date(
+      rolloverMeta.rolloverSnapshotTime
+    ).getTime();
     const startMs = new Date(timeframeStartIso).getTime();
 
     if (rolloverTimeMs >= startMs) {
@@ -526,15 +530,13 @@ function buildDailySummary(snapshots, timeframeStartIso, thresholds = {}) {
       currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
       effectiveRolloverMeta = rolloverMeta;
     } else {
-      const firstDisplayClaimable = safeNumber(claimableValues[0] ?? 0);
-      minClaimable = firstDisplayClaimable;
+      minClaimable = getMin(claimableValues, { ignoreZero: true });
       maxClaimable = getMax(claimableValues);
       avgClaimable = getAverage(claimableValues);
       currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
     }
   } else if (claimableValues.length > 0) {
-    const firstDisplayClaimable = safeNumber(claimableValues[0] ?? 0);
-    minClaimable = firstDisplayClaimable;
+    minClaimable = getMin(claimableValues, { ignoreZero: true });
     maxClaimable = getMax(claimableValues);
     avgClaimable = getAverage(claimableValues);
     currentYieldFlow = getRangeFlow(maxClaimable, minClaimable);
@@ -576,10 +578,12 @@ function buildDailySummary(snapshots, timeframeStartIso, thresholds = {}) {
     daily_rollover_debug: {
       detected: Boolean(effectiveRolloverMeta),
       rollover_index: effectiveRolloverMeta?.rolloverIndex ?? null,
-      rollover_snapshot_time: effectiveRolloverMeta?.rolloverSnapshotTime ?? null,
+      rollover_snapshot_time:
+        effectiveRolloverMeta?.rolloverSnapshotTime ?? null,
       reset_baseline_claimable_usd:
         effectiveRolloverMeta?.resetBaselineClaimableUsd ?? null,
-      pending_reset_detected: effectiveRolloverMeta?.pendingResetDetected ?? false,
+      pending_reset_detected:
+        effectiveRolloverMeta?.pendingResetDetected ?? false,
       claimable_reset_detected:
         effectiveRolloverMeta?.claimableResetDetected ?? false,
       claimable_reset_drop: effectiveRolloverMeta?.claimableResetDrop ?? null,
@@ -598,7 +602,11 @@ function computeGlobalDailyYieldFlow(
   timeframeStartIso,
   thresholds = {}
 ) {
-  const dailySummary = buildDailySummary(snapshots, timeframeStartIso, thresholds);
+  const dailySummary = buildDailySummary(
+    snapshots,
+    timeframeStartIso,
+    thresholds
+  );
   return safeNumber(dailySummary.current_yield_flow_usd);
 }
 
