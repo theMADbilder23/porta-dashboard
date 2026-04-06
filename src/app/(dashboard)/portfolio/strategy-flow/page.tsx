@@ -882,7 +882,7 @@ export default function StrategyFlowPage() {
 
   return (
     <div className="min-h-screen space-y-6 p-6">
-      <section className="rounded-2xl border border-[#E9DAFF] bg-gradient-to-br from-white to-[#F8F4FF] p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+      <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
         <div className="flex flex-col gap-4 desktop:flex-row desktop:items-end desktop:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8B5CF6] dark:text-[#C084FC]">
