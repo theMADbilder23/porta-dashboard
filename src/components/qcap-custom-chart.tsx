@@ -1,67 +1,43 @@
 "use client"
 
 import { useEffect, useState } from "react"
-
-type ChartCandle = {
-  time: number
-  open: number
-  high: number
-  low: number
-  close: number
-  volume: number
-}
-
-type RawQcapCandle = {
-  openTime: number
-  open: string | number
-  high: string | number
-  low: string | number
-  close: string | number
-  volume: string | number
-}
+import { fetchQubicCandles, type ChartCandle } from "@/lib/qubic/qcap-chart"
 
 export default function QcapCustomChart() {
   const [data, setData] = useState<ChartCandle[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    let isMounted = true
+
     async function load() {
       try {
-        const res = await fetch(
-          "https://qubicswap.com/api/v1/markets/QCAP/candles?interval=1d&days=180&limit=200"
-        )
+        setLoading(true)
+        setError(null)
 
-        if (!res.ok) {
-          setData([])
-          return
-        }
+        const candles = await fetchQubicCandles()
 
-        const json = await res.json()
+        if (!isMounted) return
 
-        const candles: RawQcapCandle[] = Array.isArray(json)
-          ? json
-          : Array.isArray(json?.data)
-            ? json.data
-            : []
+        setData(candles)
+      } catch (err) {
+        if (!isMounted) return
 
-        const formatted: ChartCandle[] = candles.map((c) => ({
-          time: Math.floor(Number(c.openTime) / 1000),
-          open: Number(c.open),
-          high: Number(c.high),
-          low: Number(c.low),
-          close: Number(c.close),
-          volume: Number(c.volume),
-        }))
-
-        setData(formatted)
-      } catch {
         setData([])
+        setError(err instanceof Error ? err.message : "Failed to load QCAP data")
       } finally {
-        setLoading(false)
+        if (isMounted) {
+          setLoading(false)
+        }
       }
     }
 
     load()
+
+    return () => {
+      isMounted = false
+    }
   }, [])
 
   if (loading) {
@@ -72,7 +48,7 @@ export default function QcapCustomChart() {
     )
   }
 
-  if (!data.length) {
+  if (error || !data.length) {
     return (
       <div className="h-[400px] flex items-center justify-center text-sm text-red-400">
         Failed to load QCAP data
