@@ -28,18 +28,24 @@ export function transformQubicCandles(data: QubicCandle[]): ChartCandle[] {
 }
 
 export async function fetchQubicCandles(): Promise<ChartCandle[]> {
-  try {
-    const res = await fetch(
-      "https://qubicswap.com/api/v1/markets/QCAP/candles?interval=1d&days=180&limit=200"
-    )
+  const res = await fetch(
+    "https://qubicswap.com/api/v1/markets/QCAP/candles?interval=1d&days=180&limit=200"
+  )
 
-    if (!res.ok) {
-      throw new Error("Failed to fetch Qubic candles")
-    }
+  console.log("QCAP candles status:", res.status)
 
-    const data: QubicCandle[] = await res.json()
-    return transformQubicCandles(data)
-  } catch {
-    return []
+  const raw = await res.text()
+  console.log("QCAP candles raw response:", raw.slice(0, 1000))
+
+  const parsed = JSON.parse(raw)
+
+  if (Array.isArray(parsed)) {
+    return transformQubicCandles(parsed)
   }
+
+  if (Array.isArray(parsed?.data)) {
+    return transformQubicCandles(parsed.data)
+  }
+
+  return []
 }
