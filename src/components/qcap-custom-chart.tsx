@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react"
 import {
+  CandlestickSeries,
   ColorType,
   createChart,
+  type CandlestickData,
   type IChartApi,
   type ISeriesApi,
-  type CandlestickData,
   type UTCTimestamp,
 } from "lightweight-charts"
 import { type ChartCandle } from "@/lib/qubic/qcap-chart"
@@ -37,8 +38,7 @@ export default function QcapCustomChart() {
 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
-  const seriesRef =
-    useRef<ISeriesApi<"Candlestick"> | null>(null)
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null)
 
   useEffect(() => {
     let isMounted = true
@@ -74,11 +74,9 @@ export default function QcapCustomChart() {
         }
 
         if (!isMounted) return
-
         setData(candles)
       } catch (err) {
         if (!isMounted) return
-
         setData([])
         setError(err instanceof Error ? err.message : "Failed to load QCAP data")
       } finally {
@@ -105,6 +103,7 @@ export default function QcapCustomChart() {
     }
 
     const container = containerRef.current
+
     const chart = createChart(container, {
       width: container.clientWidth,
       height: 400,
@@ -134,7 +133,7 @@ export default function QcapCustomChart() {
       },
     })
 
-    const series = chart.addCandlestickSeries({
+    const series = chart.addSeries(CandlestickSeries, {
       upColor: "#22c55e",
       downColor: "#ef4444",
       borderUpColor: "#22c55e",
