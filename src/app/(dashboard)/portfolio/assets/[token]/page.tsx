@@ -423,10 +423,10 @@ export default async function AssetViewerPage({
 
   const data = await fetchAssetViewerData(token)
 
-  if (data?.asset?.token_symbol === "QCAP") {
-    const qcapTestData = await fetchQubicCandles()
-     console.log("QCAP candles sample:", qcapTestData.slice(0, 3))
-  }
+  if (routeAsset.symbol.toUpperCase() === "QCAP") {
+  const qcapTestData = await fetchQubicCandles()
+  console.log("QCAP candles sample:", qcapTestData.slice(0, 3))
+}
 
   const asset = data?.asset || {
     route_param: token,
