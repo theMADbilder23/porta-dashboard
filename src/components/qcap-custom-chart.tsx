@@ -36,6 +36,7 @@ type BiasState = {
 type TimeframeOption = {
   key: string
   label: string
+  minCandles: number
 }
 
 type CandleRouteResponse = {
@@ -46,12 +47,12 @@ type CandleRouteResponse = {
 }
 
 const TIMEFRAMES: TimeframeOption[] = [
-  { key: "30m", label: "30M" },
-  { key: "1h", label: "1H" },
-  { key: "2h", label: "2H" },
-  { key: "4h", label: "4H" },
-  { key: "8h", label: "8H" },
-  { key: "1d", label: "1D" },
+  { key: "30m", label: "30M", minCandles: 120 },
+  { key: "1h", label: "1H", minCandles: 120 },
+  { key: "2h", label: "2H", minCandles: 120 },
+  { key: "4h", label: "4H", minCandles: 120 },
+  { key: "8h", label: "8H", minCandles: 120 },
+  { key: "1d", label: "1D", minCandles: 120 },
 ]
 
 const MIN_CANDLES_FOR_INDICATORS = 120
@@ -283,7 +284,15 @@ function getSignalBiasV2(
     label: "Neutral",
     valueClassName: "text-slate-300",
     note: "Momentum is mixed and not strongly directional.",
-    }
+  }
+}
+
+function getDefaultSupportedTimeframe(
+  key: string,
+  supportedTimeframes: string[]
+): string {
+  if (supportedTimeframes.includes(key)) return key
+  return supportedTimeframes[supportedTimeframes.length - 1] || "1d"
 }
 
 export default function QcapCustomChart() {
@@ -292,10 +301,12 @@ export default function QcapCustomChart() {
   const [error, setError] = useState<string | null>(null)
   const [hoveredCandle, setHoveredCandle] = useState<ChartCandle | null>(null)
   const [timeframe, setTimeframe] = useState<string>("1d")
+  const [showTimeframeMenu, setShowTimeframeMenu] = useState(false)
 
   const priceContainerRef = useRef<HTMLDivElement | null>(null)
   const rsiContainerRef = useRef<HTMLDivElement | null>(null)
   const stochContainerRef = useRef<HTMLDivElement | null>(null)
+  const timeframeMenuRef = useRef<HTMLDivElement | null>(null)
 
   const priceChartRef = useRef<IChartApi | null>(null)
   const rsiChartRef = useRef<IChartApi | null>(null)
@@ -304,6 +315,29 @@ export default function QcapCustomChart() {
   const syncingFromPriceRef = useRef(false)
   const syncingFromRsiRef = useRef(false)
   const syncingFromStochRef = useRef(false)
+
+  const supportedTimeframes = useMemo(() => ["8h", "1d"], [])
+
+  useEffect(() => {
+    const safeTimeframe = getDefaultSupportedTimeframe(timeframe, supportedTimeframes)
+    if (safeTimeframe !== timeframe) {
+      setTimeframe(safeTimeframe)
+    }
+  }, [timeframe, supportedTimeframes])
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        timeframeMenuRef.current &&
+        !timeframeMenuRef.current.contains(event.target as Node)
+      ) {
+        setShowTimeframeMenu(false)
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
 
   useEffect(() => {
     let isMounted = true
@@ -514,11 +548,7 @@ export default function QcapCustomChart() {
       height: 110,
       ...commonLayout,
       rightPriceScale: {
-        borderColor: "rgba(148, 163, 184, 0.12)",
-        scaleMargins: {
-          top: 0.12,
-          bottom: 0.12,
-        },
+        visible: false,
       },
       timeScale: {
         borderColor: "rgba(148, 163, 184, 0.12)",
@@ -537,11 +567,7 @@ export default function QcapCustomChart() {
       height: 110,
       ...commonLayout,
       rightPriceScale: {
-        borderColor: "rgba(148, 163, 184, 0.12)",
-        scaleMargins: {
-          top: 0.12,
-          bottom: 0.12,
-        },
+        visible: false,
       },
       timeScale: {
         borderColor: "rgba(148, 163, 184, 0.12)",
@@ -608,32 +634,32 @@ export default function QcapCustomChart() {
     stochDSeries.setData(stochData.dLineData)
 
     ;[
-      { series: rsiSeries, price: 70, color: "#ef4444", title: "70" },
-      { series: rsiSeries, price: 50, color: "#94a3b8", title: "50" },
-      { series: rsiSeries, price: 30, color: "#22c55e", title: "30" },
-    ].forEach(({ series, price, color, title }) => {
+      { series: rsiSeries, price: 70, color: "#ef4444" },
+      { series: rsiSeries, price: 50, color: "#94a3b8" },
+      { series: rsiSeries, price: 30, color: "#22c55e" },
+    ].forEach(({ series, price, color }) => {
       series.createPriceLine({
         price,
         color,
         lineWidth: 1,
         lineStyle: 2,
-        axisLabelVisible: true,
-        title,
+        axisLabelVisible: false,
+        title: "",
       })
     })
 
     ;[
-      { price: 80, color: "#ef4444", title: "80" },
-      { price: 50, color: "#94a3b8", title: "50" },
-      { price: 20, color: "#22c55e", title: "20" },
-    ].forEach(({ price, color, title }) => {
+      { price: 80, color: "#ef4444" },
+      { price: 50, color: "#94a3b8" },
+      { price: 20, color: "#22c55e" },
+    ].forEach(({ price, color }) => {
       stochKSeries.createPriceLine({
         price,
         color,
         lineWidth: 1,
         lineStyle: 2,
-        axisLabelVisible: true,
-        title,
+        axisLabelVisible: false,
+        title: "",
       })
     })
 
@@ -748,25 +774,46 @@ export default function QcapCustomChart() {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
-        {TIMEFRAMES.map((option) => {
-          const isActive = option.key === timeframe
+      <div className="flex items-center gap-3" ref={timeframeMenuRef}>
+        <button
+          type="button"
+          onClick={() => setShowTimeframeMenu((prev) => !prev)}
+          className="rounded-md border border-border/60 bg-background px-3 py-1 text-xs font-semibold text-muted-foreground transition hover:border-violet-400/40 hover:text-violet-300"
+        >
+          Timeframe: {TIMEFRAMES.find((option) => option.key === timeframe)?.label ?? timeframe.toUpperCase()} ▾
+        </button>
 
-          return (
-            <button
-              key={option.key}
-              type="button"
-              onClick={() => setTimeframe(option.key)}
-              className={`rounded-md border px-3 py-1 text-xs font-semibold transition ${
-                isActive
-                  ? "border-violet-500 bg-violet-500/15 text-violet-300"
-                  : "border-border/60 bg-background text-muted-foreground hover:border-violet-400/40 hover:text-violet-300"
-              }`}
-            >
-              {option.label}
-            </button>
-          )
-        })}
+        {showTimeframeMenu ? (
+          <div className="absolute z-20 mt-36 w-40 rounded-lg border border-white/10 bg-[#0b1020] p-1 shadow-xl">
+            {TIMEFRAMES.map((option) => {
+              const isActive = option.key === timeframe
+              const isSupported = supportedTimeframes.includes(option.key)
+
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  disabled={!isSupported}
+                  onClick={() => {
+                    if (!isSupported) return
+                    setTimeframe(option.key)
+                    setShowTimeframeMenu(false)
+                  }}
+                  className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs transition ${
+                    isActive
+                      ? "bg-violet-500/15 text-violet-300"
+                      : isSupported
+                      ? "text-slate-300 hover:bg-white/5"
+                      : "cursor-not-allowed text-slate-500"
+                  }`}
+                >
+                  <span>{option.label}</span>
+                  {!isSupported ? <span className="text-[10px]">Soon</span> : null}
+                </button>
+              )
+            })}
+          </div>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -786,6 +833,12 @@ export default function QcapCustomChart() {
           )}
         </div>
       </div>
+
+      {!supportedTimeframes.includes(timeframe) ? (
+        <div className="rounded border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+          This timeframe does not yet have enough reliable QCAP candle coverage. Use 8H or 1D for now.
+        </div>
+      ) : null}
 
       {tooltipCandle ? (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded border border-white/10 bg-black px-3 py-2 text-xs text-slate-300">
