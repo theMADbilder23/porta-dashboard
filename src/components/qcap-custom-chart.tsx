@@ -14,6 +14,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts"
 import { type ChartCandle } from "@/lib/qubic/qcap-chart"
+import { calculateRSI } from "@/lib/indicators/rsi"
 
 type ErrorPayload = {
   error?: string
@@ -62,6 +63,38 @@ function toVolumeData(data: ChartCandle[]): HistogramData<Time>[] {
     value: candle.volume,
     color: candle.close >= candle.open ? "#22c55e" : "#ef4444",
   }))
+}
+
+function getRsiState(value: number | null) {
+  if (value === null) {
+    return {
+      label: "Unavailable",
+      valueClassName: "text-slate-400",
+      note: "Not enough data for RSI yet.",
+    }
+  }
+
+  if (value >= 70) {
+    return {
+      label: "Overbought",
+      valueClassName: "text-red-400",
+      note: "Momentum is elevated.",
+    }
+  }
+
+  if (value <= 30) {
+    return {
+      label: "Oversold",
+      valueClassName: "text-emerald-400",
+      note: "Momentum is compressed.",
+    }
+  }
+
+  return {
+    label: "Neutral",
+    valueClassName: "text-slate-300",
+    note: "Momentum is balanced.",
+  }
 }
 
 export default function QcapCustomChart() {
@@ -137,6 +170,19 @@ export default function QcapCustomChart() {
   }, [data])
 
   const tooltipCandle = hoveredCandle ?? latestCandle
+
+  const latestRsi = useMemo(() => {
+    if (!hasEnoughHistoryForIndicators || !data.length) return null
+
+    const closes = data.map((candle) => candle.close)
+    const rsiSeries = calculateRSI(closes, 14)
+
+    if (!rsiSeries.length) return null
+
+    return rsiSeries[rsiSeries.length - 1]
+  }, [data, hasEnoughHistoryForIndicators])
+
+  const rsiState = useMemo(() => getRsiState(latestRsi), [latestRsi])
 
   useEffect(() => {
     if (!containerRef.current || !data.length) return
@@ -258,19 +304,107 @@ export default function QcapCustomChart() {
 
   if (loading) {
     return (
-      <div className="h-[400px] flex items-center justify-center text-sm text-muted-foreground">
-        Loading QCAP chart...
+      <div className="space-y-3">
+        <div className="h-[400px] flex items-center justify-center text-sm text-muted-foreground">
+          Loading QCAP chart...
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="rounded-2xl border border-border/60 bg-background p-4">
+            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+              RSI
+            </div>
+            <div className="text-2xl font-semibold text-slate-300">—</div>
+            <div className="mt-3 text-sm text-muted-foreground">
+              Calculating momentum...
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border/60 bg-background p-4">
+            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+              Stoch RSI
+            </div>
+            <div className="text-2xl font-semibold text-slate-300">—</div>
+            <div className="mt-3 text-sm text-muted-foreground">
+              Tracked indicator placeholder.
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border/60 bg-background p-4">
+            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+              MACD
+            </div>
+            <div className="text-2xl font-semibold text-slate-300">—</div>
+            <div className="mt-3 text-sm text-muted-foreground">
+              Tracked indicator placeholder.
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border/60 bg-background p-4">
+            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+              Signal Bias
+            </div>
+            <div className="text-2xl font-semibold text-slate-300">Neutral</div>
+            <div className="mt-3 text-sm text-muted-foreground">
+              Porta interpretation placeholder.
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
 
   if (error || !data.length) {
     return (
-      <div className="h-[400px] flex flex-col items-center justify-center gap-2 px-4 text-center">
-        <div className="text-sm text-red-400">Failed to load QCAP data</div>
-        {error ? (
-          <div className="max-w-xl text-xs text-muted-foreground">{error}</div>
-        ) : null}
+      <div className="space-y-3">
+        <div className="h-[400px] flex flex-col items-center justify-center gap-2 px-4 text-center">
+          <div className="text-sm text-red-400">Failed to load QCAP data</div>
+          {error ? (
+            <div className="max-w-xl text-xs text-muted-foreground">{error}</div>
+          ) : null}
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="rounded-2xl border border-border/60 bg-background p-4">
+            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+              RSI
+            </div>
+            <div className="text-2xl font-semibold text-slate-300">—</div>
+            <div className="mt-3 text-sm text-muted-foreground">
+              Unable to calculate.
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border/60 bg-background p-4">
+            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+              Stoch RSI
+            </div>
+            <div className="text-2xl font-semibold text-slate-300">—</div>
+            <div className="mt-3 text-sm text-muted-foreground">
+              Tracked indicator placeholder.
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border/60 bg-background p-4">
+            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+              MACD
+            </div>
+            <div className="text-2xl font-semibold text-slate-300">—</div>
+            <div className="mt-3 text-sm text-muted-foreground">
+              Tracked indicator placeholder.
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border/60 bg-background p-4">
+            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+              Signal Bias
+            </div>
+            <div className="text-2xl font-semibold text-slate-300">Neutral</div>
+            <div className="mt-3 text-sm text-muted-foreground">
+              Porta interpretation placeholder.
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -313,6 +447,53 @@ export default function QcapCustomChart() {
 
       <div className="h-[400px] w-full overflow-hidden rounded border border-white/10 bg-black shadow-inner">
         <div ref={containerRef} className="h-full w-full" />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <div className="rounded-2xl border border-border/60 bg-background p-4">
+          <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+            RSI
+          </div>
+          <div className={`text-2xl font-semibold ${rsiState.valueClassName}`}>
+            {latestRsi !== null ? latestRsi.toFixed(2) : "—"}
+          </div>
+          <div className="mt-2 text-base font-semibold text-slate-200">
+            {rsiState.label}
+          </div>
+          <div className="mt-3 text-sm text-muted-foreground">
+            {rsiState.note}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border/60 bg-background p-4">
+          <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+            Stoch RSI
+          </div>
+          <div className="text-2xl font-semibold text-slate-300">—</div>
+          <div className="mt-3 text-sm text-muted-foreground">
+            Tracked indicator placeholder.
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border/60 bg-background p-4">
+          <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+            MACD
+          </div>
+          <div className="text-2xl font-semibold text-slate-300">—</div>
+          <div className="mt-3 text-sm text-muted-foreground">
+            Tracked indicator placeholder.
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border/60 bg-background p-4">
+          <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+            Signal Bias
+          </div>
+          <div className="text-2xl font-semibold text-slate-300">Neutral</div>
+          <div className="mt-3 text-sm text-muted-foreground">
+            Porta interpretation placeholder.
+          </div>
+        </div>
       </div>
     </div>
   )
