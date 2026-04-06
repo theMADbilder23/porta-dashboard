@@ -64,6 +64,53 @@ function extractCandles(payload: any): RawCandle[] {
   return [];
 }
 
+async function fetchUpstream(url: string, signal: AbortSignal) {
+  const attempts: Array<() => Promise<Response>> = [
+    () =>
+      fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        signal,
+      }),
+    () =>
+      fetch(url, {
+        method: "GET",
+        headers: {
+          Accept: "application/json, text/plain, */*",
+          "User-Agent": "Mozilla/5.0 PortaDashboard/1.0",
+        },
+        cache: "no-store",
+        signal,
+      }),
+    () =>
+      fetch(url, {
+        method: "GET",
+        headers: {
+          Accept: "application/json, text/plain, */*",
+          "User-Agent": "Mozilla/5.0 PortaDashboard/1.0",
+          Referer: "https://qubicswap.com/",
+          Origin: "https://qubicswap.com",
+        },
+        cache: "no-store",
+        signal,
+      }),
+  ];
+
+  let lastError: unknown = null;
+
+  for (const attempt of attempts) {
+    try {
+      return await attempt();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("All upstream fetch attempts failed");
+}
+
 export async function GET(request: Request) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -77,18 +124,7 @@ export async function GET(request: Request) {
       `${BASE_URL}?interval=${encodeURIComponent(config.interval)}` +
       `&days=${config.days}&limit=${config.limit}`;
 
-    const response = await fetch(upstreamUrl, {
-      method: "GET",
-      headers: {
-        Accept: "application/json, text/plain, */*",
-        "User-Agent": "Mozilla/5.0 PortaDashboard/1.0",
-        Referer: "https://qubicswap.com/",
-        Origin: "https://qubicswap.com",
-      },
-      cache: "no-store",
-      signal: controller.signal,
-    });
-
+    const response = await fetchUpstream(upstreamUrl, controller.signal);
     const contentType = response.headers.get("content-type") || "";
     const rawText = await response.text();
 
