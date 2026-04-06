@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import AssetChartEmbed from "@/components/asset-chart-embed";
 import { resolveChartConfig } from "@/lib/chart-resolver";
-import { fetchQubicCandles } from "@/lib/qubic/qcap-chart";
+import QcapCustomChart from "@/components/qcap-custom-chart"
 
 type AssetViewerPageProps = {
   params: Promise<{
@@ -423,11 +423,6 @@ export default async function AssetViewerPage({
 
   const data = await fetchAssetViewerData(token)
 
-  if (routeAsset.symbol.toUpperCase() === "QCAP") {
-  const qcapTestData = await fetchQubicCandles()
-  console.log("QCAP candles sample:", qcapTestData.slice(0, 3))
-}
-
   const asset = data?.asset || {
     route_param: token,
     asset_id: token,
@@ -627,7 +622,11 @@ export default async function AssetViewerPage({
             description="Primary chart zone for TradingView or Dexscreener embeds. This section now includes front-end shell controls so we can test the UX before live chart/data integration."
           >
             <div className="space-y-4">
-              <AssetChartEmbed chartConfig={chartConfig} defaultTimeframe="4H" />
+              {asset.token_symbol.toUpperCase() === "QCAP" ? (
+                <QcapCustomChart />
+              ) : (
+                <AssetChartEmbed chartConfig={chartConfig} defaultTimeframe="4H" />
+              )}
 
               <div className="grid grid-cols-1 gap-4 laptop:grid-cols-4">
                 <StatCard
