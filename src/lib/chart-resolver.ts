@@ -15,6 +15,13 @@ type ResolveChartConfigInput = {
   assetId?: string | null;
 };
 
+type ChartRegistryEntry = {
+  preferredSource: Exclude<ChartSource, "none">;
+  tradingviewSymbol?: string | null;
+  dexscreenerUrl?: string | null;
+  proxyAssetKey?: string | null;
+};
+
 function normalize(value?: string | null) {
   return String(value || "").trim();
 }
@@ -27,98 +34,127 @@ function normalizeUpper(value?: string | null) {
   return normalize(value).toUpperCase();
 }
 
-function buildDexscreenerUrl(network: string, tokenSymbol: string) {
-  const chain = normalizeLower(network);
-  const symbol = encodeURIComponent(normalize(tokenSymbol));
-
-  if (!chain || !symbol) return null;
-
-  return `https://dexscreener.com/${chain}/${symbol}?embed=1&theme=dark`;
-}
-
-function resolveTradingViewSymbol(network: string, tokenSymbol: string) {
+function buildAssetKey(network?: string | null, tokenSymbol?: string | null) {
   const chain = normalizeLower(network);
   const symbol = normalizeUpper(tokenSymbol);
 
-  if (!symbol) return null;
+  if (!chain || !symbol) return "";
+  return `${chain}:${symbol}`;
+}
 
-  if (chain === "qubic") {
-    if (symbol === "QUBIC") return "QUBIC:QUBICUSD";
-    if (symbol === "QCAP") return "QUBIC:QCAPUSD";
-    return `QUBIC:${symbol}USD`;
+const CHART_REGISTRY: Record<string, ChartRegistryEntry> = {
+  "base:WELL": {
+    preferredSource: "tradingview",
+    tradingviewSymbol: "MEXC:WELLUSDT",
+  },
+
+  "base:STKWELL": {
+    preferredSource: "tradingview",
+    proxyAssetKey: "base:WELL",
+  },
+
+  "eth:ETH": {
+    preferredSource: "tradingview",
+    tradingviewSymbol: "BINANCE:ETHUSDT",
+  },
+
+  "ethereum:ETH": {
+    preferredSource: "tradingview",
+    tradingviewSymbol: "BINANCE:ETHUSDT",
+  },
+
+  "base:ETH": {
+    preferredSource: "tradingview",
+    tradingviewSymbol: "BINANCE:ETHUSDT",
+  },
+
+  "base:WETH": {
+    preferredSource: "tradingview",
+    tradingviewSymbol: "BINANCE:ETHUSDT",
+  },
+
+  "base:USDC": {
+    preferredSource: "tradingview",
+    tradingviewSymbol: "CRYPTOCAP:USDC",
+  },
+
+  "qubic:QUBIC": {
+    preferredSource: "tradingview",
+    tradingviewSymbol: "GATEIO:QUBICUSDT",
+  },
+
+  "qubic:QCAP": {
+    preferredSource: "tradingview",
+    tradingviewSymbol: "GATEIO:QUBICUSDT",
+  },
+};
+
+function resolveRegistryEntry(assetKey: string, visited = new Set<string>()): ChartRegistryEntry | null {
+  if (!assetKey) return null;
+  if (visited.has(assetKey)) return null;
+
+  visited.add(assetKey);
+
+  const entry = CHART_REGISTRY[assetKey];
+  if (!entry) return null;
+
+  if (entry.proxyAssetKey) {
+    const proxied = resolveRegistryEntry(entry.proxyAssetKey, visited);
+    if (!proxied) return null;
+
+    return {
+      preferredSource: entry.preferredSource || proxied.preferredSource,
+      tradingviewSymbol: proxied.tradingviewSymbol ?? null,
+      dexscreenerUrl: proxied.dexscreenerUrl ?? null,
+    };
   }
 
-  if (symbol === "BTC" || symbol === "WBTC" || symbol === "CBBTC") {
-    return "BINANCE:BTCUSDT";
-  }
-
-  if (symbol === "ETH" || symbol === "WETH") {
-    return "BINANCE:ETHUSDT";
-  }
-
-  return null;
+  return entry;
 }
 
 export function resolveChartConfig({
   network,
   tokenSymbol,
-  assetId,
 }: ResolveChartConfigInput): ResolvedChartConfig {
-  const chain = normalizeLower(network);
-  const symbol = normalizeUpper(tokenSymbol);
-  const normalizedAssetId = normalize(assetId);
+  const assetKey = buildAssetKey(network, tokenSymbol);
+  const entry = resolveRegistryEntry(assetKey);
 
-  const evmOrDexChains = new Set([
-    "base",
-    "eth",
-    "ethereum",
-    "arbitrum",
-    "optimism",
-    "polygon",
-    "bsc",
-    "binance-smart-chain",
-    "solana",
-    "avax",
-  ]);
-
-  const dexscreenerUrl =
-    evmOrDexChains.has(chain) && symbol
-      ? buildDexscreenerUrl(chain, normalizedAssetId || symbol)
-      : null;
-
-  const tradingviewSymbol = resolveTradingViewSymbol(chain, symbol);
-
-  if (dexscreenerUrl && tradingviewSymbol) {
+  if (!entry) {
     return {
-      preferredSource: chain === "qubic" ? "tradingview" : "dexscreener",
-      availableSources: ["dexscreener", "tradingview"],
-      dexscreenerUrl,
-      tradingviewSymbol,
-    };
-  }
-
-  if (dexscreenerUrl) {
-    return {
-      preferredSource: "dexscreener",
-      availableSources: ["dexscreener"],
-      dexscreenerUrl,
+      preferredSource: "none",
+      availableSources: ["none"],
+      dexscreenerUrl: null,
       tradingviewSymbol: null,
     };
   }
 
-  if (tradingviewSymbol) {
+  const availableSources: ChartSource[] = [];
+
+  if (entry.tradingviewSymbol) {
+    availableSources.push("tradingview");
+  }
+
+  if (entry.dexscreenerUrl) {
+    availableSources.push("dexscreener");
+  }
+
+  if (!availableSources.length) {
     return {
-      preferredSource: "tradingview",
-      availableSources: ["tradingview"],
+      preferredSource: "none",
+      availableSources: ["none"],
       dexscreenerUrl: null,
-      tradingviewSymbol,
+      tradingviewSymbol: null,
     };
   }
 
+  const preferredSource = availableSources.includes(entry.preferredSource)
+    ? entry.preferredSource
+    : availableSources[0];
+
   return {
-    preferredSource: "none",
-    availableSources: ["none"],
-    dexscreenerUrl: null,
-    tradingviewSymbol: null,
+    preferredSource,
+    availableSources,
+    dexscreenerUrl: entry.dexscreenerUrl ?? null,
+    tradingviewSymbol: entry.tradingviewSymbol ?? null,
   };
 }
