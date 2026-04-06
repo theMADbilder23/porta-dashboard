@@ -1,4 +1,6 @@
 import { headers } from "next/headers";
+import AssetChartEmbed from "@/components/asset-chart-embed";
+import { resolveChartConfig } from "@/lib/chart-resolver";
 
 type AssetViewerPageProps = {
   params: Promise<{
@@ -514,6 +516,12 @@ export default async function AssetViewerPage({
         ? "Yield Tracked"
         : "None";
 
+  const chartConfig = resolveChartConfig({
+    network: asset.network,
+    tokenSymbol: asset.token_symbol,
+    assetId: asset.asset_id,
+  });     
+
   return (
     <div className="min-h-screen space-y-6 p-6">
       <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
@@ -613,41 +621,7 @@ export default async function AssetViewerPage({
             description="Primary chart zone for TradingView or Dexscreener embeds. This section now includes front-end shell controls so we can test the UX before live chart/data integration."
           >
             <div className="space-y-4">
-              <div className="flex flex-col gap-4 laptop:flex-row laptop:items-center laptop:justify-between">
-                <div>
-                  <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                    Chart Source
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <TogglePill label="TradingView" active />
-                    <TogglePill label="Dexscreener" />
-                  </div>
-                </div>
-
-                <div>
-                  <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                    Chart Timeframe
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <TogglePill label="1H" />
-                    <TogglePill label="4H" active />
-                    <TogglePill label="1D" />
-                    <TogglePill label="1W" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="min-h-[420px] rounded-2xl border border-dashed border-[#D9C5FF] bg-[#FCFAFF] p-6 dark:border-[#3A2952] dark:bg-[#140D20]">
-                <p className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                  Chart Embed Zone
-                </p>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                  Reserved space for TradingView or Dexscreener depending on the
-                  asset type. This is where chart source switching, timeframe
-                  controls, indicator overlays, and embedded chart rendering will
-                  live.
-                </p>
-              </div>
+              <AssetChartEmbed chartConfig={chartConfig} defaultTimeframe="4H" />
 
               <div className="grid grid-cols-1 gap-4 laptop:grid-cols-4">
                 <StatCard
