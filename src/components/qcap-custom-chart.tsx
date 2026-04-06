@@ -28,6 +28,12 @@ type ErrorPayload = {
   rawCount?: number
 }
 
+type BiasState = {
+  label: string
+  valueClassName: string
+  note: string
+}
+
 const MIN_CANDLES_FOR_INDICATORS = 120
 const RSI_PERIOD = 14
 
@@ -114,8 +120,8 @@ function getRsiState(value: number | null) {
   }
 }
 
-function getSignalBias(value: number | null) {
-  if (value === null) {
+function getSignalBiasV1(data: ChartCandle[], rsiLineData: LineData<UTCTimestamp>[]): BiasState {
+  if (data.length < 10 || rsiLineData.length < 5) {
     return {
       label: "Neutral",
       valueClassName: "text-slate-300",
@@ -123,26 +129,49 @@ function getSignalBias(value: number | null) {
     }
   }
 
-  if (value >= 60) {
+  const latestRsi = rsiLineData[rsiLineData.length - 1]?.value ?? null
+  const prevRsi = rsiLineData[rsiLineData.length - 4]?.value ?? null
+
+  if (latestRsi === null || prevRsi === null) {
     return {
-      label: "Bullish",
-      valueClassName: "text-emerald-400",
-      note: "Momentum is leaning upward.",
+      label: "Neutral",
+      valueClassName: "text-slate-300",
+      note: "Waiting for stronger indicator context.",
     }
   }
 
-  if (value <= 40) {
+  const latestClose = data[data.length - 1].close
+  const lookbackClose = data[data.length - 5].close
+
+  const rsiSlope = latestRsi - prevRsi
+  const priceChangePct =
+    lookbackClose !== 0 ? ((latestClose - lookbackClose) / lookbackClose) * 100 : 0
+
+  const rsiRising = rsiSlope > 1.5
+  const rsiFalling = rsiSlope < -1.5
+  const priceRising = priceChangePct > 1
+  const priceFalling = priceChangePct < -1
+
+  if (latestRsi >= 55 && (rsiRising || priceRising)) {
+    return {
+      label: "Bullish",
+      valueClassName: "text-emerald-400",
+      note: "Momentum is improving with supportive price action.",
+    }
+  }
+
+  if (latestRsi <= 45 && (rsiFalling || priceFalling)) {
     return {
       label: "Bearish",
       valueClassName: "text-red-400",
-      note: "Momentum is leaning downward.",
+      note: "Momentum is weakening with softer recent price action.",
     }
   }
 
   return {
     label: "Neutral",
     valueClassName: "text-slate-300",
-    note: "Momentum is balanced.",
+    note: "Momentum is mixed and not strongly directional.",
   }
 }
 
@@ -249,7 +278,7 @@ export default function QcapCustomChart() {
   }, [tooltipCandle, rsiLineData])
 
   const rsiState = useMemo(() => getRsiState(latestRsi), [latestRsi])
-  const signalBias = useMemo(() => getSignalBias(latestRsi), [latestRsi])
+  const signalBias = useMemo(() => getSignalBiasV1(data, rsiLineData), [data, rsiLineData])
 
   useEffect(() => {
     if (!priceContainerRef.current || !rsiContainerRef.current || !data.length) return
