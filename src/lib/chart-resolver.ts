@@ -45,7 +45,8 @@ function buildAssetKey(network?: string | null, tokenSymbol?: string | null) {
 const CHART_REGISTRY: Record<string, ChartRegistryEntry> = {
   "base:WELL": {
     preferredSource: "tradingview",
-    tradingviewSymbol: "MEXC:WELLUSDT",
+    tradingviewSymbol: "GATEIO:WELLUSDT",
+    dexscreenerUrl: "https://dexscreener.com/base/0xa88594d404727625a9437c3f886c7643872296ae?embed=1&theme=dark",
   },
 
   "base:STKWELL": {
@@ -55,27 +56,32 @@ const CHART_REGISTRY: Record<string, ChartRegistryEntry> = {
 
   "eth:ETH": {
     preferredSource: "tradingview",
-    tradingviewSymbol: "BINANCE:ETHUSDT",
+    tradingviewSymbol: "BITSTAMP:ETHUSD",
   },
 
   "ethereum:ETH": {
     preferredSource: "tradingview",
-    tradingviewSymbol: "BINANCE:ETHUSDT",
+    tradingviewSymbol: "BITSTAMP:ETHUSD",
   },
 
   "base:ETH": {
     preferredSource: "tradingview",
-    tradingviewSymbol: "BINANCE:ETHUSDT",
+    tradingviewSymbol: "BITSTAMP:ETHUSD",
   },
 
   "base:WETH": {
     preferredSource: "tradingview",
-    tradingviewSymbol: "BINANCE:ETHUSDT",
+    tradingviewSymbol: "BITSTAMP:ETHUSD",
   },
 
   "base:USDC": {
     preferredSource: "tradingview",
     tradingviewSymbol: "CRYPTOCAP:USDC",
+  },
+
+  "base:MAMO": {
+    preferredSource: "dexscreener",
+    dexscreenerUrl: "https://dexscreener.com/base/0xeb1f0f75bf6783be89de895f72d7c0a39a8fe742?embed=1&theme=dark",
   },
 
   "qubic:QUBIC": {
