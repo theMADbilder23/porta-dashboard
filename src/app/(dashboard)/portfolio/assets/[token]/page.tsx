@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import AssetChartEmbed from "@/components/asset-chart-embed";
 import { resolveChartConfig } from "@/lib/chart-resolver";
-import QcapCustomChart from "@/components/qcap-custom-chart"
+import QcapCustomChart from "@/components/qcap-custom-chart";
 
 type AssetViewerPageProps = {
   params: Promise<{
@@ -189,6 +189,40 @@ function StatCard({
   );
 }
 
+function CompactSignalCard({
+  label,
+  value,
+  sublabel,
+  emphasis = false,
+}: {
+  label: string;
+  value: string;
+  sublabel?: string;
+  emphasis?: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-4 shadow-sm dark:border-[#2A1D3B] dark:bg-[#140D20]">
+      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+        {label}
+      </p>
+      <p
+        className={`mt-2 text-2xl font-semibold ${
+          emphasis
+            ? "text-[#6D28D9] dark:text-[#D8B4FE]"
+            : "text-[#2D1B45] dark:text-[#F3E8FF]"
+        }`}
+      >
+        {value}
+      </p>
+      {sublabel ? (
+        <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+          {sublabel}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function SectionCard({
   eyebrow,
   title,
@@ -233,9 +267,12 @@ function Badge({
   const styles = {
     default:
       "border-[#E9DAFF] bg-[#F8F4FF] text-[#6D28D9] dark:border-[#312047] dark:bg-[#140D20] dark:text-[#D8B4FE]",
-    good: "border-[#D9F7E8] bg-[#F3FFF8] text-[#15803D] dark:border-[#1E3A2B] dark:bg-[#0F1A14] dark:text-[#86EFAC]",
-    warn: "border-[#FBE7C6] bg-[#FFF8ED] text-[#B45309] dark:border-[#3A2A14] dark:bg-[#1A140D] dark:text-[#FCD34D]",
-    info: "border-[#DDEBFF] bg-[#F5F9FF] text-[#2563EB] dark:border-[#1D2B47] dark:bg-[#101827] dark:text-[#93C5FD]",
+    good:
+      "border-[#D9F7E8] bg-[#F3FFF8] text-[#15803D] dark:border-[#1E3A2B] dark:bg-[#0F1A14] dark:text-[#86EFAC]",
+    warn:
+      "border-[#FBE7C6] bg-[#FFF8ED] text-[#B45309] dark:border-[#3A2A14] dark:bg-[#1A140D] dark:text-[#FCD34D]",
+    info:
+      "border-[#DDEBFF] bg-[#F5F9FF] text-[#2563EB] dark:border-[#1D2B47] dark:bg-[#101827] dark:text-[#93C5FD]",
   } as const;
 
   return (
@@ -258,6 +295,25 @@ function InsightRow({
     <div className="flex items-start justify-between gap-4 border-b border-[#F4ECFF] py-3 last:border-b-0 dark:border-[#1D1529]">
       <p className="text-sm text-[#6B5A86] dark:text-[#BFA9F5]">{label}</p>
       <p className="text-right text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function PositionStripMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-[#EEE4FF] bg-[#FCFAFF] px-4 py-4 dark:border-[#2A1D3B] dark:bg-[#140D20]">
+      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+        {label}
+      </p>
+      <p className="mt-2 text-base font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
         {value}
       </p>
     </div>
@@ -421,7 +477,7 @@ export default async function AssetViewerPage({
   const token = decodeToken(rawToken);
   const routeAsset = parseAssetRoute(token);
 
-  const data = await fetchAssetViewerData(token)
+  const data = await fetchAssetViewerData(token);
 
   const asset = data?.asset || {
     route_param: token,
@@ -521,7 +577,7 @@ export default async function AssetViewerPage({
     network: asset.network,
     tokenSymbol: asset.token_symbol,
     assetId: asset.asset_id,
-  });     
+  });
 
   return (
     <div className="min-h-screen space-y-6 p-6">
@@ -614,95 +670,99 @@ export default async function AssetViewerPage({
         />
       </section>
 
-      <section className="grid grid-cols-1 gap-6 desktop:grid-cols-12">
-        <div className="desktop:col-span-8">
-          <SectionCard
-            eyebrow="Chart / Signal Layer"
-            title="Chart + Indicator Intelligence"
-            description="Primary chart zone for TradingView or Dexscreener embeds. This section now includes front-end shell controls so we can test the UX before live chart/data integration."
-          >
-            <div className="space-y-4">
-              {asset.token_symbol.toUpperCase() === "QCAP" ? (
-                <QcapCustomChart />
-              ) : (
-                <AssetChartEmbed chartConfig={chartConfig} defaultTimeframe="4H" />
-              )}
-
-              <div className="grid grid-cols-1 gap-4 laptop:grid-cols-4">
-                <StatCard
-                  label="RSI"
-                  value="—"
-                  sublabel="Tracked indicator placeholder."
-                />
-                <StatCard
-                  label="Stoch RSI"
-                  value="—"
-                  sublabel="Tracked indicator placeholder."
-                />
-                <StatCard
-                  label="MACD"
-                  value="—"
-                  sublabel="Tracked indicator placeholder."
-                />
-                <StatCard
-                  label="Signal Bias"
-                  value="Neutral"
-                  sublabel="Porta interpretation placeholder."
-                  emphasis
-                />
-              </div>
-            </div>
-          </SectionCard>
+      <SectionCard
+        eyebrow="Position Snapshot"
+        title="My Position"
+        description="Core user-specific holdings intelligence for this asset, restructured into a full-width execution strip so position context stays visible without shrinking the chart."
+      >
+        <div className="grid grid-cols-2 gap-4 laptop:grid-cols-4 desktop:grid-cols-8">
+          <PositionStripMetric
+            label="Total Holdings"
+            value={`${formatTokenAmount(position.total_amount)} units`}
+          />
+          <PositionStripMetric
+            label="Holdings Value"
+            value={formatCurrency(position.total_value_usd)}
+          />
+          <PositionStripMetric
+            label="Principal Value"
+            value={formatCurrency(position.principal_value_usd)}
+          />
+          <PositionStripMetric
+            label="Reward Value"
+            value={formatCurrency(position.reward_value_usd)}
+          />
+          <PositionStripMetric
+            label="Wallet Count"
+            value={String(position.wallet_count)}
+          />
+          <PositionStripMetric
+            label="MMII Bucket"
+            value={formatCategoryLabel(asset.mmii_bucket)}
+          />
+          <PositionStripMetric label="Role" value={liveRoleLabel} />
+          <PositionStripMetric
+            label="Held Since"
+            value={formatDateTimeLabel(latestSnapshotTime)}
+          />
         </div>
 
-        <div className="desktop:col-span-4">
-          <SectionCard
-            eyebrow="Position Snapshot"
-            title="My Position"
-            description="Core user-specific holdings intelligence for this asset."
-          >
-            <div className="space-y-3">
-              <InsightRow
-                label="Total Holdings"
-                value={`${formatTokenAmount(position.total_amount)} units`}
-              />
-              <InsightRow
-                label="Holdings Value"
-                value={formatCurrency(position.total_value_usd)}
-              />
-              <InsightRow
-                label="Principal Value"
-                value={formatCurrency(position.principal_value_usd)}
-              />
-              <InsightRow
-                label="Reward Value"
-                value={formatCurrency(position.reward_value_usd)}
-              />
-              <InsightRow
-                label="Wallet Count"
-                value={String(position.wallet_count)}
-              />
-              <InsightRow
-                label="MMII Bucket"
-                value={formatCategoryLabel(asset.mmii_bucket)}
-              />
-              <InsightRow label="Role" value={liveRoleLabel} />
-              <InsightRow
-                label="Held Since"
-                value={formatDateTimeLabel(latestSnapshotTime)}
-              />
-            </div>
-
-            <div className="mt-5 grid grid-cols-1 gap-3">
-              <ShellSelect
-                label="MMII Bucket Selector"
-                value={formatCategoryLabel(asset.mmii_bucket)}
-              />
-              <ShellSelect label="Role Selector" value={liveRoleLabel} />
-            </div>
-          </SectionCard>
+        <div className="mt-5 grid grid-cols-1 gap-3 laptop:grid-cols-2">
+          <ShellSelect
+            label="MMII Bucket Selector"
+            value={formatCategoryLabel(asset.mmii_bucket)}
+          />
+          <ShellSelect label="Role Selector" value={liveRoleLabel} />
         </div>
-      </section>
+      </SectionCard>
+
+      <SectionCard
+        eyebrow="Chart / Signal Layer"
+        title="Chart + Indicator Intelligence"
+        description="Primary chart zone for TradingView or Dexscreener-style intelligence. This section is now treated as the dominant page focus so the asset viewer feels more like a trading intelligence terminal than a summary dashboard."
+      >
+        <div className="space-y-5">
+          {asset.token_symbol.toUpperCase() === "QCAP" ? (
+            <QcapCustomChart />
+          ) : (
+            <AssetChartEmbed chartConfig={chartConfig} defaultTimeframe="4H" />
+          )}
+
+          <div className="grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-6">
+            <CompactSignalCard
+              label="RSI"
+              value="—"
+              sublabel="Tracked indicator placeholder."
+            />
+            <CompactSignalCard
+              label="Stoch RSI"
+              value="—"
+              sublabel="Tracked indicator placeholder."
+            />
+            <CompactSignalCard
+              label="MACD"
+              value="—"
+              sublabel="Tracked indicator placeholder."
+            />
+            <CompactSignalCard
+              label="Signal Bias"
+              value="Neutral"
+              sublabel="Porta interpretation placeholder."
+              emphasis
+            />
+            <CompactSignalCard
+              label="1H Volume"
+              value="—"
+              sublabel="Short-term momentum placeholder."
+            />
+            <CompactSignalCard
+              label="24H Volume"
+              value="—"
+              sublabel="Daily activity placeholder."
+            />
+          </div>
+        </div>
+      </SectionCard>
 
       <section className="grid grid-cols-1 gap-6 desktop:grid-cols-12">
         <div className="desktop:col-span-6">
