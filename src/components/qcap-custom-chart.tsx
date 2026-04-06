@@ -10,7 +10,6 @@ import {
   type CandlestickData,
   type HistogramData,
   type IChartApi,
-  type ISeriesApi,
   type LineData,
   type LogicalRange,
   type Time,
@@ -33,6 +32,27 @@ type BiasState = {
   valueClassName: string
   note: string
 }
+
+type TimeframeOption = {
+  key: string
+  label: string
+}
+
+type CandleRouteResponse = {
+  timeframe: string
+  interval: string
+  days: number
+  candles: ChartCandle[]
+}
+
+const TIMEFRAMES: TimeframeOption[] = [
+  { key: "30m", label: "30M" },
+  { key: "1h", label: "1H" },
+  { key: "2h", label: "2H" },
+  { key: "4h", label: "4H" },
+  { key: "8h", label: "8H" },
+  { key: "1d", label: "1D" },
+]
 
 const MIN_CANDLES_FOR_INDICATORS = 120
 const RSI_PERIOD = 14
@@ -81,7 +101,12 @@ function calculateStochRSI(
 ) {
   const rsiValues = calculateRSI(closes, rsiPeriod)
   if (rsiValues.length < stochPeriod) {
-    return { k: [] as number[], d: [] as number[], offset: rsiPeriod }
+    return {
+      k: [] as number[],
+      d: [] as number[],
+      kOffset: 0,
+      dOffset: 0,
+    }
   }
 
   const rawStoch: number[] = []
@@ -106,12 +131,7 @@ function calculateStochRSI(
   const kOffset = rawOffset + (smoothK - 1)
   const dOffset = kOffset + (smoothD - 1)
 
-  return {
-    k,
-    d,
-    kOffset,
-    dOffset,
-  }
+  return { k, d, kOffset, dOffset }
 }
 
 function toCandlestickData(data: ChartCandle[]): CandlestickData<UTCTimestamp>[] {
@@ -263,7 +283,7 @@ function getSignalBiasV2(
     label: "Neutral",
     valueClassName: "text-slate-300",
     note: "Momentum is mixed and not strongly directional.",
-  }
+    }
 }
 
 export default function QcapCustomChart() {
@@ -271,6 +291,7 @@ export default function QcapCustomChart() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [hoveredCandle, setHoveredCandle] = useState<ChartCandle | null>(null)
+  const [timeframe, setTimeframe] = useState<string>("1d")
 
   const priceContainerRef = useRef<HTMLDivElement | null>(null)
   const rsiContainerRef = useRef<HTMLDivElement | null>(null)
@@ -292,7 +313,7 @@ export default function QcapCustomChart() {
         setLoading(true)
         setError(null)
 
-        const res = await fetch("/api/qubic/qcap-candles")
+        const res = await fetch(`/api/qubic/qcap-candles?timeframe=${timeframe}`)
 
         if (!res.ok) {
           let payload: ErrorPayload | null = null
@@ -311,14 +332,15 @@ export default function QcapCustomChart() {
           throw new Error(message)
         }
 
-        const candles = await res.json()
+        const payload = (await res.json()) as CandleRouteResponse
 
-        if (!Array.isArray(candles)) {
-          throw new Error("QCAP route did not return an array")
+        if (!payload || !Array.isArray(payload.candles)) {
+          throw new Error("QCAP route did not return a candles array")
         }
 
         if (!isMounted) return
-        setData(candles)
+        setData(payload.candles)
+        setHoveredCandle(null)
       } catch (err) {
         if (!isMounted) return
         setData([])
@@ -335,7 +357,7 @@ export default function QcapCustomChart() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [timeframe])
 
   const hasEnoughHistoryForIndicators = useMemo(
     () => data.length >= MIN_CANDLES_FOR_INDICATORS,
@@ -366,8 +388,8 @@ export default function QcapCustomChart() {
     const { k, d, kOffset, dOffset } = calculateStochRSI(closes)
 
     return {
-      kLineData: toStochLineData(data, k, kOffset ?? 0),
-      dLineData: toStochLineData(data, d, dOffset ?? 0),
+      kLineData: toStochLineData(data, k, kOffset),
+      dLineData: toStochLineData(data, d, dOffset),
     }
   }, [data, hasEnoughHistoryForIndicators])
 
@@ -540,12 +562,14 @@ export default function QcapCustomChart() {
       wickUpColor: "#22c55e",
       wickDownColor: "#ef4444",
       priceLineVisible: true,
-      lastValueVisible: true,
+      lastValueVisible: false,
     })
 
     const volumeSeries = priceChart.addSeries(HistogramSeries, {
       priceFormat: { type: "volume" },
       priceScaleId: "",
+      lastValueVisible: false,
+      priceLineVisible: false,
     })
 
     volumeSeries.priceScale().applyOptions({
@@ -560,21 +584,21 @@ export default function QcapCustomChart() {
       color: "#a855f7",
       lineWidth: 2,
       priceLineVisible: false,
-      lastValueVisible: true,
+      lastValueVisible: false,
     })
 
     const stochKSeries = stochChart.addSeries(LineSeries, {
       color: "#22c55e",
       lineWidth: 2,
       priceLineVisible: false,
-      lastValueVisible: true,
+      lastValueVisible: false,
     })
 
     const stochDSeries = stochChart.addSeries(LineSeries, {
       color: "#f59e0b",
       lineWidth: 2,
       priceLineVisible: false,
-      lastValueVisible: true,
+      lastValueVisible: false,
     })
 
     candleSeries.setData(toCandlestickData(data))
@@ -724,9 +748,31 @@ export default function QcapCustomChart() {
 
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        {TIMEFRAMES.map((option) => {
+          const isActive = option.key === timeframe
+
+          return (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setTimeframe(option.key)}
+              className={`rounded-md border px-3 py-1 text-xs font-semibold transition ${
+                isActive
+                  ? "border-violet-500 bg-violet-500/15 text-violet-300"
+                  : "border-border/60 bg-background text-muted-foreground hover:border-violet-400/40 hover:text-violet-300"
+              }`}
+            >
+              {option.label}
+            </button>
+          )
+        })}
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <div className="flex flex-wrap items-center gap-3">
           <span>Candles: {data.length}</span>
+          <span>Timeframe: {timeframe.toUpperCase()}</span>
           {latestCandle ? <span>Last Close: {formatQcapPrice(latestCandle.close)}</span> : null}
         </div>
 

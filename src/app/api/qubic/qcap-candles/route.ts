@@ -1,5 +1,19 @@
-const QCAP_CANDLES_URL =
-  "https://qubicswap.com/api/v1/markets/QCAP/candles?interval=1d&days=180&limit=200"
+const BASE_URL = "https://qubicswap.com/api/v1/markets/QCAP/candles"
+
+type CandleRequestConfig = {
+  interval: string
+  days: number
+  limit: number
+}
+
+const TIMEFRAME_MAP: Record<string, CandleRequestConfig> = {
+  "30m": { interval: "30m", days: 14, limit: 700 },
+  "1h": { interval: "1h", days: 30, limit: 720 },
+  "2h": { interval: "2h", days: 60, limit: 720 },
+  "4h": { interval: "4h", days: 120, limit: 720 },
+  "8h": { interval: "8h", days: 240, limit: 720 },
+  "1d": { interval: "1d", days: 365, limit: 500 },
+}
 
 function toNumber(value: unknown): number | null {
   const num = Number(value)
@@ -41,12 +55,20 @@ function extractCandles(payload: any) {
   return []
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 15000)
 
   try {
-    const response = await fetch(QCAP_CANDLES_URL, {
+    const { searchParams } = new URL(request.url)
+    const timeframe = (searchParams.get("timeframe") || "1d").toLowerCase()
+    const config = TIMEFRAME_MAP[timeframe] || TIMEFRAME_MAP["1d"]
+
+    const upstreamUrl = `${BASE_URL}?interval=${encodeURIComponent(
+      config.interval
+    )}&days=${config.days}&limit=${config.limit}`
+
+    const response = await fetch(upstreamUrl, {
       method: "GET",
       headers: {
         Accept: "application/json, text/plain, */*",
@@ -68,6 +90,8 @@ export async function GET() {
           status: response.status,
           contentType,
           preview: rawText.slice(0, 500),
+          timeframe,
+          upstreamUrl,
         },
         { status: 502 }
       )
@@ -82,6 +106,8 @@ export async function GET() {
           error: "Upstream returned non-JSON response",
           contentType,
           preview: rawText.slice(0, 500),
+          timeframe,
+          upstreamUrl,
         },
         { status: 502 }
       )
@@ -96,12 +122,19 @@ export async function GET() {
           error: "No valid candles returned after normalization",
           rawCount: Array.isArray(rawCandles) ? rawCandles.length : 0,
           sample: Array.isArray(rawCandles) ? rawCandles.slice(0, 3) : [],
+          timeframe,
+          upstreamUrl,
         },
         { status: 502 }
       )
     }
 
-    return Response.json(candles)
+    return Response.json({
+      timeframe,
+      interval: config.interval,
+      days: config.days,
+      candles,
+    })
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown server error"
