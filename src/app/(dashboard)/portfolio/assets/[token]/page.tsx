@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import AssetChartEmbed from "@/components/asset-chart-embed";
 import { resolveChartConfig } from "@/lib/chart-resolver";
+import { fetchQubicCandles } from "@/lib/qubic/qcap-chart";
 
 type AssetViewerPageProps = {
   params: Promise<{
@@ -420,7 +421,12 @@ export default async function AssetViewerPage({
   const token = decodeToken(rawToken);
   const routeAsset = parseAssetRoute(token);
 
-  const data = await fetchAssetViewerData(token);
+  const data = await fetchAssetViewerData(token)
+
+  if (data?.asset?.token_symbol === "QCAP") {
+    const qcapTestData = await fetchQubicCandles()
+     console.log("QCAP candles sample:", qcapTestData.slice(0, 3))
+  }
 
   const asset = data?.asset || {
     route_param: token,
