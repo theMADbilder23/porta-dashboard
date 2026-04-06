@@ -32,6 +32,20 @@ function formatQcapPrice(value: number): string {
   })
 }
 
+function formatVolume(value: number): string {
+  return value.toLocaleString("en-US", {
+    maximumFractionDigits: 0,
+  })
+}
+
+function formatDateFromUnix(time: number): string {
+  return new Date(time * 1000).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
+}
+
 function toCandlestickData(data: ChartCandle[]): CandlestickData<UTCTimestamp>[] {
   return data.map((candle) => ({
     time: candle.time as UTCTimestamp,
@@ -54,6 +68,7 @@ export default function QcapCustomChart() {
   const [data, setData] = useState<ChartCandle[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [hoveredCandle, setHoveredCandle] = useState<ChartCandle | null>(null)
 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -121,6 +136,8 @@ export default function QcapCustomChart() {
     return data.length ? data[data.length - 1] : null
   }, [data])
 
+  const tooltipCandle = hoveredCandle ?? latestCandle
+
   useEffect(() => {
     if (!containerRef.current || !data.length) return
 
@@ -137,26 +154,32 @@ export default function QcapCustomChart() {
       width: container.clientWidth,
       height: 400,
       layout: {
-        background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#6b7280",
+        background: { type: ColorType.Solid, color: "#050816" },
+        textColor: "#94a3b8",
       },
       grid: {
-        vertLines: { color: "rgba(255,255,255,0.04)" },
-        horzLines: { color: "rgba(255,255,255,0.04)" },
+        vertLines: { color: "rgba(148, 163, 184, 0.08)" },
+        horzLines: { color: "rgba(148, 163, 184, 0.08)" },
       },
       crosshair: {
-        vertLine: { color: "rgba(124, 58, 237, 0.30)" },
-        horzLine: { color: "rgba(124, 58, 237, 0.30)" },
+        vertLine: {
+          color: "rgba(168, 85, 247, 0.45)",
+          width: 1,
+        },
+        horzLine: {
+          color: "rgba(168, 85, 247, 0.45)",
+          width: 1,
+        },
       },
       rightPriceScale: {
-        borderColor: "rgba(255,255,255,0.08)",
+        borderColor: "rgba(148, 163, 184, 0.12)",
         scaleMargins: {
           top: 0.08,
           bottom: 0.30,
         },
       },
       timeScale: {
-        borderColor: "rgba(255,255,255,0.08)",
+        borderColor: "rgba(148, 163, 184, 0.12)",
         timeVisible: true,
         secondsVisible: false,
       },
@@ -188,11 +211,23 @@ export default function QcapCustomChart() {
         top: 0.78,
         bottom: 0,
       },
+      borderColor: "rgba(148, 163, 184, 0.12)",
     })
 
     candleSeries.setData(toCandlestickData(data))
     volumeSeries.setData(toVolumeData(data))
     chart.timeScale().fitContent()
+
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.time) {
+        setHoveredCandle(null)
+        return
+      }
+
+      const hoveredTime = Number(param.time)
+      const match = data.find((candle) => candle.time === hoveredTime) ?? null
+      setHoveredCandle(match)
+    })
 
     chartRef.current = chart
     candleSeriesRef.current = candleSeries
@@ -263,7 +298,20 @@ export default function QcapCustomChart() {
         </div>
       </div>
 
-      <div className="h-[400px] w-full overflow-hidden rounded bg-black/10">
+      {tooltipCandle ? (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded border border-white/10 bg-black px-3 py-2 text-xs text-slate-300">
+          <span className="text-slate-400">
+            {formatDateFromUnix(tooltipCandle.time)}
+          </span>
+          <span>O: {formatQcapPrice(tooltipCandle.open)}</span>
+          <span>H: {formatQcapPrice(tooltipCandle.high)}</span>
+          <span>L: {formatQcapPrice(tooltipCandle.low)}</span>
+          <span>C: {formatQcapPrice(tooltipCandle.close)}</span>
+          <span>V: {formatVolume(tooltipCandle.volume)}</span>
+        </div>
+      ) : null}
+
+      <div className="h-[400px] w-full overflow-hidden rounded border border-white/10 bg-black shadow-inner">
         <div ref={containerRef} className="h-full w-full" />
       </div>
     </div>
