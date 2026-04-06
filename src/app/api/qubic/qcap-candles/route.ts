@@ -1,10 +1,19 @@
-const BASE_URL = "https://qubicswap.com/api/v1/markets/QCAP/candles"
+const BASE_URL = "https://qubicswap.com/api/v1/markets/QCAP/candles";
 
 type CandleRequestConfig = {
-  interval: string
-  days: number
-  limit: number
-}
+  interval: string;
+  days: number;
+  limit: number;
+};
+
+type RawCandle = {
+  openTime?: number | string;
+  open?: number | string;
+  high?: number | string;
+  low?: number | string;
+  close?: number | string;
+  volume?: number | string;
+};
 
 const TIMEFRAME_MAP: Record<string, CandleRequestConfig> = {
   "30m": { interval: "30m", days: 14, limit: 700 },
@@ -13,20 +22,20 @@ const TIMEFRAME_MAP: Record<string, CandleRequestConfig> = {
   "4h": { interval: "4h", days: 120, limit: 720 },
   "8h": { interval: "8h", days: 240, limit: 720 },
   "1d": { interval: "1d", days: 365, limit: 500 },
-}
+};
 
 function toNumber(value: unknown): number | null {
-  const num = Number(value)
-  return Number.isFinite(num) ? num : null
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
 }
 
-function normalizeCandle(candle: any) {
-  const openTime = Number(candle?.openTime)
-  const open = toNumber(candle?.open)
-  const high = toNumber(candle?.high)
-  const low = toNumber(candle?.low)
-  const close = toNumber(candle?.close)
-  const volume = toNumber(candle?.volume)
+function normalizeCandle(candle: RawCandle) {
+  const openTime = Number(candle?.openTime);
+  const open = toNumber(candle?.open);
+  const high = toNumber(candle?.high);
+  const low = toNumber(candle?.low);
+  const close = toNumber(candle?.close);
+  const volume = toNumber(candle?.volume);
 
   if (
     !Number.isFinite(openTime) ||
@@ -36,7 +45,7 @@ function normalizeCandle(candle: any) {
     close === null ||
     volume === null
   ) {
-    return null
+    return null;
   }
 
   return {
@@ -46,27 +55,27 @@ function normalizeCandle(candle: any) {
     low,
     close,
     volume,
-  }
+  };
 }
 
-function extractCandles(payload: any) {
-  if (Array.isArray(payload)) return payload
-  if (Array.isArray(payload?.data)) return payload.data
-  return []
+function extractCandles(payload: any): RawCandle[] {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  return [];
 }
 
 export async function GET(request: Request) {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 15000)
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
 
   try {
-    const { searchParams } = new URL(request.url)
-    const timeframe = (searchParams.get("timeframe") || "1d").toLowerCase()
-    const config = TIMEFRAME_MAP[timeframe] || TIMEFRAME_MAP["1d"]
+    const { searchParams } = new URL(request.url);
+    const timeframe = (searchParams.get("timeframe") || "1d").toLowerCase();
+    const config = TIMEFRAME_MAP[timeframe] || TIMEFRAME_MAP["1d"];
 
-    const upstreamUrl = `${BASE_URL}?interval=${encodeURIComponent(
-      config.interval
-    )}&days=${config.days}&limit=${config.limit}`
+    const upstreamUrl =
+      `${BASE_URL}?interval=${encodeURIComponent(config.interval)}` +
+      `&days=${config.days}&limit=${config.limit}`;
 
     const response = await fetch(upstreamUrl, {
       method: "GET",
@@ -78,10 +87,10 @@ export async function GET(request: Request) {
       },
       cache: "no-store",
       signal: controller.signal,
-    })
+    });
 
-    const contentType = response.headers.get("content-type") || ""
-    const rawText = await response.text()
+    const contentType = response.headers.get("content-type") || "";
+    const rawText = await response.text();
 
     if (!response.ok) {
       return Response.json(
@@ -94,12 +103,12 @@ export async function GET(request: Request) {
           upstreamUrl,
         },
         { status: 502 }
-      )
+      );
     }
 
-    let parsed: any
+    let parsed: any;
     try {
-      parsed = JSON.parse(rawText)
+      parsed = JSON.parse(rawText);
     } catch {
       return Response.json(
         {
@@ -110,11 +119,11 @@ export async function GET(request: Request) {
           upstreamUrl,
         },
         { status: 502 }
-      )
+      );
     }
 
-    const rawCandles = extractCandles(parsed)
-    const candles = rawCandles.map(normalizeCandle).filter(Boolean)
+    const rawCandles = extractCandles(parsed);
+    const candles = rawCandles.map(normalizeCandle).filter(Boolean);
 
     if (!candles.length) {
       return Response.json(
@@ -126,7 +135,7 @@ export async function GET(request: Request) {
           upstreamUrl,
         },
         { status: 502 }
-      )
+      );
     }
 
     return Response.json({
@@ -134,10 +143,10 @@ export async function GET(request: Request) {
       interval: config.interval,
       days: config.days,
       candles,
-    })
+    });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Unknown server error"
+      error instanceof Error ? error.message : "Unknown server error";
 
     return Response.json(
       {
@@ -145,8 +154,8 @@ export async function GET(request: Request) {
         message,
       },
       { status: 500 }
-    )
+    );
   } finally {
-    clearTimeout(timeout)
+    clearTimeout(timeout);
   }
 }
