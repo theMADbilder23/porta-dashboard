@@ -5,11 +5,14 @@ import {
   CandlestickSeries,
   ColorType,
   HistogramSeries,
+  LineSeries,
   createChart,
   type CandlestickData,
   type HistogramData,
   type IChartApi,
   type ISeriesApi,
+  type LineData,
+  type LogicalRange,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts"
@@ -26,6 +29,7 @@ type ErrorPayload = {
 }
 
 const MIN_CANDLES_FOR_INDICATORS = 120
+const RSI_PERIOD = 14
 
 function formatQcapPrice(value: number): string {
   return value.toLocaleString("en-US", {
@@ -65,6 +69,19 @@ function toVolumeData(data: ChartCandle[]): HistogramData<Time>[] {
   }))
 }
 
+function toRsiLineData(data: ChartCandle[], period: number): LineData<UTCTimestamp>[] {
+  const closes = data.map((candle) => candle.close)
+  const rsiValues = calculateRSI(closes, period)
+
+  return rsiValues.map((value, index) => {
+    const candle = data[index + period]
+    return {
+      time: candle.time as UTCTimestamp,
+      value,
+    }
+  })
+}
+
 function getRsiState(value: number | null) {
   if (value === null) {
     return {
@@ -97,16 +114,56 @@ function getRsiState(value: number | null) {
   }
 }
 
+function getSignalBias(value: number | null) {
+  if (value === null) {
+    return {
+      label: "Neutral",
+      valueClassName: "text-slate-300",
+      note: "Waiting for stronger indicator context.",
+    }
+  }
+
+  if (value >= 60) {
+    return {
+      label: "Bullish",
+      valueClassName: "text-emerald-400",
+      note: "Momentum is leaning upward.",
+    }
+  }
+
+  if (value <= 40) {
+    return {
+      label: "Bearish",
+      valueClassName: "text-red-400",
+      note: "Momentum is leaning downward.",
+    }
+  }
+
+  return {
+    label: "Neutral",
+    valueClassName: "text-slate-300",
+    note: "Momentum is balanced.",
+  }
+}
+
 export default function QcapCustomChart() {
   const [data, setData] = useState<ChartCandle[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [hoveredCandle, setHoveredCandle] = useState<ChartCandle | null>(null)
 
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const chartRef = useRef<IChartApi | null>(null)
+  const priceContainerRef = useRef<HTMLDivElement | null>(null)
+  const rsiContainerRef = useRef<HTMLDivElement | null>(null)
+
+  const priceChartRef = useRef<IChartApi | null>(null)
+  const rsiChartRef = useRef<IChartApi | null>(null)
+
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null)
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null)
+  const rsiSeriesRef = useRef<ISeriesApi<"Line"> | null>(null)
+
+  const syncingFromPriceRef = useRef(false)
+  const syncingFromRsiRef = useRef(false)
 
   useEffect(() => {
     let isMounted = true
@@ -171,36 +228,51 @@ export default function QcapCustomChart() {
 
   const tooltipCandle = hoveredCandle ?? latestCandle
 
-  const latestRsi = useMemo(() => {
-    if (!hasEnoughHistoryForIndicators || !data.length) return null
-
-    const closes = data.map((candle) => candle.close)
-    const rsiSeries = calculateRSI(closes, 14)
-
-    if (!rsiSeries.length) return null
-
-    return rsiSeries[rsiSeries.length - 1]
+  const rsiLineData = useMemo(() => {
+    if (!hasEnoughHistoryForIndicators || !data.length) return []
+    return toRsiLineData(data, RSI_PERIOD)
   }, [data, hasEnoughHistoryForIndicators])
 
+  const latestRsi = useMemo(() => {
+    if (!rsiLineData.length) return null
+    return rsiLineData[rsiLineData.length - 1].value ?? null
+  }, [rsiLineData])
+
+  const tooltipRsi = useMemo(() => {
+    if (!tooltipCandle || !rsiLineData.length) return null
+
+    const match = rsiLineData.find(
+      (point) => Number(point.time) === tooltipCandle.time
+    )
+
+    return match?.value ?? null
+  }, [tooltipCandle, rsiLineData])
+
   const rsiState = useMemo(() => getRsiState(latestRsi), [latestRsi])
+  const signalBias = useMemo(() => getSignalBias(latestRsi), [latestRsi])
 
   useEffect(() => {
-    if (!containerRef.current || !data.length) return
+    if (!priceContainerRef.current || !rsiContainerRef.current || !data.length) return
 
-    if (chartRef.current) {
-      chartRef.current.remove()
-      chartRef.current = null
+    if (priceChartRef.current) {
+      priceChartRef.current.remove()
+      priceChartRef.current = null
       candleSeriesRef.current = null
       volumeSeriesRef.current = null
     }
 
-    const container = containerRef.current
+    if (rsiChartRef.current) {
+      rsiChartRef.current.remove()
+      rsiChartRef.current = null
+      rsiSeriesRef.current = null
+    }
 
-    const chart = createChart(container, {
-      width: container.clientWidth,
-      height: 400,
+    const priceContainer = priceContainerRef.current
+    const rsiContainer = rsiContainerRef.current
+
+    const commonLayout = {
       layout: {
-        background: { type: ColorType.Solid, color: "#050816" },
+        background: { type: ColorType.Solid as const, color: "#050816" },
         textColor: "#94a3b8",
       },
       grid: {
@@ -217,11 +289,39 @@ export default function QcapCustomChart() {
           width: 1,
         },
       },
+    }
+
+    const priceChart = createChart(priceContainer, {
+      width: priceContainer.clientWidth,
+      height: 340,
+      ...commonLayout,
       rightPriceScale: {
         borderColor: "rgba(148, 163, 184, 0.12)",
         scaleMargins: {
           top: 0.08,
-          bottom: 0.30,
+          bottom: 0.24,
+        },
+      },
+      timeScale: {
+        borderColor: "rgba(148, 163, 184, 0.12)",
+        timeVisible: true,
+        secondsVisible: false,
+        visible: false,
+      },
+      localization: {
+        priceFormatter: (price: number) => formatQcapPrice(price),
+      },
+    })
+
+    const rsiChart = createChart(rsiContainer, {
+      width: rsiContainer.clientWidth,
+      height: 120,
+      ...commonLayout,
+      rightPriceScale: {
+        borderColor: "rgba(148, 163, 184, 0.12)",
+        scaleMargins: {
+          top: 0.12,
+          bottom: 0.12,
         },
       },
       timeScale: {
@@ -230,11 +330,12 @@ export default function QcapCustomChart() {
         secondsVisible: false,
       },
       localization: {
-        priceFormatter: (price: number) => formatQcapPrice(price),
+        priceFormatter: (price: number) =>
+          price.toLocaleString("en-US", { maximumFractionDigits: 2 }),
       },
     })
 
-    const candleSeries = chart.addSeries(CandlestickSeries, {
+    const candleSeries = priceChart.addSeries(CandlestickSeries, {
       upColor: "#22c55e",
       downColor: "#ef4444",
       borderUpColor: "#22c55e",
@@ -245,7 +346,7 @@ export default function QcapCustomChart() {
       lastValueVisible: true,
     })
 
-    const volumeSeries = chart.addSeries(HistogramSeries, {
+    const volumeSeries = priceChart.addSeries(HistogramSeries, {
       priceFormat: {
         type: "volume",
       },
@@ -254,17 +355,70 @@ export default function QcapCustomChart() {
 
     volumeSeries.priceScale().applyOptions({
       scaleMargins: {
-        top: 0.78,
+        top: 0.80,
         bottom: 0,
       },
       borderColor: "rgba(148, 163, 184, 0.12)",
     })
 
+    const rsiSeries = rsiChart.addSeries(LineSeries, {
+      color: "#a855f7",
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: true,
+    })
+
     candleSeries.setData(toCandlestickData(data))
     volumeSeries.setData(toVolumeData(data))
-    chart.timeScale().fitContent()
+    rsiSeries.setData(rsiLineData)
 
-    chart.subscribeCrosshairMove((param) => {
+    rsiSeries.createPriceLine({
+      price: 70,
+      color: "#ef4444",
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: "70",
+    })
+
+    rsiSeries.createPriceLine({
+      price: 50,
+      color: "#94a3b8",
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: "50",
+    })
+
+    rsiSeries.createPriceLine({
+      price: 30,
+      color: "#22c55e",
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: "30",
+    })
+
+    priceChart.timeScale().fitContent()
+    rsiChart.timeScale().fitContent()
+
+    priceChart.timeScale().subscribeVisibleLogicalRangeChange((range: LogicalRange | null) => {
+      if (!range || !rsiChartRef.current || syncingFromRsiRef.current) return
+
+      syncingFromPriceRef.current = true
+      rsiChartRef.current.timeScale().setVisibleLogicalRange(range)
+      syncingFromPriceRef.current = false
+    })
+
+    rsiChart.timeScale().subscribeVisibleLogicalRangeChange((range: LogicalRange | null) => {
+      if (!range || !priceChartRef.current || syncingFromPriceRef.current) return
+
+      syncingFromRsiRef.current = true
+      priceChartRef.current.timeScale().setVisibleLogicalRange(range)
+      syncingFromRsiRef.current = false
+    })
+
+    const handleCrosshairMove = (param: { time?: Time }) => {
       if (!param.time) {
         setHoveredCandle(null)
         return
@@ -273,39 +427,58 @@ export default function QcapCustomChart() {
       const hoveredTime = Number(param.time)
       const match = data.find((candle) => candle.time === hoveredTime) ?? null
       setHoveredCandle(match)
-    })
+    }
 
-    chartRef.current = chart
+    priceChart.subscribeCrosshairMove(handleCrosshairMove)
+    rsiChart.subscribeCrosshairMove(handleCrosshairMove)
+
+    priceChartRef.current = priceChart
+    rsiChartRef.current = rsiChart
     candleSeriesRef.current = candleSeries
     volumeSeriesRef.current = volumeSeries
+    rsiSeriesRef.current = rsiSeries
 
     const resizeObserver = new ResizeObserver(() => {
-      if (!containerRef.current || !chartRef.current) return
+      if (priceContainerRef.current && priceChartRef.current) {
+        priceChartRef.current.applyOptions({
+          width: priceContainerRef.current.clientWidth,
+          height: 340,
+        })
+      }
 
-      chartRef.current.applyOptions({
-        width: containerRef.current.clientWidth,
-        height: 400,
-      })
+      if (rsiContainerRef.current && rsiChartRef.current) {
+        rsiChartRef.current.applyOptions({
+          width: rsiContainerRef.current.clientWidth,
+          height: 120,
+        })
+      }
     })
 
-    resizeObserver.observe(container)
+    resizeObserver.observe(priceContainer)
+    resizeObserver.observe(rsiContainer)
 
     return () => {
       resizeObserver.disconnect()
 
-      if (chartRef.current) {
-        chartRef.current.remove()
-        chartRef.current = null
+      if (priceChartRef.current) {
+        priceChartRef.current.remove()
+        priceChartRef.current = null
         candleSeriesRef.current = null
         volumeSeriesRef.current = null
       }
+
+      if (rsiChartRef.current) {
+        rsiChartRef.current.remove()
+        rsiChartRef.current = null
+        rsiSeriesRef.current = null
+      }
     }
-  }, [data])
+  }, [data, rsiLineData])
 
   if (loading) {
     return (
       <div className="space-y-3">
-        <div className="h-[400px] flex items-center justify-center text-sm text-muted-foreground">
+        <div className="rounded border border-white/10 bg-black p-4 text-sm text-slate-400">
           Loading QCAP chart...
         </div>
 
@@ -346,7 +519,7 @@ export default function QcapCustomChart() {
             </div>
             <div className="text-2xl font-semibold text-slate-300">Neutral</div>
             <div className="mt-3 text-sm text-muted-foreground">
-              Porta interpretation placeholder.
+              Waiting for indicator context.
             </div>
           </div>
         </div>
@@ -357,10 +530,10 @@ export default function QcapCustomChart() {
   if (error || !data.length) {
     return (
       <div className="space-y-3">
-        <div className="h-[400px] flex flex-col items-center justify-center gap-2 px-4 text-center">
-          <div className="text-sm text-red-400">Failed to load QCAP data</div>
+        <div className="rounded border border-white/10 bg-black p-4 text-sm text-red-400">
+          Failed to load QCAP data
           {error ? (
-            <div className="max-w-xl text-xs text-muted-foreground">{error}</div>
+            <div className="mt-2 text-xs text-slate-400">{error}</div>
           ) : null}
         </div>
 
@@ -401,7 +574,7 @@ export default function QcapCustomChart() {
             </div>
             <div className="text-2xl font-semibold text-slate-300">Neutral</div>
             <div className="mt-3 text-sm text-muted-foreground">
-              Porta interpretation placeholder.
+              Waiting for indicator context.
             </div>
           </div>
         </div>
@@ -442,11 +615,16 @@ export default function QcapCustomChart() {
           <span>L: {formatQcapPrice(tooltipCandle.low)}</span>
           <span>C: {formatQcapPrice(tooltipCandle.close)}</span>
           <span>V: {formatVolume(tooltipCandle.volume)}</span>
+          {tooltipRsi !== null ? (
+            <span>RSI: {tooltipRsi.toFixed(2)}</span>
+          ) : null}
         </div>
       ) : null}
 
-      <div className="h-[400px] w-full overflow-hidden rounded border border-white/10 bg-black shadow-inner">
-        <div ref={containerRef} className="h-full w-full" />
+      <div className="overflow-hidden rounded border border-white/10 bg-black shadow-inner">
+        <div ref={priceContainerRef} className="h-[340px] w-full" />
+        <div className="border-t border-white/10" />
+        <div ref={rsiContainerRef} className="h-[120px] w-full" />
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -489,9 +667,11 @@ export default function QcapCustomChart() {
           <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
             Signal Bias
           </div>
-          <div className="text-2xl font-semibold text-slate-300">Neutral</div>
+          <div className={`text-2xl font-semibold ${signalBias.valueClassName}`}>
+            {signalBias.label}
+          </div>
           <div className="mt-3 text-sm text-muted-foreground">
-            Porta interpretation placeholder.
+            {signalBias.note}
           </div>
         </div>
       </div>
