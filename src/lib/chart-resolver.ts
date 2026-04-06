@@ -81,7 +81,7 @@ const CHART_REGISTRY: Record<string, ChartRegistryEntry> = {
 
   "base:MAMO": {
     preferredSource: "dexscreener",
-    dexscreenerUrl: "https://dexscreener.com/base/0xeb1f0f75bf6783be89de895f72d7c0a39a8fe742?embed=1&theme=dark",
+    dexscreenerUrl: "https://dexscreener.com/base/0xe2b3aa806e56603a244bfc111c9474f7dedd03db?embed=1&theme=dark",
   },
 
   "qubic:QUBIC": {
