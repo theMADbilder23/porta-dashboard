@@ -1,12 +1,12 @@
 const QCAP_CANDLES_URL =
   "https://qubicswap.com/api/v1/markets/QCAP/candles?interval=1d&days=180&limit=200"
 
-function toNumber(value) {
+function toNumber(value: any): number | null {
   const num = Number(value)
   return Number.isFinite(num) ? num : null
 }
 
-function normalizeCandle(candle) {
+function normalizeCandle(candle: any) {
   const openTime = Number(candle?.openTime)
   const open = toNumber(candle?.open)
   const high = toNumber(candle?.high)
@@ -35,35 +35,24 @@ function normalizeCandle(candle) {
   }
 }
 
-function extractCandles(payload) {
-  if (Array.isArray(payload)) {
-    return payload
-  }
-
-  if (Array.isArray(payload?.data)) {
-    return payload.data
-  }
-
+function extractCandles(payload: any) {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.data)) return payload.data
   return []
 }
 
-export default async function handler(req, res) {
-  if (req.method !== "GET") {
-    return res.status(405).json({ error: "Method not allowed" })
-  }
-
+export async function GET() {
   try {
     const response = await fetch(QCAP_CANDLES_URL, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
+      headers: { Accept: "application/json" },
+      cache: "no-store",
     })
 
     if (!response.ok) {
-      return res.status(response.status).json({
-        error: "Failed to fetch QCAP candles from upstream source",
-      })
+      return Response.json(
+        { error: "Upstream fetch failed" },
+        { status: response.status }
+      )
     }
 
     const text = await response.text()
@@ -72,18 +61,20 @@ export default async function handler(req, res) {
     try {
       parsed = JSON.parse(text)
     } catch {
-      return res.status(502).json({
-        error: "Invalid JSON received from upstream source",
-      })
+      return Response.json(
+        { error: "Invalid JSON from upstream" },
+        { status: 502 }
+      )
     }
 
-    const rawCandles = extractCandles(parsed)
-    const candles = rawCandles.map(normalizeCandle).filter(Boolean)
+    const raw = extractCandles(parsed)
+    const candles = raw.map(normalizeCandle).filter(Boolean)
 
-    return res.status(200).json(candles)
+    return Response.json(candles)
   } catch {
-    return res.status(500).json({
-      error: "Unexpected error while fetching QCAP candles",
-    })
+    return Response.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    )
   }
 }
