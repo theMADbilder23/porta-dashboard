@@ -1,7 +1,16 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { fetchQubicCandles, type ChartCandle } from "@/lib/qubic/qcap-chart"
+import { type ChartCandle } from "@/lib/qubic/qcap-chart"
+
+type ErrorPayload = {
+  error?: string
+  message?: string
+  status?: number
+  contentType?: string
+  preview?: string
+  rawCount?: number
+}
 
 export default function QcapCustomChart() {
   const [data, setData] = useState<ChartCandle[]>([])
@@ -16,7 +25,30 @@ export default function QcapCustomChart() {
         setLoading(true)
         setError(null)
 
-        const candles = await fetchQubicCandles()
+        const res = await fetch("/api/qubic/qcap-candles")
+
+        if (!res.ok) {
+          let payload: ErrorPayload | null = null
+
+          try {
+            payload = await res.json()
+          } catch {
+            payload = null
+          }
+
+          const message =
+            payload?.message ||
+            payload?.error ||
+            `Failed to load QCAP data (${res.status})`
+
+          throw new Error(message)
+        }
+
+        const candles = await res.json()
+
+        if (!Array.isArray(candles)) {
+          throw new Error("QCAP route did not return an array")
+        }
 
         if (!isMounted) return
 
@@ -50,8 +82,11 @@ export default function QcapCustomChart() {
 
   if (error || !data.length) {
     return (
-      <div className="h-[400px] flex items-center justify-center text-sm text-red-400">
-        Failed to load QCAP data
+      <div className="h-[400px] flex flex-col items-center justify-center gap-2 px-4 text-center">
+        <div className="text-sm text-red-400">Failed to load QCAP data</div>
+        {error ? (
+          <div className="max-w-xl text-xs text-muted-foreground">{error}</div>
+        ) : null}
       </div>
     )
   }

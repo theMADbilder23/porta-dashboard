@@ -1,7 +1,7 @@
 const QCAP_CANDLES_URL =
   "https://qubicswap.com/api/v1/markets/QCAP/candles?interval=1d&days=180&limit=200"
 
-function toNumber(value: any): number | null {
+function toNumber(value: unknown): number | null {
   const num = Number(value)
   return Number.isFinite(num) ? num : null
 }
@@ -42,39 +42,78 @@ function extractCandles(payload: any) {
 }
 
 export async function GET() {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15000)
+
   try {
     const response = await fetch(QCAP_CANDLES_URL, {
-      headers: { Accept: "application/json" },
+      method: "GET",
+      headers: {
+        Accept: "application/json, text/plain, */*",
+        "User-Agent": "Mozilla/5.0 PortaDashboard/1.0",
+        Referer: "https://qubicswap.com/",
+        Origin: "https://qubicswap.com",
+      },
       cache: "no-store",
+      signal: controller.signal,
     })
+
+    const contentType = response.headers.get("content-type") || ""
+    const rawText = await response.text()
 
     if (!response.ok) {
       return Response.json(
-        { error: "Upstream fetch failed" },
-        { status: response.status }
-      )
-    }
-
-    const text = await response.text()
-
-    let parsed
-    try {
-      parsed = JSON.parse(text)
-    } catch {
-      return Response.json(
-        { error: "Invalid JSON from upstream" },
+        {
+          error: "Upstream fetch failed",
+          status: response.status,
+          contentType,
+          preview: rawText.slice(0, 500),
+        },
         { status: 502 }
       )
     }
 
-    const raw = extractCandles(parsed)
-    const candles = raw.map(normalizeCandle).filter(Boolean)
+    let parsed: any
+    try {
+      parsed = JSON.parse(rawText)
+    } catch {
+      return Response.json(
+        {
+          error: "Upstream returned non-JSON response",
+          contentType,
+          preview: rawText.slice(0, 500),
+        },
+        { status: 502 }
+      )
+    }
+
+    const rawCandles = extractCandles(parsed)
+    const candles = rawCandles.map(normalizeCandle).filter(Boolean)
+
+    if (!candles.length) {
+      return Response.json(
+        {
+          error: "No valid candles returned after normalization",
+          rawCount: Array.isArray(rawCandles) ? rawCandles.length : 0,
+          sample: Array.isArray(rawCandles) ? rawCandles.slice(0, 3) : [],
+        },
+        { status: 502 }
+      )
+    }
 
     return Response.json(candles)
-  } catch {
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown server error"
+
     return Response.json(
-      { error: "Internal server error" },
+      {
+        error: "Internal route failure",
+        message,
+      },
       { status: 500 }
     )
+  } finally {
+    clearTimeout(timeout)
   }
 }
