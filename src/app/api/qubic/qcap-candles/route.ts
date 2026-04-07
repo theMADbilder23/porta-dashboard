@@ -15,6 +15,18 @@ type RawCandle = {
   volume?: number | string;
 };
 
+type JsonObject = Record<string, unknown>;
+
+type CandlePayload =
+  | RawCandle[]
+  | {
+      data?: RawCandle[];
+      items?: RawCandle[];
+      results?: RawCandle[];
+      candles?: RawCandle[];
+    }
+  | JsonObject;
+
 const TIMEFRAME_MAP: Record<string, CandleRequestConfig> = {
   "30m": { interval: "30m", days: 7, limit: 220 },
   "1h": { interval: "1h", days: 14, limit: 240 },
@@ -58,9 +70,12 @@ function normalizeCandle(candle: RawCandle) {
   };
 }
 
-function extractCandles(payload: any): RawCandle[] {
+function extractCandles(payload: CandlePayload): RawCandle[] {
   if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload?.data)) return payload.data;
+  if ("data" in payload && Array.isArray(payload.data)) return payload.data;
+  if ("items" in payload && Array.isArray(payload.items)) return payload.items;
+  if ("results" in payload && Array.isArray(payload.results)) return payload.results;
+  if ("candles" in payload && Array.isArray(payload.candles)) return payload.candles;
   return [];
 }
 
@@ -104,9 +119,10 @@ export async function GET(request: Request) {
       );
     }
 
-    let parsed: any;
+    let parsed: CandlePayload;
+
     try {
-      parsed = JSON.parse(rawText);
+      parsed = JSON.parse(rawText) as CandlePayload;
     } catch {
       return Response.json(
         {
@@ -121,7 +137,20 @@ export async function GET(request: Request) {
     }
 
     const rawCandles = extractCandles(parsed);
-    const candles = rawCandles.map(normalizeCandle).filter(Boolean);
+    const candles = rawCandles
+      .map(normalizeCandle)
+      .filter(
+        (
+          candle
+        ): candle is {
+          time: number;
+          open: number;
+          high: number;
+          low: number;
+          close: number;
+          volume: number;
+        } => candle !== null
+      );
 
     if (!candles.length) {
       return Response.json(
