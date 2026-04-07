@@ -281,20 +281,25 @@ function toMacdHistogramData(
   data: ChartCandle[],
   values: number[]
 ): HistogramData<UTCTimestamp>[] {
-  return values
-    .map((value, index) => {
+  const points: Array<HistogramData<UTCTimestamp> | null> = values.map(
+    (value, index) => {
       const candle = data[index]
-      if (!candle || !Number.isFinite(value)) return null
+
+      if (!candle || !Number.isFinite(value)) {
+        return null
+      }
 
       return {
         time: candle.time as UTCTimestamp,
         value,
         color: value >= 0 ? "#67e8f9" : "#fca5a5",
       }
-    })
-    .filter(
-      (point): point is HistogramData<UTCTimestamp> => point !== null
-    )
+    }
+  )
+
+  return points.filter(
+    (point): point is HistogramData<UTCTimestamp> => point !== null
+  )
 }
 
 function getRsiState(value: number | null): BiasState {
