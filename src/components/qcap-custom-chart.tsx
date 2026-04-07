@@ -61,6 +61,9 @@ const STOCH_PERIOD = 14
 const STOCH_SMOOTH_K = 3
 const STOCH_SMOOTH_D = 3
 
+const PRICE_CHART_HEIGHT = 280
+const INDICATOR_CHART_HEIGHT = 95
+
 function formatQcapPrice(value: number): string {
   return value.toLocaleString("en-US", {
     maximumFractionDigits: 0,
@@ -85,11 +88,13 @@ function sma(values: number[], period: number): number[] {
   if (values.length < period) return []
 
   const out: number[] = []
+
   for (let i = period - 1; i < values.length; i++) {
     const slice = values.slice(i - period + 1, i + 1)
     const avg = slice.reduce((sum, value) => sum + value, 0) / period
     out.push(avg)
   }
+
   return out
 }
 
@@ -299,6 +304,12 @@ function getDefaultSupportedTimeframe(
   return supportedTimeframes[supportedTimeframes.length - 1] || "1d"
 }
 
+function sumRecentVolume(data: ChartCandle[], count: number): number | null {
+  if (!data.length) return null
+  const slice = data.slice(-count)
+  return slice.reduce((sum, candle) => sum + candle.volume, 0)
+}
+
 export default function QcapCustomChart() {
   const [data, setData] = useState<ChartCandle[]>([])
   const [loading, setLoading] = useState(true)
@@ -327,6 +338,7 @@ export default function QcapCustomChart() {
       timeframe,
       supportedTimeframes
     )
+
     if (safeTimeframe !== timeframe) {
       setTimeframe(safeTimeframe)
     }
@@ -380,10 +392,12 @@ export default function QcapCustomChart() {
         }
 
         if (!isMounted) return
+
         setData(payload.candles)
         setHoveredCandle(null)
       } catch (err) {
         if (!isMounted) return
+
         setData([])
         setError(err instanceof Error ? err.message : "Failed to load QCAP data")
       } finally {
@@ -480,14 +494,68 @@ export default function QcapCustomChart() {
   }, [tooltipCandle, stochData])
 
   const rsiState = useMemo(() => getRsiState(latestRsi), [latestRsi])
+
   const stochState = useMemo(
     () => getStochState(latestStochK, latestStochD),
     [latestStochK, latestStochD]
   )
+
   const signalBias = useMemo(
     () => getSignalBiasV2(latestRsi, latestStochK, latestStochD),
     [latestRsi, latestStochK, latestStochD]
   )
+
+  const oneHourVolume = useMemo(() => {
+    if (!data.length) return null
+
+    if (timeframe === "1d") return null
+    if (timeframe === "8h") return null
+    if (timeframe === "4h") return null
+
+    if (timeframe === "2h") {
+      return sumRecentVolume(data, 1)
+    }
+
+    if (timeframe === "1h") {
+      return sumRecentVolume(data, 1)
+    }
+
+    if (timeframe === "30m") {
+      return sumRecentVolume(data, 2)
+    }
+
+    return null
+  }, [data, timeframe])
+
+  const twentyFourHourVolume = useMemo(() => {
+    if (!data.length) return null
+
+    if (timeframe === "1d") {
+      return sumRecentVolume(data, 1)
+    }
+
+    if (timeframe === "8h") {
+      return sumRecentVolume(data, 3)
+    }
+
+    if (timeframe === "4h") {
+      return sumRecentVolume(data, 6)
+    }
+
+    if (timeframe === "2h") {
+      return sumRecentVolume(data, 12)
+    }
+
+    if (timeframe === "1h") {
+      return sumRecentVolume(data, 24)
+    }
+
+    if (timeframe === "30m") {
+      return sumRecentVolume(data, 48)
+    }
+
+    return null
+  }, [data, timeframe])
 
   useEffect(() => {
     if (
@@ -530,7 +598,7 @@ export default function QcapCustomChart() {
 
     const priceChart = createChart(priceContainer, {
       width: priceContainer.clientWidth,
-      height: 300,
+      height: PRICE_CHART_HEIGHT,
       ...commonLayout,
       rightPriceScale: {
         borderColor: "rgba(148, 163, 184, 0.12)",
@@ -552,7 +620,7 @@ export default function QcapCustomChart() {
 
     const rsiChart = createChart(rsiContainer, {
       width: rsiContainer.clientWidth,
-      height: 110,
+      height: INDICATOR_CHART_HEIGHT,
       ...commonLayout,
       rightPriceScale: {
         visible: false,
@@ -571,7 +639,7 @@ export default function QcapCustomChart() {
 
     const stochChart = createChart(stochContainer, {
       width: stochContainer.clientWidth,
-      height: 110,
+      height: INDICATOR_CHART_HEIGHT,
       ...commonLayout,
       rightPriceScale: {
         visible: false,
@@ -736,21 +804,21 @@ export default function QcapCustomChart() {
       if (priceContainerRef.current && priceChartRef.current) {
         priceChartRef.current.applyOptions({
           width: priceContainerRef.current.clientWidth,
-          height: 300,
+          height: PRICE_CHART_HEIGHT,
         })
       }
 
       if (rsiContainerRef.current && rsiChartRef.current) {
         rsiChartRef.current.applyOptions({
           width: rsiContainerRef.current.clientWidth,
-          height: 110,
+          height: INDICATOR_CHART_HEIGHT,
         })
       }
 
       if (stochContainerRef.current && stochChartRef.current) {
         stochChartRef.current.applyOptions({
           width: stochContainerRef.current.clientWidth,
-          height: 110,
+          height: INDICATOR_CHART_HEIGHT,
         })
       }
     })
@@ -797,7 +865,7 @@ export default function QcapCustomChart() {
         <button
           type="button"
           onClick={() => setShowTimeframeMenu((prev) => !prev)}
-          className="rounded-md border border-border/60 bg-background px-3 py-1 text-xs font-semibold text-muted-foreground transition hover:border-violet-400/40 hover:text-violet-300"
+          className="rounded-md border border-white/10 bg-[#0b1020] px-3 py-1 text-xs font-semibold text-slate-300 transition hover:border-violet-400/40 hover:text-violet-300"
         >
           Timeframe:{" "}
           {TIMEFRAMES.find((option) => option.key === timeframe)?.label ??
@@ -838,7 +906,7 @@ export default function QcapCustomChart() {
         ) : null}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-[11px] text-slate-400">
         <div className="flex flex-wrap items-center gap-3">
           <span>Candles: {data.length}</span>
           <span>Timeframe: {timeframe.toUpperCase()}</span>
@@ -853,8 +921,7 @@ export default function QcapCustomChart() {
           ) : (
             <span className="text-amber-500">
               Limited history — chart is valid, but custom indicators should stay
-              disabled until at least {MIN_CANDLES_FOR_INDICATORS} candles are
-              available
+              disabled until at least {MIN_CANDLES_FOR_INDICATORS} candles are available
             </span>
           )}
         </div>
@@ -868,25 +935,50 @@ export default function QcapCustomChart() {
       ) : null}
 
       {tooltipCandle ? (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded border border-white/10 bg-black px-3 py-2 text-xs text-slate-300">
-          <span className="text-slate-400">{formatDateFromUnix(tooltipCandle.time)}</span>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[11px] text-slate-400">
+          <span>{formatDateFromUnix(tooltipCandle.time)}</span>
           <span>O: {formatQcapPrice(tooltipCandle.open)}</span>
           <span>H: {formatQcapPrice(tooltipCandle.high)}</span>
           <span>L: {formatQcapPrice(tooltipCandle.low)}</span>
           <span>C: {formatQcapPrice(tooltipCandle.close)}</span>
           <span>V: {formatVolume(tooltipCandle.volume)}</span>
-          {tooltipRsi !== null ? <span>RSI: {tooltipRsi.toFixed(2)}</span> : null}
-          {tooltipStochK !== null ? <span>Stoch K: {tooltipStochK.toFixed(2)}</span> : null}
-          {tooltipStochD !== null ? <span>Stoch D: {tooltipStochD.toFixed(2)}</span> : null}
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded border border-white/10 bg-black shadow-inner">
-        <div ref={priceContainerRef} className="h-[300px] w-full" />
+      <div className="relative overflow-hidden rounded border border-white/10 bg-black shadow-inner">
+        <div className="pointer-events-none absolute left-3 top-2 z-10 text-[11px] font-medium text-slate-400">
+          Price / Volume
+        </div>
+
+        <div
+          className="pointer-events-none absolute left-3 z-10 text-[11px] font-medium text-slate-400"
+          style={{ top: `${PRICE_CHART_HEIGHT + 10}px` }}
+        >
+          RSI {tooltipRsi?.toFixed(2) ?? latestRsi?.toFixed(2) ?? "—"}
+        </div>
+
+        <div
+          className="pointer-events-none absolute left-3 z-10 text-[11px] font-medium text-slate-400"
+          style={{ top: `${PRICE_CHART_HEIGHT + INDICATOR_CHART_HEIGHT + 16}px` }}
+        >
+          Stoch{" "}
+          {tooltipStochK?.toFixed(2) ?? latestStochK?.toFixed(2) ?? "—"} /{" "}
+          {tooltipStochD?.toFixed(2) ?? latestStochD?.toFixed(2) ?? "—"}
+        </div>
+
+        <div ref={priceContainerRef} className="w-full" style={{ height: `${PRICE_CHART_HEIGHT}px` }} />
         <div className="border-t border-white/10" />
-        <div ref={rsiContainerRef} className="h-[110px] w-full" />
+        <div
+          ref={rsiContainerRef}
+          className="w-full"
+          style={{ height: `${INDICATOR_CHART_HEIGHT}px` }}
+        />
         <div className="border-t border-white/10" />
-        <div ref={stochContainerRef} className="h-[110px] w-full" />
+        <div
+          ref={stochContainerRef}
+          className="w-full"
+          style={{ height: `${INDICATOR_CHART_HEIGHT}px` }}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-6">
@@ -951,10 +1043,10 @@ export default function QcapCustomChart() {
             1H Volume
           </p>
           <p className="mt-2 text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-            —
+            {oneHourVolume !== null ? formatVolume(oneHourVolume) : "—"}
           </p>
           <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-            Short-term momentum placeholder.
+            Short-term momentum volume.
           </p>
         </div>
 
@@ -963,10 +1055,10 @@ export default function QcapCustomChart() {
             24H Volume
           </p>
           <p className="mt-2 text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-            —
+            {twentyFourHourVolume !== null ? formatVolume(twentyFourHourVolume) : "—"}
           </p>
           <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-            Daily activity placeholder.
+            Rolling 24H activity volume.
           </p>
         </div>
       </div>
