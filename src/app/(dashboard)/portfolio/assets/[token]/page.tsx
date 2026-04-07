@@ -1,7 +1,8 @@
 import { headers } from "next/headers";
 import AssetChartEmbed from "@/components/asset-chart-embed";
-import { resolveChartConfig } from "@/lib/chart-resolver";
+import AssetRouteSwitcher from "@/components/asset-route-switcher";
 import QcapCustomChart from "@/components/qcap-custom-chart";
+import { resolveChartConfig } from "@/lib/chart-resolver";
 
 type AssetViewerPageProps = {
   params: Promise<{
@@ -584,8 +585,8 @@ export default async function AssetViewerPage({
   return (
     <div className="min-h-screen space-y-6 p-6">
       <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-        <div className="flex flex-col gap-6 desktop:flex-row desktop:items-start desktop:justify-between">
-          <div className="max-w-4xl">
+        <div className="grid grid-cols-1 gap-6 desktop:grid-cols-12">
+          <div className="desktop:col-span-8">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8B5CF6] dark:text-[#C084FC]">
               Portfolio / Assets
             </p>
@@ -606,27 +607,36 @@ export default async function AssetViewerPage({
               the intelligence shell continues to be built out.
             </p>
 
-            <div className="mt-4 flex flex-wrap gap-2">
+                        <div className="mt-4 flex flex-wrap gap-2">
               {categoryTags.map((tag) => (
                 <Badge key={tag}>{formatCategoryLabel(tag)}</Badge>
               ))}
             </div>
+
+            <div className="mt-5 max-w-2xl">
+              <AssetRouteSwitcher currentRoute={asset.route_param} />
+            </div>
           </div>
 
-          <div className="min-w-[280px] rounded-2xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-              Asset Route Param
-            </p>
-            <p className="mt-2 text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-              {token}
-            </p>
-            <div className="mt-4 space-y-2">
-              <InsightRow label="Network" value={asset.network} />
-              <InsightRow label="Asset Symbol" value={asset.token_symbol} />
-              <InsightRow
-                label="Profile Status"
-                value={data?.found ? "Live Header + Position" : "Shell / No Match Yet"}
-              />
+          <div className="desktop:col-span-4">
+            <div className="rounded-2xl border border-[#EEE4FF] bg-[#FCFAFF] p-5 shadow-sm dark:border-[#312047] dark:bg-[#140D20]">
+              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                Asset Route Param
+              </p>
+              <p className="mt-2 text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                {token}
+              </p>
+
+              <div className="mt-4 space-y-1">
+                <InsightRow label="Network" value={asset.network} />
+                <InsightRow label="Asset Symbol" value={asset.token_symbol} />
+                <InsightRow
+                  label="Profile Status"
+                  value={
+                    data?.found ? "Live Header + Position" : "Shell / No Match Yet"
+                  }
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -634,9 +644,9 @@ export default async function AssetViewerPage({
 
       {!data?.found ? (
         <section className="rounded-2xl border border-[#FBE7C6] bg-[#FFF8ED] p-5 text-sm text-[#9A6700] dark:border-[#3A2A14] dark:bg-[#1A140D] dark:text-[#FCD34D]">
-          No live holdings match was found for this asset route yet. The page shell is still
-          available, but header and position values are falling back to safe defaults until
-          matching collector rows exist.
+          No live holdings match was found for this asset route yet. The page shell
+          is still available, but header and position values are falling back to
+          safe defaults until matching collector rows exist.
         </section>
       ) : null}
 
@@ -733,6 +743,12 @@ export default async function AssetViewerPage({
           {!isQcap ? (
             <div className="grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-6">
               <CompactSignalCard
+                label="Signal Bias"
+                value="Neutral"
+                sublabel="Porta interpretation placeholder."
+                emphasis
+              />
+              <CompactSignalCard
                 label="RSI"
                 value="—"
                 sublabel="Tracked indicator placeholder."
@@ -746,12 +762,6 @@ export default async function AssetViewerPage({
                 label="MACD"
                 value="—"
                 sublabel="Tracked indicator placeholder."
-              />
-              <CompactSignalCard
-                label="Signal Bias"
-                value="Neutral"
-                sublabel="Porta interpretation placeholder."
-                emphasis
               />
               <CompactSignalCard
                 label="1H Volume"
