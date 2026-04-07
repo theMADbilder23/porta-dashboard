@@ -410,6 +410,36 @@ function buildResponse({ route, rows, walletMetaById }) {
 /* NEW: ROUTE LIST MODE      */
 /* ========================= */
 
+function reduceRouteRowsToLatestPerWallet(rows) {
+  const latestByWalletAndRoute = new Map();
+
+  for (const row of rows) {
+    const network = normalizeText(row.network || "unknown");
+    const tokenSymbol = normalizeText(row.token_symbol).toUpperCase();
+    const walletId = row.wallet_id || "unknown";
+
+    if (!network || !tokenSymbol) continue;
+
+    const routeParam = `${network}:${tokenSymbol}`;
+    const key = `${walletId}::${normalizeLower(routeParam)}`;
+
+    const rowTs = new Date(row.snapshot_time || 0).getTime();
+    const existing = latestByWalletAndRoute.get(key);
+
+    if (!existing) {
+      latestByWalletAndRoute.set(key, row);
+      continue;
+    }
+
+    const existingTs = new Date(existing.snapshot_time || 0).getTime();
+    if (rowTs > existingTs) {
+      latestByWalletAndRoute.set(key, row);
+    }
+  }
+
+  return Array.from(latestByWalletAndRoute.values());
+}
+
 function buildRouteList(rows) {
   const byRoute = new Map();
 
@@ -467,6 +497,7 @@ async function fetchRouteModeRows() {
     .from("wallet_holdings")
     .select(
       `
+      wallet_id,
       token_symbol,
       token_name,
       network,
@@ -495,7 +526,8 @@ module.exports = async function handler(req, res) {
   try {
     if (req.query.mode === "routes") {
       const rows = await fetchRouteModeRows();
-      const routes = buildRouteList(rows);
+      const latestRouteRows = reduceRouteRowsToLatestPerWallet(rows);
+      const routes = buildRouteList(latestRouteRows);
 
       return res.status(200).json({
         routes,

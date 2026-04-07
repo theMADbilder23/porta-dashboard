@@ -210,12 +210,12 @@ function CompactSignalCard({
   emphasis?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-4 shadow-sm dark:border-[#2A1D3B] dark:bg-[#140D20]">
+    <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] px-4 py-3 shadow-sm dark:border-[#2A1D3B] dark:bg-[#140D20]">
       <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
         {label}
       </p>
       <p
-        className={`mt-2 text-2xl font-semibold ${
+        className={`mt-1.5 text-xl font-semibold ${
           emphasis
             ? "text-[#6D28D9] dark:text-[#D8B4FE]"
             : "text-[#2D1B45] dark:text-[#F3E8FF]"
@@ -224,7 +224,7 @@ function CompactSignalCard({
         {value}
       </p>
       {sublabel ? (
-        <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+        <p className="mt-1.5 text-sm leading-5 text-[#6B5A86] dark:text-[#BFA9F5]">
           {sublabel}
         </p>
       ) : null}

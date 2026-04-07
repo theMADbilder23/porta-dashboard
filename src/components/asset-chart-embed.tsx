@@ -112,7 +112,7 @@ export default function AssetChartEmbed({
           <iframe
             title="Dexscreener Chart"
             src={dexscreenerUrl}
-            className="h-[520px] w-full border-0"
+            className="h-[560px] laptop:h-[620px] desktop:h-[680px] w-full border-0"
             allowFullScreen
           />
         ) : null}
@@ -121,7 +121,7 @@ export default function AssetChartEmbed({
           <iframe
             title="TradingView Chart"
             src={tradingViewUrl}
-            className="h-[520px] w-full border-0"
+            className="h-[560px] laptop:h-[620px] desktop:h-[680px] w-full border-0"
             allowFullScreen
           />
         ) : null}
@@ -129,7 +129,7 @@ export default function AssetChartEmbed({
         {((selectedSource === "dexscreener" && !dexscreenerUrl) ||
           (selectedSource === "tradingview" && !tradingViewUrl) ||
           chartConfig.preferredSource === "none") && (
-          <div className="flex h-[520px] flex-col justify-center p-6">
+          <div className="flex h-[560px] laptop:h-[620px] desktop:h-[680px] flex-col justify-center p-6">
             <p className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
               Chart unavailable for this asset
             </p>
