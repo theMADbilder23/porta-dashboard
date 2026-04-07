@@ -46,6 +46,16 @@ type CandleRouteResponse = {
   candles: ChartCandle[]
 }
 
+type QcapCustomChartProps = {
+  liveUsdPrice?: number
+}
+
+type MacdResult = {
+  macd: number[]
+  signal: number[]
+  histogram: number[]
+}
+
 const TIMEFRAMES: TimeframeOption[] = [
   { key: "30m", label: "30M", minCandles: 120 },
   { key: "1h", label: "1H", minCandles: 120 },
@@ -84,6 +94,30 @@ function formatDateFromUnix(time: number): string {
   })
 }
 
+function formatUsdCompact(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "—"
+
+  const abs = Math.abs(value)
+
+  if (abs >= 1_000_000_000) {
+    return `$${(value / 1_000_000_000).toFixed(2)}B`
+  }
+
+  if (abs >= 1_000_000) {
+    return `$${(value / 1_000_000).toFixed(2)}M`
+  }
+
+  if (abs >= 1_000) {
+    return `$${(value / 1_000).toFixed(2)}K`
+  }
+
+  if (abs >= 1) {
+    return `$${value.toFixed(2)}`
+  }
+
+  return `$${value.toFixed(4)}`
+}
+
 function sma(values: number[], period: number): number[] {
   if (values.length < period) return []
 
@@ -96,6 +130,39 @@ function sma(values: number[], period: number): number[] {
   }
 
   return out
+}
+
+function ema(values: number[], period: number): number[] {
+  if (!values.length) return []
+
+  const k = 2 / (period + 1)
+  const out: number[] = [values[0]]
+
+  for (let i = 1; i < values.length; i++) {
+    const next = values[i] * k + out[i - 1] * (1 - k)
+    out.push(next)
+  }
+
+  return out
+}
+
+function calculateMACD(closes: number[]): MacdResult {
+  if (!closes.length) {
+    return {
+      macd: [],
+      signal: [],
+      histogram: [],
+    }
+  }
+
+  const ema12 = ema(closes, 12)
+  const ema26 = ema(closes, 26)
+
+  const macd = ema12.map((value, index) => value - ema26[index])
+  const signal = ema(macd, 9)
+  const histogram = macd.map((value, index) => value - signal[index])
+
+  return { macd, signal, histogram }
 }
 
 function calculateStochRSI(
@@ -151,7 +218,7 @@ function toCandlestickData(data: ChartCandle[]): CandlestickData<UTCTimestamp>[]
   }))
 }
 
-function toVolumeData(data: ChartCandle[]): HistogramData<Time>[] {
+function toVolumeData(data: ChartCandle[]): HistogramData<UTCTimestamp>[] {
   return data.map((candle) => ({
     time: candle.time as UTCTimestamp,
     value: candle.volume,
@@ -191,6 +258,41 @@ function toStochLineData(
       }
     })
     .filter((point): point is LineData<UTCTimestamp> => point !== null)
+}
+
+function toMacdLineData(
+  data: ChartCandle[],
+  values: number[]
+): LineData<UTCTimestamp>[] {
+  return values
+    .map((value, index) => {
+      const candle = data[index]
+      if (!candle || !Number.isFinite(value)) return null
+
+      return {
+        time: candle.time as UTCTimestamp,
+        value,
+      }
+    })
+    .filter((point): point is LineData<UTCTimestamp> => point !== null)
+}
+
+function toMacdHistogramData(
+  data: ChartCandle[],
+  values: number[]
+): HistogramData<UTCTimestamp>[] {
+  return values
+    .map((value, index) => {
+      const candle = data[index]
+      if (!candle || !Number.isFinite(value)) return null
+
+      return {
+        time: candle.time as UTCTimestamp,
+        value,
+        color: value >= 0 ? "#67e8f9" : "#fca5a5",
+      }
+    })
+    .filter((point): point is HistogramData<UTCTimestamp> => point !== null)
 }
 
 function getRsiState(value: number | null): BiasState {
@@ -310,7 +412,25 @@ function sumRecentVolume(data: ChartCandle[], count: number): number | null {
   return slice.reduce((sum, candle) => sum + candle.volume, 0)
 }
 
-export default function QcapCustomChart() {
+function deriveUsdPerQu(
+  liveUsdPrice: number | undefined,
+  latestCandle: ChartCandle | null
+): number | null {
+  if (!liveUsdPrice || !latestCandle || !latestCandle.close) return null
+  return liveUsdPrice / latestCandle.close
+}
+
+function convertQuValueToUsd(
+  quValue: number,
+  usdPerQu: number | null
+): number | null {
+  if (usdPerQu === null) return null
+  return quValue * usdPerQu
+}
+
+export default function QcapCustomChart({
+  liveUsdPrice,
+}: QcapCustomChartProps) {
   const [data, setData] = useState<ChartCandle[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -320,15 +440,18 @@ export default function QcapCustomChart() {
 
   const priceContainerRef = useRef<HTMLDivElement | null>(null)
   const rsiContainerRef = useRef<HTMLDivElement | null>(null)
+  const macdContainerRef = useRef<HTMLDivElement | null>(null)
   const stochContainerRef = useRef<HTMLDivElement | null>(null)
   const timeframeMenuRef = useRef<HTMLDivElement | null>(null)
 
   const priceChartRef = useRef<IChartApi | null>(null)
   const rsiChartRef = useRef<IChartApi | null>(null)
+  const macdChartRef = useRef<IChartApi | null>(null)
   const stochChartRef = useRef<IChartApi | null>(null)
 
   const syncingFromPriceRef = useRef(false)
   const syncingFromRsiRef = useRef(false)
+  const syncingFromMacdRef = useRef(false)
   const syncingFromStochRef = useRef(false)
 
   const supportedTimeframes = useMemo(() => ["8h", "1d"], [])
@@ -426,6 +549,11 @@ export default function QcapCustomChart() {
 
   const tooltipCandle = hoveredCandle ?? latestCandle
 
+  const usdPerQu = useMemo(
+    () => deriveUsdPerQu(liveUsdPrice, latestCandle),
+    [liveUsdPrice, latestCandle]
+  )
+
   const rsiLineData = useMemo(() => {
     if (!hasEnoughHistoryForIndicators || !data.length) return []
     return toRsiLineData(data, RSI_PERIOD)
@@ -447,6 +575,35 @@ export default function QcapCustomChart() {
       dLineData: toStochLineData(data, d, dOffset),
     }
   }, [data, hasEnoughHistoryForIndicators])
+
+  const macdData = useMemo(() => {
+    if (!data.length) {
+      return {
+        macdLineData: [] as LineData<UTCTimestamp>[],
+        signalLineData: [] as LineData<UTCTimestamp>[],
+        histogramData: [] as HistogramData<UTCTimestamp>[],
+        latestMacd: null as number | null,
+        latestSignal: null as number | null,
+        latestHistogram: null as number | null,
+      }
+    }
+
+    const closes = data.map((candle) => candle.close)
+    const { macd, signal, histogram } = calculateMACD(closes)
+
+    const macdLineData = toMacdLineData(data, macd)
+    const signalLineData = toMacdLineData(data, signal)
+    const histogramData = toMacdHistogramData(data, histogram)
+
+    return {
+      macdLineData,
+      signalLineData,
+      histogramData,
+      latestMacd: macd.length ? macd[macd.length - 1] : null,
+      latestSignal: signal.length ? signal[signal.length - 1] : null,
+      latestHistogram: histogram.length ? histogram[histogram.length - 1] : null,
+    }
+  }, [data])
 
   const latestRsi = useMemo(() => {
     if (!rsiLineData.length) return null
@@ -492,6 +649,36 @@ export default function QcapCustomChart() {
 
     return match?.value ?? null
   }, [tooltipCandle, stochData])
+
+  const tooltipMacd = useMemo(() => {
+    if (!tooltipCandle || !macdData.macdLineData.length) return null
+
+    const match = macdData.macdLineData.find(
+      (point) => Number(point.time) === tooltipCandle.time
+    )
+
+    return match?.value ?? null
+  }, [tooltipCandle, macdData])
+
+  const tooltipMacdSignal = useMemo(() => {
+    if (!tooltipCandle || !macdData.signalLineData.length) return null
+
+    const match = macdData.signalLineData.find(
+      (point) => Number(point.time) === tooltipCandle.time
+    )
+
+    return match?.value ?? null
+  }, [tooltipCandle, macdData])
+
+  const tooltipMacdHistogram = useMemo(() => {
+    if (!tooltipCandle || !macdData.histogramData.length) return null
+
+    const match = macdData.histogramData.find(
+      (point) => Number(point.time) === tooltipCandle.time
+    )
+
+    return match?.value ?? null
+  }, [tooltipCandle, macdData])
 
   const rsiState = useMemo(() => getRsiState(latestRsi), [latestRsi])
 
@@ -557,10 +744,27 @@ export default function QcapCustomChart() {
     return null
   }, [data, timeframe])
 
+  const oneHourVolumeUsd = useMemo(
+    () =>
+      oneHourVolume !== null
+        ? convertQuValueToUsd(oneHourVolume, usdPerQu)
+        : null,
+    [oneHourVolume, usdPerQu]
+  )
+
+  const twentyFourHourVolumeUsd = useMemo(
+    () =>
+      twentyFourHourVolume !== null
+        ? convertQuValueToUsd(twentyFourHourVolume, usdPerQu)
+        : null,
+    [twentyFourHourVolume, usdPerQu]
+  )
+
   useEffect(() => {
     if (
       !priceContainerRef.current ||
       !rsiContainerRef.current ||
+      !macdContainerRef.current ||
       !stochContainerRef.current ||
       !data.length
     ) {
@@ -569,10 +773,12 @@ export default function QcapCustomChart() {
 
     priceChartRef.current?.remove()
     rsiChartRef.current?.remove()
+    macdChartRef.current?.remove()
     stochChartRef.current?.remove()
 
     const priceContainer = priceContainerRef.current
     const rsiContainer = rsiContainerRef.current
+    const macdContainer = macdContainerRef.current
     const stochContainer = stochContainerRef.current
 
     const commonLayout = {
@@ -623,7 +829,8 @@ export default function QcapCustomChart() {
       height: INDICATOR_CHART_HEIGHT,
       ...commonLayout,
       rightPriceScale: {
-        visible: false,
+        visible: true,
+        borderColor: "rgba(148, 163, 184, 0.12)",
       },
       timeScale: {
         borderColor: "rgba(148, 163, 184, 0.12)",
@@ -637,12 +844,33 @@ export default function QcapCustomChart() {
       },
     })
 
+    const macdChart = createChart(macdContainer, {
+      width: macdContainer.clientWidth,
+      height: INDICATOR_CHART_HEIGHT,
+      ...commonLayout,
+      rightPriceScale: {
+        visible: true,
+        borderColor: "rgba(148, 163, 184, 0.12)",
+      },
+      timeScale: {
+        borderColor: "rgba(148, 163, 184, 0.12)",
+        timeVisible: true,
+        secondsVisible: false,
+        visible: false,
+      },
+      localization: {
+        priceFormatter: (price: number) =>
+          price.toLocaleString("en-US", { maximumFractionDigits: 6 }),
+      },
+    })
+
     const stochChart = createChart(stochContainer, {
       width: stochContainer.clientWidth,
       height: INDICATOR_CHART_HEIGHT,
       ...commonLayout,
       rightPriceScale: {
-        visible: false,
+        visible: true,
+        borderColor: "rgba(148, 163, 184, 0.12)",
       },
       timeScale: {
         borderColor: "rgba(148, 163, 184, 0.12)",
@@ -688,6 +916,25 @@ export default function QcapCustomChart() {
       lastValueVisible: false,
     })
 
+    const macdHistogramSeries = macdChart.addSeries(HistogramSeries, {
+      priceLineVisible: false,
+      lastValueVisible: false,
+    })
+
+    const macdLineSeries = macdChart.addSeries(LineSeries, {
+      color: "#60a5fa",
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    })
+
+    const macdSignalSeries = macdChart.addSeries(LineSeries, {
+      color: "#f97316",
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    })
+
     const stochKSeries = stochChart.addSeries(LineSeries, {
       color: "#22c55e",
       lineWidth: 2,
@@ -705,6 +952,9 @@ export default function QcapCustomChart() {
     candleSeries.setData(toCandlestickData(data))
     volumeSeries.setData(toVolumeData(data))
     rsiSeries.setData(rsiLineData)
+    macdHistogramSeries.setData(macdData.histogramData)
+    macdLineSeries.setData(macdData.macdLineData)
+    macdSignalSeries.setData(macdData.signalLineData)
     stochKSeries.setData(stochData.kLineData)
     stochDSeries.setData(stochData.dLineData)
 
@@ -718,38 +968,54 @@ export default function QcapCustomChart() {
         color,
         lineWidth: 1,
         lineStyle: 2,
-        axisLabelVisible: false,
+        axisLabelVisible: true,
         title: "",
       })
     })
 
     ;[
-      { price: 80, color: "#ef4444" },
-      { price: 50, color: "#94a3b8" },
-      { price: 20, color: "#22c55e" },
-    ].forEach(({ price, color }) => {
-      stochKSeries.createPriceLine({
+      { series: stochKSeries, price: 80, color: "#ef4444" },
+      { series: stochKSeries, price: 50, color: "#94a3b8" },
+      { series: stochKSeries, price: 20, color: "#22c55e" },
+    ].forEach(({ series, price, color }) => {
+      series.createPriceLine({
         price,
         color,
         lineWidth: 1,
         lineStyle: 2,
-        axisLabelVisible: false,
+        axisLabelVisible: true,
         title: "",
       })
     })
 
+    macdLineSeries.createPriceLine({
+      price: 0,
+      color: "#94a3b8",
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: "",
+    })
+
     priceChart.timeScale().fitContent()
     rsiChart.timeScale().fitContent()
+    macdChart.timeScale().fitContent()
     stochChart.timeScale().fitContent()
 
     priceChart.timeScale().subscribeVisibleLogicalRangeChange(
       (range: LogicalRange | null) => {
-        if (!range || syncingFromRsiRef.current || syncingFromStochRef.current) {
+        if (
+          !range ||
+          syncingFromRsiRef.current ||
+          syncingFromMacdRef.current ||
+          syncingFromStochRef.current
+        ) {
           return
         }
 
         syncingFromPriceRef.current = true
         rsiChartRef.current?.timeScale().setVisibleLogicalRange(range)
+        macdChartRef.current?.timeScale().setVisibleLogicalRange(range)
         stochChartRef.current?.timeScale().setVisibleLogicalRange(range)
         syncingFromPriceRef.current = false
       }
@@ -757,26 +1023,57 @@ export default function QcapCustomChart() {
 
     rsiChart.timeScale().subscribeVisibleLogicalRangeChange(
       (range: LogicalRange | null) => {
-        if (!range || syncingFromPriceRef.current || syncingFromStochRef.current) {
+        if (
+          !range ||
+          syncingFromPriceRef.current ||
+          syncingFromMacdRef.current ||
+          syncingFromStochRef.current
+        ) {
           return
         }
 
         syncingFromRsiRef.current = true
         priceChartRef.current?.timeScale().setVisibleLogicalRange(range)
+        macdChartRef.current?.timeScale().setVisibleLogicalRange(range)
         stochChartRef.current?.timeScale().setVisibleLogicalRange(range)
         syncingFromRsiRef.current = false
       }
     )
 
+    macdChart.timeScale().subscribeVisibleLogicalRangeChange(
+      (range: LogicalRange | null) => {
+        if (
+          !range ||
+          syncingFromPriceRef.current ||
+          syncingFromRsiRef.current ||
+          syncingFromStochRef.current
+        ) {
+          return
+        }
+
+        syncingFromMacdRef.current = true
+        priceChartRef.current?.timeScale().setVisibleLogicalRange(range)
+        rsiChartRef.current?.timeScale().setVisibleLogicalRange(range)
+        stochChartRef.current?.timeScale().setVisibleLogicalRange(range)
+        syncingFromMacdRef.current = false
+      }
+    )
+
     stochChart.timeScale().subscribeVisibleLogicalRangeChange(
       (range: LogicalRange | null) => {
-        if (!range || syncingFromPriceRef.current || syncingFromRsiRef.current) {
+        if (
+          !range ||
+          syncingFromPriceRef.current ||
+          syncingFromRsiRef.current ||
+          syncingFromMacdRef.current
+        ) {
           return
         }
 
         syncingFromStochRef.current = true
         priceChartRef.current?.timeScale().setVisibleLogicalRange(range)
         rsiChartRef.current?.timeScale().setVisibleLogicalRange(range)
+        macdChartRef.current?.timeScale().setVisibleLogicalRange(range)
         syncingFromStochRef.current = false
       }
     )
@@ -794,10 +1091,12 @@ export default function QcapCustomChart() {
 
     priceChart.subscribeCrosshairMove(handleCrosshairMove)
     rsiChart.subscribeCrosshairMove(handleCrosshairMove)
+    macdChart.subscribeCrosshairMove(handleCrosshairMove)
     stochChart.subscribeCrosshairMove(handleCrosshairMove)
 
     priceChartRef.current = priceChart
     rsiChartRef.current = rsiChart
+    macdChartRef.current = macdChart
     stochChartRef.current = stochChart
 
     const resizeObserver = new ResizeObserver(() => {
@@ -815,6 +1114,13 @@ export default function QcapCustomChart() {
         })
       }
 
+      if (macdContainerRef.current && macdChartRef.current) {
+        macdChartRef.current.applyOptions({
+          width: macdContainerRef.current.clientWidth,
+          height: INDICATOR_CHART_HEIGHT,
+        })
+      }
+
       if (stochContainerRef.current && stochChartRef.current) {
         stochChartRef.current.applyOptions({
           width: stochContainerRef.current.clientWidth,
@@ -825,18 +1131,21 @@ export default function QcapCustomChart() {
 
     resizeObserver.observe(priceContainer)
     resizeObserver.observe(rsiContainer)
+    resizeObserver.observe(macdContainer)
     resizeObserver.observe(stochContainer)
 
     return () => {
       resizeObserver.disconnect()
       priceChartRef.current?.remove()
       rsiChartRef.current?.remove()
+      macdChartRef.current?.remove()
       stochChartRef.current?.remove()
       priceChartRef.current = null
       rsiChartRef.current = null
+      macdChartRef.current = null
       stochChartRef.current = null
     }
-  }, [data, rsiLineData, stochData])
+  }, [data, rsiLineData, macdData, stochData])
 
   if (loading) {
     return (
@@ -911,7 +1220,10 @@ export default function QcapCustomChart() {
           <span>Candles: {data.length}</span>
           <span>Timeframe: {timeframe.toUpperCase()}</span>
           {latestCandle ? (
-            <span>Last Close: {formatQcapPrice(latestCandle.close)}</span>
+            <span>
+              Last Close: {formatQcapPrice(latestCandle.close)} QUs (
+              {formatUsdCompact(convertQuValueToUsd(latestCandle.close, usdPerQu))})
+            </span>
           ) : null}
         </div>
 
@@ -937,39 +1249,73 @@ export default function QcapCustomChart() {
       {tooltipCandle ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[11px] text-slate-400">
           <span>{formatDateFromUnix(tooltipCandle.time)}</span>
-          <span>O: {formatQcapPrice(tooltipCandle.open)}</span>
-          <span>H: {formatQcapPrice(tooltipCandle.high)}</span>
-          <span>L: {formatQcapPrice(tooltipCandle.low)}</span>
-          <span>C: {formatQcapPrice(tooltipCandle.close)}</span>
-          <span>V: {formatVolume(tooltipCandle.volume)}</span>
+          <span>
+            O: {formatQcapPrice(tooltipCandle.open)} QUs (
+            {formatUsdCompact(convertQuValueToUsd(tooltipCandle.open, usdPerQu))})
+          </span>
+          <span>
+            H: {formatQcapPrice(tooltipCandle.high)} QUs (
+            {formatUsdCompact(convertQuValueToUsd(tooltipCandle.high, usdPerQu))})
+          </span>
+          <span>
+            L: {formatQcapPrice(tooltipCandle.low)} QUs (
+            {formatUsdCompact(convertQuValueToUsd(tooltipCandle.low, usdPerQu))})
+          </span>
+          <span>
+            C: {formatQcapPrice(tooltipCandle.close)} QUs (
+            {formatUsdCompact(convertQuValueToUsd(tooltipCandle.close, usdPerQu))})
+          </span>
+          <span>
+            V: {formatVolume(tooltipCandle.volume)} QUs (
+            {formatUsdCompact(convertQuValueToUsd(tooltipCandle.volume, usdPerQu))})
+          </span>
         </div>
       ) : null}
 
       <div className="relative overflow-hidden rounded border border-white/10 bg-black shadow-inner">
-        <div className="pointer-events-none absolute left-3 top-2 z-10 text-[11px] font-medium text-slate-400">
+        <div className="pointer-events-none absolute left-3 top-2 z-10 text-xs font-semibold text-slate-300">
           Price / Volume
         </div>
 
         <div
-          className="pointer-events-none absolute left-3 z-10 text-[11px] font-medium text-slate-400"
+          className="pointer-events-none absolute left-3 z-10 text-xs font-semibold text-slate-300"
           style={{ top: `${PRICE_CHART_HEIGHT + 10}px` }}
         >
           RSI {tooltipRsi?.toFixed(2) ?? latestRsi?.toFixed(2) ?? "—"}
         </div>
 
         <div
-          className="pointer-events-none absolute left-3 z-10 text-[11px] font-medium text-slate-400"
+          className="pointer-events-none absolute left-3 z-10 text-xs font-semibold text-slate-300"
           style={{ top: `${PRICE_CHART_HEIGHT + INDICATOR_CHART_HEIGHT + 16}px` }}
         >
-          Stoch{" "}
-          {tooltipStochK?.toFixed(2) ?? latestStochK?.toFixed(2) ?? "—"} /{" "}
+          MACD {tooltipMacd?.toFixed(6) ?? macdData.latestMacd?.toFixed(6) ?? "—"} /{" "}
+          {tooltipMacdSignal?.toFixed(6) ?? macdData.latestSignal?.toFixed(6) ?? "—"}
+        </div>
+
+        <div
+          className="pointer-events-none absolute left-3 z-10 text-xs font-semibold text-slate-300"
+          style={{
+            top: `${PRICE_CHART_HEIGHT + INDICATOR_CHART_HEIGHT * 2 + 22}px`,
+          }}
+        >
+          Stoch {tooltipStochK?.toFixed(2) ?? latestStochK?.toFixed(2) ?? "—"} /{" "}
           {tooltipStochD?.toFixed(2) ?? latestStochD?.toFixed(2) ?? "—"}
         </div>
 
-        <div ref={priceContainerRef} className="w-full" style={{ height: `${PRICE_CHART_HEIGHT}px` }} />
+        <div
+          ref={priceContainerRef}
+          className="w-full"
+          style={{ height: `${PRICE_CHART_HEIGHT}px` }}
+        />
         <div className="border-t border-white/10" />
         <div
           ref={rsiContainerRef}
+          className="w-full"
+          style={{ height: `${INDICATOR_CHART_HEIGHT}px` }}
+        />
+        <div className="border-t border-white/10" />
+        <div
+          ref={macdContainerRef}
           className="w-full"
           style={{ height: `${INDICATOR_CHART_HEIGHT}px` }}
         />
@@ -1019,10 +1365,16 @@ export default function QcapCustomChart() {
             MACD
           </p>
           <p className="mt-2 text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-            —
+            {macdData.latestMacd !== null ? macdData.latestMacd.toFixed(6) : "—"}
+          </p>
+          <p className="mt-2 text-sm font-medium text-[#BFA9F5] dark:text-[#BFA9F5]">
+            {macdData.latestHistogram !== null && macdData.latestHistogram >= 0
+              ? "Bullish Cross Pressure"
+              : "Bearish Cross Pressure"}
           </p>
           <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-            Tracked indicator placeholder.
+            Signal {macdData.latestSignal !== null ? macdData.latestSignal.toFixed(6) : "—"} • Histogram{" "}
+            {macdData.latestHistogram !== null ? macdData.latestHistogram.toFixed(6) : "—"}
           </p>
         </div>
 
@@ -1046,7 +1398,9 @@ export default function QcapCustomChart() {
             {oneHourVolume !== null ? formatVolume(oneHourVolume) : "—"}
           </p>
           <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-            Short-term momentum volume.
+            {oneHourVolumeUsd !== null
+              ? `Short-term momentum volume. (${formatUsdCompact(oneHourVolumeUsd)})`
+              : "Short-term momentum volume."}
           </p>
         </div>
 
@@ -1058,7 +1412,9 @@ export default function QcapCustomChart() {
             {twentyFourHourVolume !== null ? formatVolume(twentyFourHourVolume) : "—"}
           </p>
           <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-            Rolling 24H activity volume.
+            {twentyFourHourVolumeUsd !== null
+              ? `Rolling 24H activity volume. (${formatUsdCompact(twentyFourHourVolumeUsd)})`
+              : "Rolling 24H activity volume."}
           </p>
         </div>
       </div>

@@ -579,6 +579,8 @@ export default async function AssetViewerPage({
     assetId: asset.asset_id,
   });
 
+  const isQcap = asset.token_symbol.toUpperCase() === "QCAP";
+
   return (
     <div className="min-h-screen space-y-6 p-6">
       <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
@@ -722,47 +724,47 @@ export default async function AssetViewerPage({
         description="Primary chart zone for TradingView or Dexscreener-style intelligence. This section is now treated as the dominant page focus so the asset viewer feels more like a trading intelligence terminal than a summary dashboard."
       >
         <div className="space-y-5">
-          {asset.token_symbol.toUpperCase() === "QCAP" ? (
-            <QcapCustomChart />
+          {isQcap ? (
+            <QcapCustomChart liveUsdPrice={market.price_per_unit_usd} />
           ) : (
             <AssetChartEmbed chartConfig={chartConfig} defaultTimeframe="4H" />
           )}
 
-      {asset.token_symbol.toUpperCase() !== "QCAP" ? (
-        <div className="grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-6">
-          <CompactSignalCard
-            label="RSI"
-            value="—"
-            sublabel="Tracked indicator placeholder."
-          />
-          <CompactSignalCard
-            label="Stoch RSI"
-            value="—"
-            sublabel="Tracked indicator placeholder."
-          />
-          <CompactSignalCard
-            label="MACD"
-            value="—"
-            sublabel="Tracked indicator placeholder."
-          />
-          <CompactSignalCard
-            label="Signal Bias"
-            value="Neutral"
-            sublabel="Porta interpretation placeholder."
-            emphasis
-          />
-          <CompactSignalCard
-            label="1H Volume"
-            value="—"
-            sublabel="Short-term momentum placeholder."
-          />
-          <CompactSignalCard
-            label="24H Volume"
-            value="—"
-            sublabel="Daily activity placeholder."
-          />
-          </div>
-        ) : null}
+          {!isQcap ? (
+            <div className="grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-6">
+              <CompactSignalCard
+                label="RSI"
+                value="—"
+                sublabel="Tracked indicator placeholder."
+              />
+              <CompactSignalCard
+                label="Stoch RSI"
+                value="—"
+                sublabel="Tracked indicator placeholder."
+              />
+              <CompactSignalCard
+                label="MACD"
+                value="—"
+                sublabel="Tracked indicator placeholder."
+              />
+              <CompactSignalCard
+                label="Signal Bias"
+                value="Neutral"
+                sublabel="Porta interpretation placeholder."
+                emphasis
+              />
+              <CompactSignalCard
+                label="1H Volume"
+                value="—"
+                sublabel="Short-term momentum placeholder."
+              />
+              <CompactSignalCard
+                label="24H Volume"
+                value="—"
+                sublabel="Daily activity placeholder."
+              />
+            </div>
+          ) : null}
         </div>
       </SectionCard>
 
