@@ -101,6 +101,7 @@ function calculateStochRSI(
   smoothD: number = STOCH_SMOOTH_D
 ) {
   const rsiValues = calculateRSI(closes, rsiPeriod)
+
   if (rsiValues.length < stochPeriod) {
     return {
       k: [] as number[],
@@ -153,7 +154,10 @@ function toVolumeData(data: ChartCandle[]): HistogramData<Time>[] {
   }))
 }
 
-function toRsiLineData(data: ChartCandle[], period: number): LineData<UTCTimestamp>[] {
+function toRsiLineData(
+  data: ChartCandle[],
+  period: number
+): LineData<UTCTimestamp>[] {
   const closes = data.map((candle) => candle.close)
   const rsiValues = calculateRSI(closes, period)
 
@@ -184,7 +188,7 @@ function toStochLineData(
     .filter((point): point is LineData<UTCTimestamp> => point !== null)
 }
 
-function getRsiState(value: number | null) {
+function getRsiState(value: number | null): BiasState {
   if (value === null) {
     return {
       label: "Unavailable",
@@ -216,7 +220,7 @@ function getRsiState(value: number | null) {
   }
 }
 
-function getStochState(k: number | null, d: number | null) {
+function getStochState(k: number | null, d: number | null): BiasState {
   if (k === null || d === null) {
     return {
       label: "Unavailable",
@@ -319,7 +323,10 @@ export default function QcapCustomChart() {
   const supportedTimeframes = useMemo(() => ["8h", "1d"], [])
 
   useEffect(() => {
-    const safeTimeframe = getDefaultSupportedTimeframe(timeframe, supportedTimeframes)
+    const safeTimeframe = getDefaultSupportedTimeframe(
+      timeframe,
+      supportedTimeframes
+    )
     if (safeTimeframe !== timeframe) {
       setTimeframe(safeTimeframe)
     }
@@ -667,32 +674,44 @@ export default function QcapCustomChart() {
     rsiChart.timeScale().fitContent()
     stochChart.timeScale().fitContent()
 
-    priceChart.timeScale().subscribeVisibleLogicalRangeChange((range: LogicalRange | null) => {
-      if (!range || syncingFromRsiRef.current || syncingFromStochRef.current) return
+    priceChart.timeScale().subscribeVisibleLogicalRangeChange(
+      (range: LogicalRange | null) => {
+        if (!range || syncingFromRsiRef.current || syncingFromStochRef.current) {
+          return
+        }
 
-      syncingFromPriceRef.current = true
-      rsiChartRef.current?.timeScale().setVisibleLogicalRange(range)
-      stochChartRef.current?.timeScale().setVisibleLogicalRange(range)
-      syncingFromPriceRef.current = false
-    })
+        syncingFromPriceRef.current = true
+        rsiChartRef.current?.timeScale().setVisibleLogicalRange(range)
+        stochChartRef.current?.timeScale().setVisibleLogicalRange(range)
+        syncingFromPriceRef.current = false
+      }
+    )
 
-    rsiChart.timeScale().subscribeVisibleLogicalRangeChange((range: LogicalRange | null) => {
-      if (!range || syncingFromPriceRef.current || syncingFromStochRef.current) return
+    rsiChart.timeScale().subscribeVisibleLogicalRangeChange(
+      (range: LogicalRange | null) => {
+        if (!range || syncingFromPriceRef.current || syncingFromStochRef.current) {
+          return
+        }
 
-      syncingFromRsiRef.current = true
-      priceChartRef.current?.timeScale().setVisibleLogicalRange(range)
-      stochChartRef.current?.timeScale().setVisibleLogicalRange(range)
-      syncingFromRsiRef.current = false
-    })
+        syncingFromRsiRef.current = true
+        priceChartRef.current?.timeScale().setVisibleLogicalRange(range)
+        stochChartRef.current?.timeScale().setVisibleLogicalRange(range)
+        syncingFromRsiRef.current = false
+      }
+    )
 
-    stochChart.timeScale().subscribeVisibleLogicalRangeChange((range: LogicalRange | null) => {
-      if (!range || syncingFromPriceRef.current || syncingFromRsiRef.current) return
+    stochChart.timeScale().subscribeVisibleLogicalRangeChange(
+      (range: LogicalRange | null) => {
+        if (!range || syncingFromPriceRef.current || syncingFromRsiRef.current) {
+          return
+        }
 
-      syncingFromStochRef.current = true
-      priceChartRef.current?.timeScale().setVisibleLogicalRange(range)
-      rsiChartRef.current?.timeScale().setVisibleLogicalRange(range)
-      syncingFromStochRef.current = false
-    })
+        syncingFromStochRef.current = true
+        priceChartRef.current?.timeScale().setVisibleLogicalRange(range)
+        rsiChartRef.current?.timeScale().setVisibleLogicalRange(range)
+        syncingFromStochRef.current = false
+      }
+    )
 
     const handleCrosshairMove = (param: { time?: Time }) => {
       if (!param.time) {
@@ -780,7 +799,10 @@ export default function QcapCustomChart() {
           onClick={() => setShowTimeframeMenu((prev) => !prev)}
           className="rounded-md border border-border/60 bg-background px-3 py-1 text-xs font-semibold text-muted-foreground transition hover:border-violet-400/40 hover:text-violet-300"
         >
-          Timeframe: {TIMEFRAMES.find((option) => option.key === timeframe)?.label ?? timeframe.toUpperCase()} ▾
+          Timeframe:{" "}
+          {TIMEFRAMES.find((option) => option.key === timeframe)?.label ??
+            timeframe.toUpperCase()}{" "}
+          ▾
         </button>
 
         {showTimeframeMenu ? (
@@ -803,8 +825,8 @@ export default function QcapCustomChart() {
                     isActive
                       ? "bg-violet-500/15 text-violet-300"
                       : isSupported
-                      ? "text-slate-300 hover:bg-white/5"
-                      : "cursor-not-allowed text-slate-500"
+                        ? "text-slate-300 hover:bg-white/5"
+                        : "cursor-not-allowed text-slate-500"
                   }`}
                 >
                   <span>{option.label}</span>
@@ -820,7 +842,9 @@ export default function QcapCustomChart() {
         <div className="flex flex-wrap items-center gap-3">
           <span>Candles: {data.length}</span>
           <span>Timeframe: {timeframe.toUpperCase()}</span>
-          {latestCandle ? <span>Last Close: {formatQcapPrice(latestCandle.close)}</span> : null}
+          {latestCandle ? (
+            <span>Last Close: {formatQcapPrice(latestCandle.close)}</span>
+          ) : null}
         </div>
 
         <div>
@@ -828,7 +852,9 @@ export default function QcapCustomChart() {
             <span className="text-emerald-500">Indicator history threshold passed</span>
           ) : (
             <span className="text-amber-500">
-              Limited history — chart is valid, but custom indicators should stay disabled until at least {MIN_CANDLES_FOR_INDICATORS} candles are available
+              Limited history — chart is valid, but custom indicators should stay
+              disabled until at least {MIN_CANDLES_FOR_INDICATORS} candles are
+              available
             </span>
           )}
         </div>
@@ -836,7 +862,8 @@ export default function QcapCustomChart() {
 
       {!supportedTimeframes.includes(timeframe) ? (
         <div className="rounded border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
-          This timeframe does not yet have enough reliable QCAP candle coverage. Use 8H or 1D for now.
+          This timeframe does not yet have enough reliable QCAP candle coverage. Use
+          8H or 1D for now.
         </div>
       ) : null}
 
@@ -862,49 +889,85 @@ export default function QcapCustomChart() {
         <div ref={stochContainerRef} className="h-[110px] w-full" />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <div className="rounded-2xl border border-border/60 bg-background p-4">
-          <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+      <div className="grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-6">
+        <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-4 shadow-sm dark:border-[#2A1D3B] dark:bg-[#140D20]">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
             RSI
-          </div>
-          <div className={`text-2xl font-semibold ${rsiState.valueClassName}`}>
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
             {latestRsi !== null ? latestRsi.toFixed(2) : "—"}
-          </div>
-          <div className="mt-2 text-base font-semibold text-slate-200">{rsiState.label}</div>
-          <div className="mt-3 text-sm text-muted-foreground">{rsiState.note}</div>
+          </p>
+          <p className="mt-2 text-sm font-medium text-[#BFA9F5] dark:text-[#BFA9F5]">
+            {rsiState.label}
+          </p>
+          <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+            {rsiState.note}
+          </p>
         </div>
 
-        <div className="rounded-2xl border border-border/60 bg-background p-4">
-          <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+        <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-4 shadow-sm dark:border-[#2A1D3B] dark:bg-[#140D20]">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
             Stoch RSI
-          </div>
-          <div className={`text-2xl font-semibold ${stochState.valueClassName}`}>
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
             {latestStochK !== null && latestStochD !== null
               ? `${latestStochK.toFixed(2)} / ${latestStochD.toFixed(2)}`
               : "—"}
-          </div>
-          <div className="mt-2 text-base font-semibold text-slate-200">{stochState.label}</div>
-          <div className="mt-3 text-sm text-muted-foreground">{stochState.note}</div>
+          </p>
+          <p className="mt-2 text-sm font-medium text-[#BFA9F5] dark:text-[#BFA9F5]">
+            {stochState.label}
+          </p>
+          <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+            {stochState.note}
+          </p>
         </div>
 
-        <div className="rounded-2xl border border-border/60 bg-background p-4">
-          <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+        <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-4 shadow-sm dark:border-[#2A1D3B] dark:bg-[#140D20]">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
             MACD
-          </div>
-          <div className="text-2xl font-semibold text-slate-300">—</div>
-          <div className="mt-3 text-sm text-muted-foreground">
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+            —
+          </p>
+          <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
             Tracked indicator placeholder.
-          </div>
+          </p>
         </div>
 
-        <div className="rounded-2xl border border-border/60 bg-background p-4">
-          <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-500">
+        <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-4 shadow-sm dark:border-[#2A1D3B] dark:bg-[#140D20]">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
             Signal Bias
-          </div>
-          <div className={`text-2xl font-semibold ${signalBias.valueClassName}`}>
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-[#6D28D9] dark:text-[#D8B4FE]">
             {signalBias.label}
-          </div>
-          <div className="mt-3 text-sm text-muted-foreground">{signalBias.note}</div>
+          </p>
+          <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+            {signalBias.note}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-4 shadow-sm dark:border-[#2A1D3B] dark:bg-[#140D20]">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+            1H Volume
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+            —
+          </p>
+          <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+            Short-term momentum placeholder.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-4 shadow-sm dark:border-[#2A1D3B] dark:bg-[#140D20]">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+            24H Volume
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+            —
+          </p>
+          <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+            Daily activity placeholder.
+          </p>
         </div>
       </div>
     </div>

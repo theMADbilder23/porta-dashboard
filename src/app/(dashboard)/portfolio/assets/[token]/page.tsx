@@ -728,39 +728,41 @@ export default async function AssetViewerPage({
             <AssetChartEmbed chartConfig={chartConfig} defaultTimeframe="4H" />
           )}
 
-          <div className="grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-6">
-            <CompactSignalCard
-              label="RSI"
-              value="—"
-              sublabel="Tracked indicator placeholder."
-            />
-            <CompactSignalCard
-              label="Stoch RSI"
-              value="—"
-              sublabel="Tracked indicator placeholder."
-            />
-            <CompactSignalCard
-              label="MACD"
-              value="—"
-              sublabel="Tracked indicator placeholder."
-            />
-            <CompactSignalCard
-              label="Signal Bias"
-              value="Neutral"
-              sublabel="Porta interpretation placeholder."
-              emphasis
-            />
-            <CompactSignalCard
-              label="1H Volume"
-              value="—"
-              sublabel="Short-term momentum placeholder."
-            />
-            <CompactSignalCard
-              label="24H Volume"
-              value="—"
-              sublabel="Daily activity placeholder."
-            />
+      {asset.token_symbol.toUpperCase() !== "QCAP" ? (
+        <div className="grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-6">
+          <CompactSignalCard
+            label="RSI"
+            value="—"
+            sublabel="Tracked indicator placeholder."
+          />
+          <CompactSignalCard
+            label="Stoch RSI"
+            value="—"
+            sublabel="Tracked indicator placeholder."
+          />
+          <CompactSignalCard
+            label="MACD"
+            value="—"
+            sublabel="Tracked indicator placeholder."
+          />
+          <CompactSignalCard
+            label="Signal Bias"
+            value="Neutral"
+            sublabel="Porta interpretation placeholder."
+            emphasis
+          />
+          <CompactSignalCard
+            label="1H Volume"
+            value="—"
+            sublabel="Short-term momentum placeholder."
+          />
+          <CompactSignalCard
+            label="24H Volume"
+            value="—"
+            sublabel="Daily activity placeholder."
+          />
           </div>
+        ) : null}
         </div>
       </SectionCard>
 
