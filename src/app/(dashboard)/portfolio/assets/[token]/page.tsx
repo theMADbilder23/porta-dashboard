@@ -1,6 +1,8 @@
 import { headers } from "next/headers";
 import AssetChartEmbed from "@/components/asset-chart-embed";
-import AssetRouteSwitcher from "@/components/asset-route-switcher";
+import AssetRouteSwitcher, {
+  type AssetRouteOption,
+} from "@/components/asset-route-switcher";
 import QcapCustomChart from "@/components/qcap-custom-chart";
 import { resolveChartConfig } from "@/lib/chart-resolver";
 
@@ -70,6 +72,12 @@ type AssetViewerResponse = {
     resolver?: string;
   };
   error?: string;
+};
+
+type AssetRoutesResponse = {
+  routes?: AssetRouteOption[];
+  count?: number;
+  resolver?: string;
 };
 
 function decodeToken(value: string) {
@@ -471,6 +479,33 @@ async function fetchAssetViewerData(
   }
 }
 
+async function fetchAssetRoutes(): Promise<AssetRouteOption[]> {
+  const headerStore = await headers();
+  const host = headerStore.get("host");
+
+  if (!host) {
+    return [];
+  }
+
+  const protocol = host.includes("localhost") ? "http" : "https";
+  const baseUrl = `${protocol}://${host}`;
+
+  try {
+    const response = await fetch(`${baseUrl}/api/asset-routes`, {
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload = (await response.json()) as AssetRoutesResponse;
+    return Array.isArray(payload.routes) ? payload.routes : [];
+  } catch {
+    return [];
+  }
+}
+
 export default async function AssetViewerPage({
   params,
 }: AssetViewerPageProps) {
@@ -478,7 +513,10 @@ export default async function AssetViewerPage({
   const token = decodeToken(rawToken);
   const routeAsset = parseAssetRoute(token);
 
-  const data = await fetchAssetViewerData(token);
+  const [data, assetRoutes] = await Promise.all([
+    fetchAssetViewerData(token),
+    fetchAssetRoutes(),
+  ]);
 
   const asset = data?.asset || {
     route_param: token,
@@ -607,14 +645,17 @@ export default async function AssetViewerPage({
               the intelligence shell continues to be built out.
             </p>
 
-                        <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
               {categoryTags.map((tag) => (
                 <Badge key={tag}>{formatCategoryLabel(tag)}</Badge>
               ))}
             </div>
 
-            <div className="mt-5 max-w-2xl">
-              <AssetRouteSwitcher currentRoute={asset.route_param} />
+            <div className="mt-5 max-w-4xl">
+              <AssetRouteSwitcher
+                currentRoute={asset.route_param}
+                options={assetRoutes}
+              />
             </div>
           </div>
 
