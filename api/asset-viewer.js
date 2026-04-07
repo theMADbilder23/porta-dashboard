@@ -28,7 +28,7 @@ function decodeToken(value) {
 
 function parseAssetRoute(token) {
   const decoded = decodeToken(token);
-  const [network = "unknown", symbol = decoded] = decoded.split(":");
+  const [network = "unknown", symbol = decoded.split(":");
 
   return {
     raw: decoded,
@@ -298,7 +298,10 @@ async function fetchCandidateRows(route) {
     throw broaderError;
   }
 
-  const combined = [...tokenRows, ...(Array.isArray(broaderData) ? broaderData : [])];
+  const combined = [
+    ...tokenRows,
+    ...(Array.isArray(broaderData) ? broaderData : []),
+  ];
 
   const deduped = new Map();
 
@@ -405,12 +408,104 @@ function buildResponse({ route, rows, walletMetaById }) {
   };
 }
 
+/* ========================= */
+/* NEW: ROUTE LIST MODE      */
+/* ========================= */
+
+function buildRouteList(rows) {
+  const byRoute = new Map();
+
+  for (const row of rows) {
+    const network = normalizeText(row.network || "unknown");
+    const tokenSymbol = normalizeText(row.token_symbol).toUpperCase();
+
+    if (!network || !tokenSymbol) continue;
+
+    const routeParam = `${network}:${tokenSymbol}`;
+    const key = normalizeLower(routeParam);
+
+    if (!byRoute.has(key)) {
+      byRoute.set(key, {
+        route_param: routeParam,
+        token_symbol: tokenSymbol,
+        token_name: normalizeText(row.token_name || tokenSymbol),
+        network,
+        price_per_unit_usd: safeNumber(row.price_per_unit_usd),
+        total_value_usd: 0,
+        latest_snapshot_time: row.snapshot_time || null,
+      });
+    }
+
+    const entry = byRoute.get(key);
+    entry.total_value_usd += safeNumber(row.value_usd);
+
+    if (!entry.price_per_unit_usd && safeNumber(row.price_per_unit_usd)) {
+      entry.price_per_unit_usd = safeNumber(row.price_per_unit_usd);
+    }
+
+    const currentTs = new Date(entry.latest_snapshot_time || 0).getTime();
+    const rowTs = new Date(row.snapshot_time || 0).getTime();
+
+    if (rowTs > currentTs) {
+      entry.latest_snapshot_time = row.snapshot_time || null;
+    }
+  }
+
+  return Array.from(byRoute.values())
+    .sort((a, b) => safeNumber(b.total_value_usd) - safeNumber(a.total_value_usd))
+    .slice(0, 200)
+    .map((entry) => ({
+      route_param: entry.route_param,
+      token_symbol: entry.token_symbol,
+      token_name: entry.token_name,
+      network: entry.network,
+      price_per_unit_usd: entry.price_per_unit_usd,
+      total_value_usd: entry.total_value_usd,
+    }));
+}
+
+async function fetchRouteModeRows() {
+  const { data, error } = await supabase
+    .from("wallet_holdings")
+    .select(
+      `
+      token_symbol,
+      token_name,
+      network,
+      value_usd,
+      price_per_unit_usd,
+      snapshot_time
+      `
+    )
+    .order("snapshot_time", { ascending: false })
+    .limit(2500);
+
+  if (error) {
+    throw error;
+  }
+
+  return Array.isArray(data) ? data : [];
+}
+
+/* ========================= */
+
 module.exports = async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
   try {
+    if (req.query.mode === "routes") {
+      const rows = await fetchRouteModeRows();
+      const routes = buildRouteList(rows);
+
+      return res.status(200).json({
+        routes,
+        count: routes.length,
+        resolver: "wallet_holdings_route_builder",
+      });
+    }
+
     const requested =
       req.query.asset || req.query.token || req.query.id || null;
 

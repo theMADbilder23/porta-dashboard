@@ -491,7 +491,7 @@ async function fetchAssetRoutes(): Promise<AssetRouteOption[]> {
   const baseUrl = `${protocol}://${host}`;
 
   try {
-    const response = await fetch(`${baseUrl}/api/asset-routes`, {
+    const response = await fetch(`${baseUrl}/api/asset-viewer?mode=routes`, {
       cache: "no-store",
     });
 
