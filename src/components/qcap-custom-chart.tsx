@@ -292,7 +292,9 @@ function toMacdHistogramData(
         color: value >= 0 ? "#67e8f9" : "#fca5a5",
       }
     })
-    .filter((point): point is HistogramData<UTCTimestamp> => point !== null)
+    .filter(
+      (point): point is HistogramData<UTCTimestamp> => point !== null
+    )
 }
 
 function getRsiState(value: number | null): BiasState {
@@ -664,16 +666,6 @@ export default function QcapCustomChart({
     if (!tooltipCandle || !macdData.signalLineData.length) return null
 
     const match = macdData.signalLineData.find(
-      (point) => Number(point.time) === tooltipCandle.time
-    )
-
-    return match?.value ?? null
-  }, [tooltipCandle, macdData])
-
-  const tooltipMacdHistogram = useMemo(() => {
-    if (!tooltipCandle || !macdData.histogramData.length) return null
-
-    const match = macdData.histogramData.find(
       (point) => Number(point.time) === tooltipCandle.time
     )
 
