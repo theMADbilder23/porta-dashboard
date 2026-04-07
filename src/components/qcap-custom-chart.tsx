@@ -790,11 +790,11 @@ export default function QcapCustomChart({
       crosshair: {
         vertLine: {
           color: "rgba(168, 85, 247, 0.45)",
-          width: 1,
+          width: 1 as const,
         },
         horzLine: {
           color: "rgba(168, 85, 247, 0.45)",
-          width: 1,
+          width: 1 as const,
         },
       },
     }
