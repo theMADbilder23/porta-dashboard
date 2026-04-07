@@ -16,12 +16,12 @@ type RawCandle = {
 };
 
 const TIMEFRAME_MAP: Record<string, CandleRequestConfig> = {
-  "30m": { interval: "30m", days: 14, limit: 700 },
-  "1h": { interval: "1h", days: 30, limit: 720 },
-  "2h": { interval: "2h", days: 60, limit: 720 },
-  "4h": { interval: "4h", days: 120, limit: 720 },
-  "8h": { interval: "8h", days: 240, limit: 720 },
-  "1d": { interval: "1d", days: 365, limit: 500 },
+  "30m": { interval: "30m", days: 7, limit: 220 },
+  "1h": { interval: "1h", days: 14, limit: 240 },
+  "2h": { interval: "2h", days: 30, limit: 260 },
+  "4h": { interval: "4h", days: 60, limit: 260 },
+  "8h": { interval: "8h", days: 120, limit: 220 },
+  "1d": { interval: "1d", days: 220, limit: 220 },
 };
 
 function toNumber(value: unknown): number | null {
@@ -64,67 +64,29 @@ function extractCandles(payload: any): RawCandle[] {
   return [];
 }
 
-async function fetchUpstream(url: string, signal: AbortSignal) {
-  const attempts: Array<() => Promise<Response>> = [
-    () =>
-      fetch(url, {
-        method: "GET",
-        cache: "no-store",
-        signal,
-      }),
-    () =>
-      fetch(url, {
-        method: "GET",
-        headers: {
-          Accept: "application/json, text/plain, */*",
-          "User-Agent": "Mozilla/5.0 PortaDashboard/1.0",
-        },
-        cache: "no-store",
-        signal,
-      }),
-    () =>
-      fetch(url, {
-        method: "GET",
-        headers: {
-          Accept: "application/json, text/plain, */*",
-          "User-Agent": "Mozilla/5.0 PortaDashboard/1.0",
-          Referer: "https://qubicswap.com/",
-          Origin: "https://qubicswap.com",
-        },
-        cache: "no-store",
-        signal,
-      }),
-  ];
-
-  let lastError: unknown = null;
-
-  for (const attempt of attempts) {
-    try {
-      return await attempt();
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("All upstream fetch attempts failed");
-}
-
 export async function GET(request: Request) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), 30000);
 
   try {
     const { searchParams } = new URL(request.url);
-    const timeframe = (searchParams.get("timeframe") || "1d").toLowerCase();
-    const config = TIMEFRAME_MAP[timeframe] || TIMEFRAME_MAP["1d"];
+    const timeframe = (searchParams.get("timeframe") || "8h").toLowerCase();
+    const config = TIMEFRAME_MAP[timeframe] || TIMEFRAME_MAP["8h"];
 
     const upstreamUrl =
       `${BASE_URL}?interval=${encodeURIComponent(config.interval)}` +
       `&days=${config.days}&limit=${config.limit}`;
 
-    const response = await fetchUpstream(upstreamUrl, controller.signal);
+    const response = await fetch(upstreamUrl, {
+      method: "GET",
+      headers: {
+        Accept: "application/json, text/plain, */*",
+        "User-Agent": "Mozilla/5.0 PortaDashboard/1.0",
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
     const contentType = response.headers.get("content-type") || "";
     const rawText = await response.text();
 

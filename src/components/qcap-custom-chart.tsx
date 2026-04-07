@@ -300,7 +300,7 @@ export default function QcapCustomChart() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [hoveredCandle, setHoveredCandle] = useState<ChartCandle | null>(null)
-  const [timeframe, setTimeframe] = useState<string>("1d")
+  const [timeframe, setTimeframe] = useState<string>("8h")
   const [showTimeframeMenu, setShowTimeframeMenu] = useState(false)
 
   const priceContainerRef = useRef<HTMLDivElement | null>(null)
