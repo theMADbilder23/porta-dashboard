@@ -28,7 +28,7 @@ function decodeToken(value) {
 
 function parseAssetRoute(token) {
   const decoded = decodeToken(token);
-  const [network = "unknown", symbol = decoded.split(":");
+  const [network = "unknown", symbol = decoded] = decoded.split(":");
 
   return {
     raw: decoded,
@@ -191,9 +191,7 @@ function rowMatchesRoute(row, route) {
   const routeSymbol = route.symbolLower;
 
   if (rowAssetId && rowAssetId === routeAssetId) return true;
-
   if (rowNetwork === routeNetwork && rowSymbol === routeSymbol) return true;
-
   if (rowNetwork === routeNetwork && rowTokenName === routeSymbol) return true;
 
   return false;
