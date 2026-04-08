@@ -9,6 +9,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+const CLAIMABLE_DROP_MIN_USD = 5;
+const CLAIM_CONFIDENCE_MIN_RATIO = 0.5;
+const ANOMALY_RECOVERY_RATIO = 0.85;
+const ANOMALY_LOOKAHEAD_BUCKETS = 6;
+const RESET_PENDING_LOW_USD = 2;
+const RESET_PENDING_HIGH_USD = 2.5;
+
 function normalizeTimeframe(value) {
   const timeframe = String(value || "daily").toLowerCase();
 
@@ -23,6 +30,11 @@ function normalizeTimeframe(value) {
   }
 
   return "daily";
+}
+
+function safeNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
 }
 
 function formatTrendLabel(metricDate, metricTime, timeframe) {
@@ -64,6 +76,144 @@ async function getStoredTimeframeSnapshot(timeframe) {
   if (error) throw error;
 
   return data || null;
+}
+
+function buildWalletSnapshotTotalsByTime(rows) {
+  const latestPerWalletPerTimestamp = new Map();
+
+  for (const row of rows || []) {
+    const timestamp = row.snapshot_time;
+    const walletId = row.wallet_id;
+    const key = `${timestamp}__${walletId}`;
+    const existing = latestPerWalletPerTimestamp.get(key);
+
+    if (
+      !existing ||
+      new Date(row.created_at || row.snapshot_time).getTime() >
+        new Date(existing.created_at || existing.snapshot_time).getTime()
+    ) {
+      latestPerWalletPerTimestamp.set(key, row);
+    }
+  }
+
+  const totalsByTime = new Map();
+
+  for (const row of latestPerWalletPerTimestamp.values()) {
+    const timestamp = row.snapshot_time;
+
+    if (!totalsByTime.has(timestamp)) {
+      totalsByTime.set(timestamp, {
+        snapshot_time: timestamp,
+        total_claimable_usd: 0,
+        total_claimed_usd: 0,
+        total_pending_usd: 0,
+      });
+    }
+
+    const bucket = totalsByTime.get(timestamp);
+    bucket.total_claimable_usd += safeNumber(row.total_claimable_usd);
+    bucket.total_claimed_usd += safeNumber(row.total_claimed_usd);
+    bucket.total_pending_usd += safeNumber(row.total_pending_usd);
+  }
+
+  return new Map(
+    Array.from(totalsByTime.entries()).sort(
+      (a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime()
+    )
+  );
+}
+
+function detectWeeklyClaimableAnomalies(rows, walletTotalsByTime) {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+
+  const enriched = rows.map((row) => {
+    const walletTotals = walletTotalsByTime.get(row.metric_time) || {
+      total_claimable_usd: safeNumber(row.total_claimable_usd),
+      total_claimed_usd: 0,
+      total_pending_usd: safeNumber(row.total_pending_usd),
+    };
+
+    return {
+      ...row,
+      raw_claimable_usd: safeNumber(row.total_claimable_usd),
+      total_claimed_usd: safeNumber(walletTotals.total_claimed_usd),
+      total_pending_usd: safeNumber(walletTotals.total_pending_usd),
+      filtered_claimable_usd: safeNumber(row.total_claimable_usd),
+      claim_event_detected: false,
+      anomaly_drop_detected: false,
+    };
+  });
+
+  for (let i = 1; i < enriched.length; i += 1) {
+    const prev = enriched[i - 1];
+    const current = enriched[i];
+
+    const claimableDrop =
+      safeNumber(prev.filtered_claimable_usd) -
+      safeNumber(current.raw_claimable_usd);
+
+    if (claimableDrop < CLAIMABLE_DROP_MIN_USD) {
+      current.filtered_claimable_usd = current.raw_claimable_usd;
+      continue;
+    }
+
+    const claimedIncrease =
+      safeNumber(current.total_claimed_usd) - safeNumber(prev.total_claimed_usd);
+
+    const claimedCoverageRatio =
+      claimableDrop > 0 ? claimedIncrease / claimableDrop : 0;
+
+    const pendingResetDetected =
+      safeNumber(prev.total_pending_usd) >= RESET_PENDING_HIGH_USD &&
+      safeNumber(current.total_pending_usd) <= RESET_PENDING_LOW_USD;
+
+    let recoveredQuickly = false;
+    const targetRecoveryLevel =
+      safeNumber(prev.filtered_claimable_usd) * ANOMALY_RECOVERY_RATIO;
+
+    for (
+      let lookahead = i + 1;
+      lookahead < Math.min(enriched.length, i + 1 + ANOMALY_LOOKAHEAD_BUCKETS);
+      lookahead += 1
+    ) {
+      if (safeNumber(enriched[lookahead].raw_claimable_usd) >= targetRecoveryLevel) {
+        recoveredQuickly = true;
+        break;
+      }
+    }
+
+    const confirmedClaimEvent =
+      claimedIncrease >= CLAIMABLE_DROP_MIN_USD &&
+      claimedCoverageRatio >= CLAIM_CONFIDENCE_MIN_RATIO &&
+      !recoveredQuickly;
+
+    const likelyResetEvent =
+      pendingResetDetected &&
+      claimedIncrease > 0 &&
+      !recoveredQuickly;
+
+    const anomalyDrop =
+      !confirmedClaimEvent &&
+      !likelyResetEvent &&
+      claimedIncrease < CLAIMABLE_DROP_MIN_USD &&
+      recoveredQuickly;
+
+    if (confirmedClaimEvent || likelyResetEvent) {
+      current.claim_event_detected = true;
+      current.filtered_claimable_usd = current.raw_claimable_usd;
+      continue;
+    }
+
+    if (anomalyDrop) {
+      current.anomaly_drop_detected = true;
+      current.filtered_claimable_usd = prev.filtered_claimable_usd;
+      continue;
+    }
+
+    current.filtered_claimable_usd = current.raw_claimable_usd;
+  }
+
+  return enriched;
 }
 
 export default async function handler(req, res) {
@@ -141,22 +291,44 @@ export default async function handler(req, res) {
 
       if (intradayRowsError) throw intradayRowsError;
 
+      const { data: walletWindowRows, error: walletWindowRowsError } = await supabase
+        .from("wallet_snapshots")
+        .select(
+          "wallet_id, snapshot_time, total_claimable_usd, total_claimed_usd, total_pending_usd, created_at"
+        )
+        .in("wallet_id", walletIds)
+        .gte("snapshot_time", intradayWindowStartIso)
+        .lte("snapshot_time", intradayWindowEndIso)
+        .order("snapshot_time", { ascending: true });
+
+      if (walletWindowRowsError) throw walletWindowRowsError;
+
       const rows = Array.isArray(intradayRows) ? intradayRows : [];
 
       if (rows.length === 0) {
         return res.status(200).json([]);
       }
 
-      const trend = rows.map((row) => ({
+      const walletTotalsByTime = buildWalletSnapshotTotalsByTime(
+        Array.isArray(walletWindowRows) ? walletWindowRows : []
+      );
+
+      const cleanedRows = detectWeeklyClaimableAnomalies(rows, walletTotalsByTime);
+
+      const trend = cleanedRows.map((row) => ({
         mode: "trend",
         snapshot_time: row.metric_time || `${row.metric_date}T00:00:00Z`,
         label: formatTrendLabel(row.metric_date, row.metric_time, timeframe),
         metric_label: "Weekly Yield Flow",
         total_value_usd: Number(row.total_portfolio_value || 0),
-        total_claimable_usd: Number(row.total_claimable_usd || 0),
+        total_claimable_usd: Number(row.filtered_claimable_usd || 0),
+        raw_total_claimable_usd: Number(row.raw_claimable_usd || 0),
+        total_claimed_usd: Number(row.total_claimed_usd || 0),
         total_pending_usd: Number(row.total_pending_usd || 0),
         total_yield_flow_usd: Number(row.total_daily_yield_flow || 0),
         yield_tvd_ratio: Number(row.yield_tvd_ratio || 0),
+        claim_event_detected: Boolean(row.claim_event_detected),
+        anomaly_drop_detected: Boolean(row.anomaly_drop_detected),
         metric_date: row.metric_date || null,
         metric_time: row.metric_time || null,
       }));
