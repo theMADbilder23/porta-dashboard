@@ -7,7 +7,7 @@ const {
   buildStoredTrend,
   buildIntradayTrend,
   buildSummary,
-} = require("../collector/lib/porta-math/derived-metrics.js");
+} = require("./lib/porta-math/derived-metrics.js");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
