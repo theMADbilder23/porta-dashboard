@@ -80,11 +80,6 @@ export default function Chart({
         fontWeight: 600,
         fontSize: 12,
       },
-      text: (datum) => {
-        const node = (datum ?? {}) as { percentage?: number };
-        const pct = Number(node.percentage || 0);
-        return pct >= 8 ? `${Math.round(pct)}%` : "";
-      },
     },
     tooltip: {
       visible: true,
