@@ -487,7 +487,8 @@ export default function PortfolioInDepthPage() {
     : {
         tpv: `Average portfolio value across selected ${timeframe} window.`,
         claimable:
-          timeframeSummary?.claimable_reset_count && timeframeSummary.claimable_reset_count > 0
+          timeframeSummary?.claimable_reset_count &&
+          timeframeSummary.claimable_reset_count > 0
             ? `Reset-aware total claimable across ${timeframeSummary.claimable_reset_count} detected reset cycle(s).`
             : "Reset-aware total claimable across selected timeframe.",
         yieldFlow: `Summed ${headerCardLabels.yieldFlow} across the selected timeframe.`,
@@ -514,6 +515,14 @@ export default function PortfolioInDepthPage() {
         ratio:
           "Period yield percentage calculated from total timeframe yield flow relative to average TPV.",
       };
+
+  const tableSectionTitle = isDaily
+    ? "Live Daily Metrics Table"
+    : "Historical Metrics Table";
+
+  const tableSectionDescription = isDaily
+    ? "Scrollable live 30-minute bucket view for the current UTC day. This keeps today’s intraday metrics compact while preserving quick scan utility."
+    : "Clean historical review of stored daily metrics. This includes search and sort controls so larger row sets stay useful as history expands.";
 
   return (
     <div className="min-h-screen space-y-6 p-6">
@@ -577,7 +586,7 @@ export default function PortfolioInDepthPage() {
           </h2>
           <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
             {isDaily
-              ? "The daily view now shows live 30-minute portfolio snapshot buckets for the current UTC day. No buckets are available yet."
+              ? "The daily view shows live 30-minute portfolio snapshot buckets for the current UTC day. No buckets are available yet."
               : `This timeframe needs at least ${data.minimum_required_rows} stored day rows, but only ${data.actual_rows} are currently available.`}
           </p>
         </section>
@@ -718,12 +727,10 @@ export default function PortfolioInDepthPage() {
           <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
             <div className="flex flex-col gap-2">
               <h2 className="text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                Historical Metrics Table
+                {tableSectionTitle}
               </h2>
               <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                {isDaily
-                  ? "Live 30-minute bucket view for the current UTC day. This gives an in-depth intraday look at TPV, claimable totals, and current DYF context."
-                  : "Clean historical review of stored daily metrics. This now includes search and sort controls so larger row sets stay useful as history expands."}
+                {tableSectionDescription}
               </p>
             </div>
 
@@ -800,85 +807,104 @@ export default function PortfolioInDepthPage() {
               </div>
             </div>
 
-            <div className="mt-5 overflow-x-auto rounded-2xl border border-[#E9DAFF] dark:border-[#312047]">
-              <table className="min-w-full text-left">
-                <thead className="bg-[#F6F0FF] dark:bg-[#140D20]">
-                  <tr className="border-b border-[#F0E8FF] dark:border-[#241533]">
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                      {isDaily ? "Snapshot Time" : "Date"}
-                    </th>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                      TPV
-                    </th>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                      Claimable
-                    </th>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                      DYF
-                    </th>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                      Min
-                    </th>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                      Avg
-                    </th>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                      Max
-                    </th>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
-                      Yield / TVD
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {displayTrend.map((row, index) => (
-                    <tr
-                      key={row.metric_time || `${row.metric_date}-${index}`}
-                      className="border-b border-[#F7F1FF] dark:border-[#1C1328]"
-                    >
-                      <td className="px-4 py-4 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                        {isDaily
-                          ? formatDateTimeLabel(row.metric_time ?? null)
-                          : formatDateLabel(row.metric_date)}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
-                        {formatCurrency(row.total_portfolio_value)}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
-                        {formatCurrency(row.total_claimable_usd)}
-                      </td>
-                      <td className="px-4 py-4 text-sm font-semibold text-[#6D28D9] dark:text-[#D8B4FE]">
-                        {formatCurrency(row.total_daily_yield_flow)}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
-                        {formatCurrency(row.min_claimable_usd)}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
-                        {formatCurrency(row.avg_claimable_usd)}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
-                        {formatCurrency(row.max_claimable_usd)}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
-                        {formatRatioPercent(row.yield_tvd_ratio)}
-                      </td>
+            <div className="mt-5 rounded-2xl border border-[#E9DAFF] dark:border-[#312047]">
+              <div
+                className={`overflow-x-auto ${
+                  isDaily ? "max-h-[560px] overflow-y-auto" : ""
+                }`}
+              >
+                <table className="min-w-full text-left">
+                  <thead className="sticky top-0 z-10 bg-[#F6F0FF] dark:bg-[#140D20]">
+                    <tr className="border-b border-[#F0E8FF] dark:border-[#241533]">
+                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                        {isDaily ? "Snapshot Time" : "Date"}
+                      </th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                        TPV
+                      </th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                        Claimable
+                      </th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                        DYF
+                      </th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                        Min
+                      </th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                        Avg
+                      </th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                        Max
+                      </th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                        Yield / TVD
+                      </th>
                     </tr>
-                  ))}
+                  </thead>
 
-                  {!displayTrend.length ? (
-                    <tr>
-                      <td
-                        colSpan={8}
-                        className="px-4 py-6 text-center text-sm text-[#6B5A86] dark:text-[#BFA9F5]"
+                  <tbody>
+                    {displayTrend.map((row, index) => (
+                      <tr
+                        key={row.metric_time || `${row.metric_date}-${index}`}
+                        className="border-b border-[#F7F1FF] bg-white dark:border-[#1C1328] dark:bg-[#100A19]"
                       >
-                        No rows match the current search/filter settings.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
+                        <td className="px-4 py-4 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {isDaily
+                            ? formatDateTimeLabel(row.metric_time ?? null)
+                            : formatDateLabel(row.metric_date)}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {formatCurrency(row.total_portfolio_value)}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {formatCurrency(row.total_claimable_usd)}
+                        </td>
+                        <td className="px-4 py-4 text-sm font-semibold text-[#6D28D9] dark:text-[#D8B4FE]">
+                          {formatCurrency(row.total_daily_yield_flow)}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {formatCurrency(row.min_claimable_usd)}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {formatCurrency(row.avg_claimable_usd)}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {formatCurrency(row.max_claimable_usd)}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                          {formatRatioPercent(row.yield_tvd_ratio)}
+                        </td>
+                      </tr>
+                    ))}
+
+                    {!displayTrend.length ? (
+                      <tr>
+                        <td
+                          colSpan={8}
+                          className="px-4 py-6 text-center text-sm text-[#6B5A86] dark:text-[#BFA9F5]"
+                        >
+                          No rows match the current search/filter settings.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
             </div>
+
+            {isDaily ? (
+              <div className="mt-4 rounded-2xl border border-dashed border-[#DCC8FF] bg-[#FCFAFF] p-4 dark:border-[#3A2552] dark:bg-[#120B1C]">
+                <h3 className="text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                  Historical Daily Metrics Table
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+                  Reserved for stored prior-day bucket history and date-based daily review.
+                  Once we wire daily date selection, this section can load prior days without
+                  replacing the live current-day table above.
+                </p>
+              </div>
+            ) : null}
           </section>
         </>
       ) : null}
