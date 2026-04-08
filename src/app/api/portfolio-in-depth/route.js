@@ -30,7 +30,6 @@ export async function GET(req) {
         .order("metric_time", { ascending: true });
 
       if (error) {
-        console.error("[portfolio-in-depth] intraday fetch error", error);
         return NextResponse.json(
           { error: "Failed to load intraday portfolio metrics" },
           { status: 500 }
@@ -77,7 +76,6 @@ export async function GET(req) {
       .order("metric_date", { ascending: true });
 
     if (error) {
-      console.error("[portfolio-in-depth] daily_metric_snapshots fetch error", error);
       return NextResponse.json(
         { error: "Failed to load portfolio in-depth metrics" },
         { status: 500 }
@@ -113,8 +111,6 @@ export async function GET(req) {
       rows,
     });
   } catch (error) {
-    console.error("[portfolio-in-depth] unexpected error", error);
-
     return NextResponse.json(
       {
         error: "Unexpected server error",

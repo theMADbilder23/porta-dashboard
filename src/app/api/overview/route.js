@@ -95,9 +95,7 @@ function classifyHolding({ role, tokenSymbol, category, protocol }) {
   const normalizedCategory = normalizeRole(category);
   const hasProtocol = normalizeText(protocol).length > 0;
 
-  if (normalizedRole === "swing") {
-    return "swing";
-  }
+  if (normalizedRole === "swing") return "swing";
 
   if (
     isStableSymbol(tokenSymbol) &&
@@ -198,7 +196,6 @@ async function getStoredTimeframeMetrics(timeframe) {
     .maybeSingle();
 
   if (error) {
-    console.error("[api/overview] timeframe_metric_snapshots fetch error:", error);
     throw error;
   }
 
@@ -525,8 +522,6 @@ export async function GET(req) {
       daily_rollover_debug: timeframe === "daily" ? dailyRolloverDebug : null,
     });
   } catch (err) {
-    console.error("[api/overview] error:", err);
-
     return NextResponse.json(
       {
         error: "Internal Server Error",

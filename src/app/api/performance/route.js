@@ -1,12 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import {
-  capitalizeTimeframe,
-  getTimeframeStart,
-  getBucketKey,
-  buildBucketTotals,
   buildDailySummary,
-  makeTrendBucketLabel,
+  getTimeframeStart,
 } from "../../../../collector/lib/porta-math/dyf.js";
 
 const supabase = createClient(
@@ -14,10 +10,62 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+function normalizeTimeframe(value) {
+  const timeframe = String(value || "daily").toLowerCase();
+
+  if (
+    timeframe === "daily" ||
+    timeframe === "weekly" ||
+    timeframe === "monthly" ||
+    timeframe === "quarterly" ||
+    timeframe === "yearly"
+  ) {
+    return timeframe;
+  }
+
+  return "daily";
+}
+
+function formatTrendLabel(metricDate, timeframe) {
+  if (!metricDate) return "";
+
+  const date = new Date(`${metricDate}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return metricDate;
+
+  if (timeframe === "weekly") {
+    return date.toLocaleDateString("en-US", {
+      weekday: "short",
+      timeZone: "UTC",
+    });
+  }
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+async function getStoredTimeframeSnapshot(timeframe) {
+  const { data, error } = await supabase
+    .from("timeframe_metric_snapshots")
+    .select("*")
+    .eq("timeframe", timeframe)
+    .order("as_of_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data || null;
+}
+
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
-    const timeframe = String(searchParams.get("timeframe") || "daily").toLowerCase();
+    const timeframe = normalizeTimeframe(searchParams.get("timeframe"));
     const timeframeStart = getTimeframeStart(timeframe).toISOString();
 
     const { data: wallets, error: walletsError } = await supabase
@@ -65,26 +113,58 @@ export async function GET(req) {
       return NextResponse.json([buildDailySummary(allSnapshots, timeframeStart)]);
     }
 
-    const bucketSeries = buildBucketTotals(allSnapshots, timeframe);
+    const storedTimeframe = await getStoredTimeframeSnapshot(timeframe);
 
-    const result = bucketSeries.map((row) => ({
+    if (!storedTimeframe || !storedTimeframe.sufficient_data) {
+      return NextResponse.json([]);
+    }
+
+    const windowStartDate =
+      storedTimeframe.window_start_date ||
+      timeframeStart.slice(0, 10);
+
+    const windowEndDate =
+      storedTimeframe.as_of_date ||
+      storedTimeframe.window_end_date ||
+      new Date().toISOString().slice(0, 10);
+
+    const { data: storedRows, error: storedRowsError } = await supabase
+      .from("daily_metric_snapshots")
+      .select("*")
+      .gte("metric_date", windowStartDate)
+      .lte("metric_date", windowEndDate)
+      .order("metric_date", { ascending: true });
+
+    if (storedRowsError) {
+      throw storedRowsError;
+    }
+
+    const rows = Array.isArray(storedRows) ? storedRows : [];
+
+    if (rows.length === 0) {
+      return NextResponse.json([]);
+    }
+
+    const trend = rows.map((row) => ({
       mode: "trend",
-      snapshot_time: row.snapshot_time,
-      label:
-        makeTrendBucketLabel(
-          row.bucketKey ?? row.bucket_key ?? getBucketKey(row.snapshot_time, timeframe),
-          timeframe
-        ) || timeframe,
-      metric_label: `${capitalizeTimeframe(timeframe)} Yield Flow`,
-      total_value_usd: row.total_value_usd,
-      total_claimable_usd: row.total_claimable_usd,
-      total_pending_usd: row.total_pending_usd,
+      snapshot_time: row.metric_time || `${row.metric_date}T00:00:00Z`,
+      label: formatTrendLabel(row.metric_date, timeframe),
+      metric_label: `${timeframe[0].toUpperCase()}${timeframe.slice(1)} Yield Flow`,
+      total_value_usd: Number(row.total_portfolio_value || 0),
+
+      // keep this field name for compatibility with the current frontend
+      // component, but populate it with stored daily yield flow for non-daily
+      // timeframes so min/avg/max/current align with the new source-of-truth system
+      total_claimable_usd: Number(row.total_daily_yield_flow || 0),
+
+      total_pending_usd: Number(row.total_claimable_usd || 0),
+      total_yield_flow_usd: Number(row.total_daily_yield_flow || 0),
+      yield_tvd_ratio: Number(row.yield_tvd_ratio || 0),
+      metric_date: row.metric_date || null,
     }));
 
-    return NextResponse.json(result);
+    return NextResponse.json(trend);
   } catch (err) {
-    console.error("[api/performance] error:", err);
-
     return NextResponse.json(
       {
         error: "Internal Server Error",
