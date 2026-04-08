@@ -38,6 +38,22 @@ function formatTrendLabel(metricDate, timeframe) {
     });
   }
 
+  if (timeframe === "monthly") {
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  }
+
+  if (timeframe === "quarterly") {
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  }
+
   return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -119,16 +135,16 @@ export default async function handler(req, res) {
       storedTimeframe.window_end_date ||
       new Date().toISOString().slice(0, 10);
 
-    const { data: storedRows, error: storedRowsError } = await supabase
+    const { data: dailyRows, error: dailyRowsError } = await supabase
       .from("daily_metric_snapshots")
       .select("*")
       .gte("metric_date", windowStartDate)
       .lte("metric_date", windowEndDate)
       .order("metric_date", { ascending: true });
 
-    if (storedRowsError) throw storedRowsError;
+    if (dailyRowsError) throw dailyRowsError;
 
-    const rows = Array.isArray(storedRows) ? storedRows : [];
+    const rows = Array.isArray(dailyRows) ? dailyRows : [];
 
     if (rows.length === 0) {
       return res.status(200).json([]);
