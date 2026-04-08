@@ -48,13 +48,9 @@ export default function Chart({
         lineWidth: 0,
       },
     },
-    color: {
-      field: "name",
-      type: "ordinal",
-      range: conversions.map(
-        (item) => ALLOCATION_COLORS[item.name] || "#A78BFA"
-      ),
-    },
+    color: conversions.map(
+      (item) => ALLOCATION_COLORS[item.name] || "#A78BFA"
+    ),
     legends: [
       {
         visible: true,
