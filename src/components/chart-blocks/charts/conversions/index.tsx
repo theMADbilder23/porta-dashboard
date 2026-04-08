@@ -13,7 +13,7 @@ export default function Conversions() {
 
   return (
     <section className="flex h-full flex-col rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-      <ChartTitle title="MMII Allocation" icon={<Layers3 />} />
+      <ChartTitle title="MMII Allocation" icon={Layers3} />
 
       <div className="mt-3 grid grid-cols-1 gap-5 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-4 dark:border-[#241533] dark:bg-[#140D20]">
