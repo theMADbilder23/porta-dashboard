@@ -247,15 +247,20 @@ function buildDailySummaryBars(
 function getAxisLabelConfig(
   pointCount: number,
   timeframe: string
-): { visible: boolean; formatter?: (text: string, datum?: unknown, index?: number) => string } {
+): {
+  visible: boolean;
+  formatter?: (text: unknown, datum?: unknown, index?: number) => string;
+} {
   if (timeframe === "weekly") {
-    const interval = pointCount > 120 ? 24 : pointCount > 84 ? 16 : pointCount > 56 ? 12 : 8;
+    const interval =
+      pointCount > 120 ? 24 : pointCount > 84 ? 16 : pointCount > 56 ? 12 : 8;
 
     return {
       visible: true,
-      formatter: (text: string, _datum?: unknown, index?: number) => {
-        if (typeof index !== "number") return text;
-        return index % interval === 0 ? text : "";
+      formatter: (text: unknown, _datum?: unknown, index?: number) => {
+        const safeText = typeof text === "string" ? text : "";
+        if (typeof index !== "number") return safeText;
+        return index % interval === 0 ? safeText : "";
       },
     };
   }
@@ -264,9 +269,10 @@ function getAxisLabelConfig(
     const interval = pointCount > 24 ? 3 : 2;
     return {
       visible: true,
-      formatter: (text: string, _datum?: unknown, index?: number) => {
-        if (typeof index !== "number") return text;
-        return index % interval === 0 ? text : "";
+      formatter: (text: unknown, _datum?: unknown, index?: number) => {
+        const safeText = typeof text === "string" ? text : "";
+        if (typeof index !== "number") return safeText;
+        return index % interval === 0 ? safeText : "";
       },
     };
   }
@@ -275,9 +281,10 @@ function getAxisLabelConfig(
     const interval = pointCount > 45 ? 6 : 4;
     return {
       visible: true,
-      formatter: (text: string, _datum?: unknown, index?: number) => {
-        if (typeof index !== "number") return text;
-        return index % interval === 0 ? text : "";
+      formatter: (text: unknown, _datum?: unknown, index?: number) => {
+        const safeText = typeof text === "string" ? text : "";
+        if (typeof index !== "number") return safeText;
+        return index % interval === 0 ? safeText : "";
       },
     };
   }
@@ -286,14 +293,18 @@ function getAxisLabelConfig(
     const interval = pointCount > 90 ? 12 : 8;
     return {
       visible: true,
-      formatter: (text: string, _datum?: unknown, index?: number) => {
-        if (typeof index !== "number") return text;
-        return index % interval === 0 ? text : "";
+      formatter: (text: unknown, _datum?: unknown, index?: number) => {
+        const safeText = typeof text === "string" ? text : "";
+        if (typeof index !== "number") return safeText;
+        return index % interval === 0 ? safeText : "";
       },
     };
   }
 
-  return { visible: true };
+  return {
+    visible: true,
+    formatter: (text: unknown) => (typeof text === "string" ? text : ""),
+  };
 }
 
 function generateLineSpec(
@@ -358,7 +369,7 @@ function generateLineSpec(
         orient: "bottom",
         label: {
           visible: axisLabelConfig.visible,
-          formatMethod: axisLabelConfig.formatter,
+          formatMethod: axisLabelConfig.formatter as never,
           style: {
             fill: "#A78BFA",
             fontSize: 11,
