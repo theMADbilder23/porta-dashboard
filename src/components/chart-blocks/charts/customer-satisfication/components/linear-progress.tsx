@@ -4,7 +4,6 @@ import * as React from "react";
 import { Info } from "lucide-react";
 import { VChart } from "@visactor/react-vchart";
 import type { ILinearProgressChartSpec } from "@visactor/vchart";
-import type { Datum } from "@visactor/vchart/esm/typing";
 import {
   formatPercent,
   formatUsdRounded,
@@ -80,7 +79,7 @@ const getSpec = (
         content: [
           {
             key: label,
-            value: (_datum: Datum | undefined) =>
+            value: (_datum?: unknown) =>
               `${formatUsdRounded(value)} • ${formatPercent(
                 percentage,
                 2
