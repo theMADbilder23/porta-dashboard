@@ -9,7 +9,6 @@ const {
   splitDailyBucketTotalsForWindow,
   getMinValue,
   getMaxValue,
-  getAverageValue,
   getChangePctFromMin,
   getRangeFlow,
   buildDailySummary,
@@ -124,8 +123,7 @@ function classifyYieldHolding({ role, tokenSymbol, category, protocol }) {
   const hasProtocol = normalizeText(protocol).length > 0;
   const stableLike = isStableSymbol(tokenSymbol);
 
-  const isProtocolPosition =
-    normalizedCategory === "protocol" && hasProtocol;
+  const isProtocolPosition = normalizedCategory === "protocol" && hasProtocol;
 
   if (!isProtocolPosition) return null;
 
@@ -189,6 +187,23 @@ function buildWalletYieldDebug({
   };
 }
 
+async function getStoredTimeframeMetrics(timeframe) {
+  const { data, error } = await supabase
+    .from("timeframe_metric_snapshots")
+    .select("*")
+    .eq("timeframe", timeframe)
+    .order("as_of_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[api/overview] timeframe_metric_snapshots fetch error:", error);
+    throw error;
+  }
+
+  return data || null;
+}
+
 module.exports = async function handler(req, res) {
   try {
     const timeframe = String(req.query.timeframe || "daily").toLowerCase();
@@ -222,7 +237,9 @@ module.exports = async function handler(req, res) {
       .in("wallet_id", walletIds)
       .gte(
         "snapshot_time",
-        new Date(new Date(timeframeStart).getTime() - 48 * 60 * 60 * 1000).toISOString()
+        new Date(
+          new Date(timeframeStart).getTime() - 48 * 60 * 60 * 1000
+        ).toISOString()
       )
       .order("snapshot_time", { ascending: true });
 
@@ -234,8 +251,14 @@ module.exports = async function handler(req, res) {
       return res.status(200).json(getEmptyResponse(timeframe));
     }
 
-    if (timeframe !== "daily" && !hasEnoughTimeCoverage(allSnapshots, timeframe)) {
-      return res.status(200).json(getEmptyResponse(timeframe));
+    let storedTimeframeMetrics = null;
+
+    if (timeframe !== "daily") {
+      storedTimeframeMetrics = await getStoredTimeframeMetrics(timeframe);
+
+      if (!storedTimeframeMetrics && !hasEnoughTimeCoverage(allSnapshots, timeframe)) {
+        return res.status(200).json(getEmptyResponse(timeframe));
+      }
     }
 
     const latestPerWallet = buildLatestPerWallet(allSnapshots);
@@ -243,9 +266,8 @@ module.exports = async function handler(req, res) {
     const latestSnapshotIds = latestSnapshots.map((snapshot) => snapshot.id);
 
     const fullBucketTotals = buildBucketTotals(allSnapshots, timeframe);
-    const {
-      displayBuckets: dailyDisplayBucketTotals,
-    } =
+
+    const { displayBuckets: dailyDisplayBucketTotals } =
       timeframe === "daily"
         ? splitDailyBucketTotalsForWindow(fullBucketTotals, timeframeStart)
         : { displayBuckets: fullBucketTotals };
@@ -306,7 +328,7 @@ module.exports = async function handler(req, res) {
       stats.max = Math.max(stats.max, claimable);
     }
 
-    let totalPortfolioValue = 0;
+    let totalPortfolioValueLive = 0;
     let stableValue = 0;
     let rotationalValue = 0;
     let growthValue = 0;
@@ -323,7 +345,7 @@ module.exports = async function handler(req, res) {
       const role = walletRoleMap.get(walletId) || "";
       const portfolioValue = getPortfolioSnapshotValue(snapshot);
 
-      totalPortfolioValue += portfolioValue;
+      totalPortfolioValueLive += portfolioValue;
 
       const holdings = holdingsBySnapshotId.get(snapshot.id) || [];
       let classifiedWalletValue = 0;
@@ -413,9 +435,15 @@ module.exports = async function handler(req, res) {
       (bucket) => bucket.portfolio_total_usd ?? bucket.total_value_usd
     );
 
-    const minPortfolioValue = getMinValue(portfolioBucketValues);
+    const minPortfolioValueLive = getMinValue(portfolioBucketValues);
 
     let totalYieldFlow = null;
+    let totalPortfolioValue = totalPortfolioValueLive;
+    let totalPortfolioValueChangePct = getChangePctFromMin(
+      totalPortfolioValueLive,
+      minPortfolioValueLive
+    );
+    let passiveIncomeChangePct = null;
     let dailyRolloverDebug = null;
 
     if (timeframe === "daily") {
@@ -423,6 +451,15 @@ module.exports = async function handler(req, res) {
 
       totalYieldFlow = safeNumber(dailySummary.current_yield_flow_usd);
       dailyRolloverDebug = dailySummary.daily_rollover_debug;
+    } else if (storedTimeframeMetrics && storedTimeframeMetrics.sufficient_data) {
+      totalYieldFlow = safeNumber(storedTimeframeMetrics.total_yield_flow_usd);
+      totalPortfolioValue = safeNumber(storedTimeframeMetrics.avg_tpv);
+      totalPortfolioValueChangePct = safeNumber(
+        storedTimeframeMetrics.period_range_pct
+      );
+      passiveIncomeChangePct = safeNumber(
+        storedTimeframeMetrics.period_yield_pct
+      );
     } else {
       const claimableBucketValues = bucketTotalsForStats.map(
         (bucket) => bucket.claimable_total_usd ?? bucket.total_claimable_usd
@@ -432,6 +469,7 @@ module.exports = async function handler(req, res) {
         ignoreZero: true,
       });
       const maxClaimableValue = getMaxValue(claimableBucketValues);
+
       totalYieldFlow = getRangeFlow(maxClaimableValue, minClaimableValue);
     }
 
@@ -457,11 +495,8 @@ module.exports = async function handler(req, res) {
       realized_losses: null,
       passive_income: totalYieldFlow,
       passive_income_label: `${capitalizeTimeframe(timeframe)} Yield Flow`,
-      total_portfolio_value_change_pct: getChangePctFromMin(
-        totalPortfolioValue,
-        minPortfolioValue
-      ),
-      passive_income_change_pct: null,
+      total_portfolio_value_change_pct: totalPortfolioValueChangePct,
+      passive_income_change_pct: passiveIncomeChangePct,
       realized_gains_change_pct: null,
       realized_losses_change_pct: null,
       allocation_scope_label: "Tracked dashboard assets only",
