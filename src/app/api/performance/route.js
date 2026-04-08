@@ -1,10 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import {
-  buildStoredTrend,
-  buildIntradayTrend,
-  buildSummary,
-} from "../../../../collector/lib/porta-math/derived-metrics.js";
+  buildDailySummary,
+  getTimeframeStart,
+} from "../../../../collector/lib/porta-math/dyf.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -27,155 +26,143 @@ function normalizeTimeframe(value) {
   return "daily";
 }
 
-function getMinimumRequiredRows(timeframe) {
-  switch (timeframe) {
-    case "weekly":
-      return 5;
-    case "monthly":
-      return 21;
-    case "quarterly":
-      return 60;
-    case "yearly":
-      return 275;
-    default:
-      return 1;
-  }
-}
+function formatTrendLabel(metricDate, timeframe) {
+  if (!metricDate) return "";
 
-function getStartDateIso(timeframe) {
-  const now = new Date();
-  const start = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
-  );
+  const date = new Date(`${metricDate}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return metricDate;
 
-  switch (timeframe) {
-    case "weekly":
-      start.setUTCDate(start.getUTCDate() - 6);
-      break;
-    case "monthly":
-      start.setUTCDate(start.getUTCDate() - 29);
-      break;
-    case "quarterly":
-      start.setUTCDate(start.getUTCDate() - 89);
-      break;
-    case "yearly":
-      start.setUTCDate(start.getUTCDate() - 364);
-      break;
-    default:
-      break;
+  if (timeframe === "weekly") {
+    return date.toLocaleDateString("en-US", {
+      weekday: "short",
+      timeZone: "UTC",
+    });
   }
 
-  return start.toISOString().slice(0, 10);
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
 }
 
-function getIntradayStartIso() {
-  const now = new Date();
-  const start = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
-  );
-  return start.toISOString();
+async function getStoredTimeframeSnapshot(timeframe) {
+  const { data, error } = await supabase
+    .from("timeframe_metric_snapshots")
+    .select("*")
+    .eq("timeframe", timeframe)
+    .order("as_of_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data || null;
 }
 
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
     const timeframe = normalizeTimeframe(searchParams.get("timeframe"));
+    const timeframeStart = getTimeframeStart(timeframe).toISOString();
+
+    const { data: wallets, error: walletsError } = await supabase
+      .from("Wallets")
+      .select("id")
+      .eq("is_active", true);
+
+    if (walletsError) {
+      throw walletsError;
+    }
+
+    const walletIds = Array.isArray(wallets)
+      ? wallets.map((wallet) => wallet.id)
+      : [];
+
+    if (walletIds.length === 0) {
+      return NextResponse.json([]);
+    }
+
+    const { data: snapshots, error: snapshotsError } = await supabase
+      .from("wallet_snapshots")
+      .select(
+        "wallet_id, snapshot_time, total_value_usd, total_claimable_usd, total_pending_usd"
+      )
+      .in("wallet_id", walletIds)
+      .gte(
+        "snapshot_time",
+        new Date(
+          new Date(timeframeStart).getTime() - 48 * 60 * 60 * 1000
+        ).toISOString()
+      )
+      .order("snapshot_time", { ascending: true });
+
+    if (snapshotsError) {
+      throw snapshotsError;
+    }
+
+    const allSnapshots = Array.isArray(snapshots) ? snapshots : [];
+
+    if (allSnapshots.length === 0) {
+      return NextResponse.json([]);
+    }
 
     if (timeframe === "daily") {
-      const intradayStartIso = getIntradayStartIso();
-
-      const { data, error } = await supabase
-        .from("intraday_metric_snapshots")
-        .select("*")
-        .gte("metric_time", intradayStartIso)
-        .order("metric_time", { ascending: true });
-
-      if (error) {
-        return NextResponse.json(
-          { error: "Failed to load intraday portfolio metrics" },
-          { status: 500 }
-        );
-      }
-
-      const rows = Array.isArray(data) ? data : [];
-
-      if (!rows.length) {
-        return NextResponse.json({
-          timeframe,
-          metric_label: "Portfolio In-Depth",
-          sufficient_data: false,
-          minimum_required_rows: 1,
-          actual_rows: 0,
-          summary: buildSummary([], { intraday: true, timeframe }),
-          trend: [],
-          rows: [],
-        });
-      }
-
-      const trend = buildIntradayTrend(rows);
-      const summary = buildSummary(rows, { intraday: true, timeframe });
-
-      return NextResponse.json({
-        timeframe,
-        metric_label: "Portfolio In-Depth",
-        sufficient_data: true,
-        minimum_required_rows: 1,
-        actual_rows: rows.length,
-        summary,
-        trend,
-        rows,
-      });
+      return NextResponse.json([buildDailySummary(allSnapshots, timeframeStart)]);
     }
 
-    const startDate = getStartDateIso(timeframe);
-    const minimumRequiredRows = getMinimumRequiredRows(timeframe);
+    const storedTimeframe = await getStoredTimeframeSnapshot(timeframe);
 
-    const { data, error } = await supabase
+    if (!storedTimeframe || !storedTimeframe.sufficient_data) {
+      return NextResponse.json([]);
+    }
+
+    const windowStartDate =
+      storedTimeframe.window_start_date || timeframeStart.slice(0, 10);
+
+    const windowEndDate =
+      storedTimeframe.as_of_date ||
+      storedTimeframe.window_end_date ||
+      new Date().toISOString().slice(0, 10);
+
+    const { data: storedRows, error: storedRowsError } = await supabase
       .from("daily_metric_snapshots")
       .select("*")
-      .gte("metric_date", startDate)
+      .gte("metric_date", windowStartDate)
+      .lte("metric_date", windowEndDate)
       .order("metric_date", { ascending: true });
 
-    if (error) {
-      return NextResponse.json(
-        { error: "Failed to load portfolio in-depth metrics" },
-        { status: 500 }
-      );
+    if (storedRowsError) {
+      throw storedRowsError;
     }
 
-    const rows = Array.isArray(data) ? data : [];
+    const rows = Array.isArray(storedRows) ? storedRows : [];
 
-    if (rows.length < minimumRequiredRows) {
-      return NextResponse.json({
-        timeframe,
-        metric_label: "Portfolio In-Depth",
-        sufficient_data: false,
-        minimum_required_rows: minimumRequiredRows,
-        actual_rows: rows.length,
-        summary: buildSummary([], { intraday: false, timeframe }),
-        trend: [],
-        rows: [],
-      });
+    if (rows.length === 0) {
+      return NextResponse.json([]);
     }
 
-    const trend = buildStoredTrend(rows, timeframe);
-    const summary = buildSummary(rows, { intraday: false, timeframe });
+    const trend = rows.map((row) => ({
+      mode: "trend",
+      snapshot_time: row.metric_time || `${row.metric_date}T00:00:00Z`,
+      label: formatTrendLabel(row.metric_date, timeframe),
+      metric_label: `${timeframe[0].toUpperCase()}${timeframe.slice(1)} Yield Flow`,
+      total_value_usd: Number(row.total_portfolio_value || 0),
+      total_claimable_usd: Number(row.total_daily_yield_flow || 0),
+      total_pending_usd: Number(row.total_claimable_usd || 0),
+      total_yield_flow_usd: Number(row.total_daily_yield_flow || 0),
+      yield_tvd_ratio: Number(row.yield_tvd_ratio || 0),
+      metric_date: row.metric_date || null,
+    }));
 
-    return NextResponse.json({
-      timeframe,
-      metric_label: "Portfolio In-Depth",
-      sufficient_data: true,
-      minimum_required_rows: minimumRequiredRows,
-      actual_rows: rows.length,
-      summary,
-      trend,
-      rows,
-    });
-  } catch (error) {
+    return NextResponse.json(trend);
+  } catch (err) {
     return NextResponse.json(
       {
         error: "Unexpected server error",
-        details: error?.message || "Unknown error",
+        details: err?.message || "Unknown error",
       },
       { status: 500 }
     );
