@@ -20,6 +20,8 @@ type PerformanceApiRow = {
 
   total_value_usd?: number;
   total_claimable_usd?: number;
+  total_pending_usd?: number;
+  total_yield_flow_usd?: number;
   current_yield_flow_usd?: number;
 
   avg_total_value_usd?: number;
@@ -31,6 +33,9 @@ type PerformanceApiRow = {
   max_total_claimable_usd?: number;
 
   min_non_zero_total_claimable_usd?: number;
+
+  metric_date?: string | null;
+  metric_time?: string | null;
 };
 
 type ChartSeriesName =
@@ -139,6 +144,7 @@ function getTrendValue(row: PerformanceApiRow, metric: OverviewMetricKey) {
     case "realizedLosses":
       return 0;
     case "totalPassiveIncome":
+      // Only the chart line changes to claimable accumulation.
       return Number(row.total_claimable_usd || 0);
     default:
       return Number(row.total_value_usd || 0);
@@ -166,6 +172,7 @@ function getDailyStats(
   }
 
   if (metric === "totalPassiveIncome") {
+    // Keep original WYF stat-pill meaning.
     const max = Number(row.max_total_claimable_usd ?? 0);
     const min = Number(
       row.min_non_zero_total_claimable_usd ??
@@ -326,7 +333,7 @@ function generateLineSpec(
       style: (_datum: LineStyleDatum) => ({
         fill: "#e1c2ff",
         stroke: "#0F0617",
-        size: 7,
+        size: 6,
       }),
     },
     color: [color],

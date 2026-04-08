@@ -28,6 +28,7 @@ function normalizeTimeframe(value) {
 function formatTrendLabel(metricDate, metricTime, timeframe) {
   if (timeframe === "weekly" && metricTime) {
     const date = new Date(metricTime);
+
     if (!Number.isNaN(date.getTime())) {
       return date.toLocaleString("en-US", {
         weekday: "short",
@@ -43,30 +44,6 @@ function formatTrendLabel(metricDate, metricTime, timeframe) {
 
   const date = new Date(`${metricDate}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return metricDate;
-
-  if (timeframe === "monthly") {
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      timeZone: "UTC",
-    });
-  }
-
-  if (timeframe === "quarterly") {
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      timeZone: "UTC",
-    });
-  }
-
-  if (timeframe === "yearly") {
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      timeZone: "UTC",
-    });
-  }
 
   return date.toLocaleDateString("en-US", {
     month: "short",
@@ -176,8 +153,8 @@ export default async function handler(req, res) {
         label: formatTrendLabel(row.metric_date, row.metric_time, timeframe),
         metric_label: "Weekly Yield Flow",
         total_value_usd: Number(row.total_portfolio_value || 0),
-        total_claimable_usd: Number(row.total_daily_yield_flow || 0),
-        total_pending_usd: Number(row.total_claimable_usd || 0),
+        total_claimable_usd: Number(row.total_claimable_usd || 0),
+        total_pending_usd: Number(row.total_pending_usd || 0),
         total_yield_flow_usd: Number(row.total_daily_yield_flow || 0),
         yield_tvd_ratio: Number(row.yield_tvd_ratio || 0),
         metric_date: row.metric_date || null,
@@ -208,8 +185,8 @@ export default async function handler(req, res) {
       label: formatTrendLabel(row.metric_date, row.metric_time, timeframe),
       metric_label: `${timeframe[0].toUpperCase()}${timeframe.slice(1)} Yield Flow`,
       total_value_usd: Number(row.total_portfolio_value || 0),
-      total_claimable_usd: Number(row.total_daily_yield_flow || 0),
-      total_pending_usd: Number(row.total_claimable_usd || 0),
+      total_claimable_usd: Number(row.total_claimable_usd || 0),
+      total_pending_usd: Number(row.total_pending_usd || 0),
       total_yield_flow_usd: Number(row.total_daily_yield_flow || 0),
       yield_tvd_ratio: Number(row.yield_tvd_ratio || 0),
       metric_date: row.metric_date || null,
