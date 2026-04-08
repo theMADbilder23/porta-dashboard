@@ -77,9 +77,8 @@ export default function Chart({
       position: "inside",
       style: {
         fill: "#ffffff",
-        fontWeight: "600",
+        fontWeight: 600,
         fontSize: 12,
-        stroke: false,
       },
       text: (datum) => {
         const node = (datum ?? {}) as { percentage?: number };
