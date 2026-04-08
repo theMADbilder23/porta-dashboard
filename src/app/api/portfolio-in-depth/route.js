@@ -1,10 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import {
-  normalizeTimeframe,
-  getMinimumRequiredRows,
-  getStartDateIso,
-  getIntradayStartIso,
   buildStoredTrend,
   buildIntradayTrend,
   buildSummary,
@@ -14,6 +10,71 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+
+function normalizeTimeframe(value) {
+  const timeframe = String(value || "daily").toLowerCase();
+
+  if (
+    timeframe === "daily" ||
+    timeframe === "weekly" ||
+    timeframe === "monthly" ||
+    timeframe === "quarterly" ||
+    timeframe === "yearly"
+  ) {
+    return timeframe;
+  }
+
+  return "daily";
+}
+
+function getMinimumRequiredRows(timeframe) {
+  switch (timeframe) {
+    case "weekly":
+      return 5;
+    case "monthly":
+      return 21;
+    case "quarterly":
+      return 60;
+    case "yearly":
+      return 275;
+    default:
+      return 1;
+  }
+}
+
+function getStartDateIso(timeframe) {
+  const now = new Date();
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
+  );
+
+  switch (timeframe) {
+    case "weekly":
+      start.setUTCDate(start.getUTCDate() - 6);
+      break;
+    case "monthly":
+      start.setUTCDate(start.getUTCDate() - 29);
+      break;
+    case "quarterly":
+      start.setUTCDate(start.getUTCDate() - 89);
+      break;
+    case "yearly":
+      start.setUTCDate(start.getUTCDate() - 364);
+      break;
+    default:
+      break;
+  }
+
+  return start.toISOString().slice(0, 10);
+}
+
+function getIntradayStartIso() {
+  const now = new Date();
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
+  );
+  return start.toISOString();
+}
 
 export async function GET(req) {
   try {

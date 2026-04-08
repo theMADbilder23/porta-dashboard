@@ -22,6 +22,22 @@ const supabase = createClient(
 
 const STABLE_SYMBOLS = new Set(["USDC", "USDT", "USDM", "DAI"]);
 
+function normalizeTimeframe(value) {
+  const timeframe = String(value || "daily").toLowerCase();
+
+  if (
+    timeframe === "daily" ||
+    timeframe === "weekly" ||
+    timeframe === "monthly" ||
+    timeframe === "quarterly" ||
+    timeframe === "yearly"
+  ) {
+    return timeframe;
+  }
+
+  return "daily";
+}
+
 function normalizeText(value) {
   return String(value || "").trim();
 }
@@ -205,7 +221,7 @@ async function getStoredTimeframeMetrics(timeframe) {
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
-    const timeframe = String(searchParams.get("timeframe") || "daily").toLowerCase();
+    const timeframe = normalizeTimeframe(searchParams.get("timeframe"));
     const timeframeStart = getTimeframeStart(timeframe).toISOString();
 
     const { data: wallets, error: walletsError } = await supabase
@@ -524,7 +540,7 @@ export async function GET(req) {
   } catch (err) {
     return NextResponse.json(
       {
-        error: "Internal Server Error",
+        error: "Unexpected server error",
         details: err?.message || "Unknown error",
       },
       { status: 500 }
