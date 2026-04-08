@@ -25,18 +25,24 @@ function normalizeTimeframe(value) {
   return "daily";
 }
 
-function formatTrendLabel(metricDate, timeframe) {
+function formatTrendLabel(metricDate, metricTime, timeframe) {
+  if (timeframe === "weekly" && metricTime) {
+    const date = new Date(metricTime);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleString("en-US", {
+        weekday: "short",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: "UTC",
+      });
+    }
+  }
+
   if (!metricDate) return "";
 
   const date = new Date(`${metricDate}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return metricDate;
-
-  if (timeframe === "weekly") {
-    return date.toLocaleDateString("en-US", {
-      weekday: "short",
-      timeZone: "UTC",
-    });
-  }
 
   if (timeframe === "monthly") {
     return date.toLocaleDateString("en-US", {
@@ -47,6 +53,14 @@ function formatTrendLabel(metricDate, timeframe) {
   }
 
   if (timeframe === "quarterly") {
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  }
+
+  if (timeframe === "yearly") {
     return date.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
@@ -87,7 +101,9 @@ export default async function handler(req, res) {
 
     if (walletsError) throw walletsError;
 
-    const walletIds = Array.isArray(wallets) ? wallets.map((wallet) => wallet.id) : [];
+    const walletIds = Array.isArray(wallets)
+      ? wallets.map((wallet) => wallet.id)
+      : [];
 
     if (walletIds.length === 0) {
       return res.status(200).json([]);
@@ -135,6 +151,42 @@ export default async function handler(req, res) {
       storedTimeframe.window_end_date ||
       new Date().toISOString().slice(0, 10);
 
+    if (timeframe === "weekly") {
+      const intradayWindowStartIso = `${windowStartDate}T00:00:00Z`;
+      const intradayWindowEndIso = `${windowEndDate}T23:59:59.999Z`;
+
+      const { data: intradayRows, error: intradayRowsError } = await supabase
+        .from("intraday_metric_snapshots")
+        .select("*")
+        .gte("metric_time", intradayWindowStartIso)
+        .lte("metric_time", intradayWindowEndIso)
+        .order("metric_time", { ascending: true });
+
+      if (intradayRowsError) throw intradayRowsError;
+
+      const rows = Array.isArray(intradayRows) ? intradayRows : [];
+
+      if (rows.length === 0) {
+        return res.status(200).json([]);
+      }
+
+      const trend = rows.map((row) => ({
+        mode: "trend",
+        snapshot_time: row.metric_time || `${row.metric_date}T00:00:00Z`,
+        label: formatTrendLabel(row.metric_date, row.metric_time, timeframe),
+        metric_label: "Weekly Yield Flow",
+        total_value_usd: Number(row.total_portfolio_value || 0),
+        total_claimable_usd: Number(row.total_daily_yield_flow || 0),
+        total_pending_usd: Number(row.total_claimable_usd || 0),
+        total_yield_flow_usd: Number(row.total_daily_yield_flow || 0),
+        yield_tvd_ratio: Number(row.yield_tvd_ratio || 0),
+        metric_date: row.metric_date || null,
+        metric_time: row.metric_time || null,
+      }));
+
+      return res.status(200).json(trend);
+    }
+
     const { data: dailyRows, error: dailyRowsError } = await supabase
       .from("daily_metric_snapshots")
       .select("*")
@@ -153,7 +205,7 @@ export default async function handler(req, res) {
     const trend = rows.map((row) => ({
       mode: "trend",
       snapshot_time: row.metric_time || `${row.metric_date}T00:00:00Z`,
-      label: formatTrendLabel(row.metric_date, timeframe),
+      label: formatTrendLabel(row.metric_date, row.metric_time, timeframe),
       metric_label: `${timeframe[0].toUpperCase()}${timeframe.slice(1)} Yield Flow`,
       total_value_usd: Number(row.total_portfolio_value || 0),
       total_claimable_usd: Number(row.total_daily_yield_flow || 0),
@@ -161,6 +213,7 @@ export default async function handler(req, res) {
       total_yield_flow_usd: Number(row.total_daily_yield_flow || 0),
       yield_tvd_ratio: Number(row.yield_tvd_ratio || 0),
       metric_date: row.metric_date || null,
+      metric_time: row.metric_time || null,
     }));
 
     return res.status(200).json(trend);
