@@ -1,5 +1,6 @@
-const { createClient } = require("@supabase/supabase-js");
-const {
+import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from "next/server";
+import {
   safeNumber,
   capitalizeTimeframe,
   getTimeframeStart,
@@ -12,7 +13,7 @@ const {
   getChangePctFromMin,
   getRangeFlow,
   buildDailySummary,
-} = require("./lib/porta-math/dyf");
+} from "../../../../collector/lib/porta-math/dyf.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -206,7 +207,8 @@ async function getStoredTimeframeMetrics(timeframe) {
 
 export async function GET(req) {
   try {
-    const timeframe = String(req.query.timeframe || "daily").toLowerCase();
+    const { searchParams } = new URL(req.url);
+    const timeframe = String(searchParams.get("timeframe") || "daily").toLowerCase();
     const timeframeStart = getTimeframeStart(timeframe).toISOString();
 
     const { data: wallets, error: walletsError } = await supabase
@@ -220,7 +222,7 @@ export async function GET(req) {
     const walletIds = activeWallets.map((wallet) => wallet.id);
 
     if (walletIds.length === 0) {
-      return res.status(200).json(getEmptyResponse(timeframe));
+      return NextResponse.json(getEmptyResponse(timeframe));
     }
 
     const { data: snapshots, error: snapshotsError } = await supabase
@@ -248,7 +250,7 @@ export async function GET(req) {
     const allSnapshots = Array.isArray(snapshots) ? snapshots : [];
 
     if (allSnapshots.length === 0) {
-      return res.status(200).json(getEmptyResponse(timeframe));
+      return NextResponse.json(getEmptyResponse(timeframe));
     }
 
     let storedTimeframeMetrics = null;
@@ -257,7 +259,7 @@ export async function GET(req) {
       storedTimeframeMetrics = await getStoredTimeframeMetrics(timeframe);
 
       if (!storedTimeframeMetrics && !hasEnoughTimeCoverage(allSnapshots, timeframe)) {
-        return res.status(200).json(getEmptyResponse(timeframe));
+        return NextResponse.json(getEmptyResponse(timeframe));
       }
     }
 
@@ -484,7 +486,7 @@ export async function GET(req) {
     const growthRiskYieldFlow = totalYieldFlow * growthFlowWeight;
     const hardAssetYieldFlow = totalYieldFlow * hardAssetFlowWeight;
 
-    return res.status(200).json({
+    return NextResponse.json({
       timeframe,
       total_portfolio_value: totalPortfolioValue,
       stable_value: stableValue,
@@ -525,9 +527,12 @@ export async function GET(req) {
   } catch (err) {
     console.error("[api/overview] error:", err);
 
-    return res.status(500).json({
-      error: "Internal Server Error",
-      details: err?.message || "Unknown error",
-    });
+    return NextResponse.json(
+      {
+        error: "Internal Server Error",
+        details: err?.message || "Unknown error",
+      },
+      { status: 500 }
+    );
   }
-};
+}
