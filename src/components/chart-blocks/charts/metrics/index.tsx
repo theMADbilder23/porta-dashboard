@@ -151,66 +151,72 @@ export default function Metrics() {
   }
 
   return (
-    <section className="border-b border-border">
-      <Container className="flex flex-col gap-4 py-4">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Overview</h1>
-            <p className="text-sm text-muted-foreground">
-              MMII portfolio intelligence across your selected timeframe
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              All values displayed in USD
-            </p>
+    <section className="border-b border-border bg-transparent">
+      <Container className="py-5">
+        <div className="rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h1 className="text-3xl font-bold tracking-tight text-[#2D1B45] dark:text-[#F3E8FF]">
+                  Overview
+                </h1>
+                <p className="text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
+                  MMII portfolio intelligence across your selected timeframe
+                </p>
+                <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
+                  All values displayed in USD
+                </p>
+              </div>
+
+              <OverviewTimeframeTabs />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 phone:grid-cols-2 desktop:grid-cols-4">
+              <MetricCard
+                title="Total Portfolio Value"
+                value={metrics.totalPortfolioValue}
+                change={changes.totalPortfolioValue}
+                active={isActive("totalPortfolioValue")}
+                onClick={() => setSelectedMetric("totalPortfolioValue")}
+                className="min-w-0"
+                icon={<WalletCards size={16} />}
+                helperText="vs selected period range"
+              />
+
+              <MetricCard
+                title="Realized Gains"
+                value={metrics.realizedGains}
+                change={changes.realizedGains}
+                active={isActive("realizedGains")}
+                onClick={() => setSelectedMetric("realizedGains")}
+                className="min-w-0"
+                icon={<TrendingUp size={16} />}
+                helperText="vs selected period"
+              />
+
+              <MetricCard
+                title="Realized Losses"
+                value={metrics.realizedLosses}
+                change={changes.realizedLosses}
+                active={isActive("realizedLosses")}
+                onClick={() => setSelectedMetric("realizedLosses")}
+                className="min-w-0"
+                icon={<TrendingDown size={16} />}
+                helperText="vs selected period"
+              />
+
+              <MetricCard
+                title={passiveIncomeTitle}
+                value={metrics.totalPassiveIncome}
+                change={changes.totalPassiveIncome}
+                active={isActive("totalPassiveIncome")}
+                onClick={() => setSelectedMetric("totalPassiveIncome")}
+                className="min-w-0"
+                icon={<HandCoins size={16} />}
+                helperText={passiveIncomeHelperText}
+              />
+            </div>
           </div>
-
-          <OverviewTimeframeTabs />
-        </div>
-
-        <div className="grid grid-cols-1 gap-6 phone:grid-cols-2 desktop:grid-cols-4">
-          <MetricCard
-            title="Total Portfolio Value"
-            value={metrics.totalPortfolioValue}
-            change={changes.totalPortfolioValue}
-            active={isActive("totalPortfolioValue")}
-            onClick={() => setSelectedMetric("totalPortfolioValue")}
-            className="min-w-0"
-            icon={<WalletCards size={16} />}
-            helperText="vs selected period range"
-          />
-
-          <MetricCard
-            title="Realized Gains"
-            value={metrics.realizedGains}
-            change={changes.realizedGains}
-            active={isActive("realizedGains")}
-            onClick={() => setSelectedMetric("realizedGains")}
-            className="min-w-0"
-            icon={<TrendingUp size={16} />}
-            helperText="vs selected period"
-          />
-
-          <MetricCard
-            title="Realized Losses"
-            value={metrics.realizedLosses}
-            change={changes.realizedLosses}
-            active={isActive("realizedLosses")}
-            onClick={() => setSelectedMetric("realizedLosses")}
-            className="min-w-0"
-            icon={<TrendingDown size={16} />}
-            helperText="vs selected period"
-          />
-
-          <MetricCard
-            title={passiveIncomeTitle}
-            value={metrics.totalPassiveIncome}
-            change={changes.totalPassiveIncome}
-            active={isActive("totalPassiveIncome")}
-            onClick={() => setSelectedMetric("totalPassiveIncome")}
-            className="min-w-0"
-            icon={<HandCoins size={16} />}
-            helperText={passiveIncomeHelperText}
-          />
         </div>
       </Container>
     </section>

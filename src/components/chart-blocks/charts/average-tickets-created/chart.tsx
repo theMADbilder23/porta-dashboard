@@ -244,28 +244,56 @@ function buildDailySummaryBars(
   ];
 }
 
-function getInitialZoomWindow(pointCount: number, timeframe: string) {
-  if (pointCount <= 0) {
-    return { start: 0, end: 100 };
-  }
-
+function getAxisLabelConfig(
+  pointCount: number,
+  timeframe: string
+): { visible: boolean; formatter?: (text: string, datum?: unknown, index?: number) => string } {
   if (timeframe === "weekly") {
-    return { start: 0, end: 100 };
+    const interval = pointCount > 120 ? 24 : pointCount > 84 ? 16 : pointCount > 56 ? 12 : 8;
+
+    return {
+      visible: true,
+      formatter: (text: string, _datum?: unknown, index?: number) => {
+        if (typeof index !== "number") return text;
+        return index % interval === 0 ? text : "";
+      },
+    };
   }
 
   if (timeframe === "monthly") {
-    return pointCount > 14 ? { start: 35, end: 100 } : { start: 0, end: 100 };
+    const interval = pointCount > 24 ? 3 : 2;
+    return {
+      visible: true,
+      formatter: (text: string, _datum?: unknown, index?: number) => {
+        if (typeof index !== "number") return text;
+        return index % interval === 0 ? text : "";
+      },
+    };
   }
 
   if (timeframe === "quarterly") {
-    return pointCount > 30 ? { start: 55, end: 100 } : { start: 0, end: 100 };
+    const interval = pointCount > 45 ? 6 : 4;
+    return {
+      visible: true,
+      formatter: (text: string, _datum?: unknown, index?: number) => {
+        if (typeof index !== "number") return text;
+        return index % interval === 0 ? text : "";
+      },
+    };
   }
 
   if (timeframe === "yearly") {
-    return pointCount > 60 ? { start: 75, end: 100 } : { start: 0, end: 100 };
+    const interval = pointCount > 90 ? 12 : 8;
+    return {
+      visible: true,
+      formatter: (text: string, _datum?: unknown, index?: number) => {
+        if (typeof index !== "number") return text;
+        return index % interval === 0 ? text : "";
+      },
+    };
   }
 
-  return { start: 0, end: 100 };
+  return { visible: true };
 }
 
 function generateLineSpec(
@@ -274,7 +302,7 @@ function generateLineSpec(
   timeframe: string
 ): ILineChartSpec {
   const color = getSeriesColor(metric);
-  const zoomWindow = getInitialZoomWindow(data.length, timeframe);
+  const axisLabelConfig = getAxisLabelConfig(data.length, timeframe);
 
   return {
     type: "line",
@@ -288,7 +316,7 @@ function generateLineSpec(
     xField: "label",
     yField: "value",
     seriesField: "series",
-    padding: [20, 24, 60, 16],
+    padding: [20, 24, 30, 16],
     legends: {
       visible: true,
       position: "start",
@@ -329,44 +357,14 @@ function generateLineSpec(
       {
         orient: "bottom",
         label: {
+          visible: axisLabelConfig.visible,
+          formatMethod: axisLabelConfig.formatter,
           style: {
             fill: "#A78BFA",
             fontSize: 11,
           },
           flush: true,
         },
-      },
-    ],
-    dataZoom: [
-      {
-        orient: "bottom",
-        start: zoomWindow.start,
-        end: zoomWindow.end,
-        brushSelect: false,
-        background: {
-          visible: true,
-          style: {
-            fill: "rgba(36, 21, 51, 0.35)",
-          },
-        },
-        selectedBackground: {
-          style: {
-            fill: "rgba(175, 89, 255, 0.18)",
-            stroke: "#AF59FF",
-          },
-        },
-        middleHandler: {
-          visible: true,
-        },
-      },
-      {
-        orient: "bottom",
-        start: zoomWindow.start,
-        end: zoomWindow.end,
-        zoomLock: false,
-        roamZoom: true,
-        roamDrag: true,
-        brushSelect: false,
       },
     ],
     line: {
@@ -383,11 +381,11 @@ function generateLineSpec(
     point: {
       state: {
         hover: {
-          scaleX: 1.35,
-          scaleY: 1.35,
+          scaleX: 1.3,
+          scaleY: 1.3,
         },
       },
-      visible: data.length <= 90,
+      visible: data.length <= 72,
       style: (_datum: LineStyleDatum) => ({
         fill: "#e1c2ff",
         stroke: "#0F0617",
