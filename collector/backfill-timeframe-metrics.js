@@ -1,7 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
-import { safeNumber } from "./lib/porta-math/dyf.js";
-import derivedMetrics from "./lib/porta-math/derived-metrics.js";
-
+const { createClient } = require("@supabase/supabase-js");
+const { safeNumber } = require("./lib/porta-math/dyf");
 const {
   normalizeTimeframe,
   getMinimumRequiredRows,
@@ -9,7 +7,7 @@ const {
   getAsOfDateIso,
   buildSummary,
   findStrongestWeakest,
-} = derivedMetrics;
+} = require("./lib/porta-math/derived-metrics");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -17,8 +15,6 @@ const supabase = createClient(
 );
 
 const TIMEFRAMES = ["weekly", "monthly", "quarterly", "yearly"];
-const CLAIMABLE_RESET_RATIO_THRESHOLD = 0.6;
-const CLAIMABLE_RESET_MIN_DROP_USD = 5;
 
 async function fetchDailyMetricRows(timeframe) {
   const startDate = getStartDateIso(timeframe);
@@ -56,7 +52,7 @@ function buildTimeframeMetricRow(timeframe, rows) {
   const expectedWindowStartDate = getStartDateIso(timeframe);
   const sufficientData = rows.length >= minimumRequiredRows;
 
-  const summary = buildSummary(rows, timeframe);
+  const summary = buildSummary(rows, { intraday: false, timeframe });
   const timeframeSummary = summary.timeframe_summary;
   const historical = summary.historical;
   const strongestWeakest = findStrongestWeakest(rows, timeframe);
@@ -122,7 +118,7 @@ function buildTimeframeMetricRow(timeframe, rows) {
   };
 }
 
-export async function runTimeframeMetrics() {
+async function runTimeframeMetrics() {
   console.log("🚀 Starting timeframe metric backfill...");
 
   for (const timeframe of TIMEFRAMES) {
@@ -145,7 +141,11 @@ export async function runTimeframeMetrics() {
   console.log("\n🎉 Timeframe metric backfill complete");
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+module.exports = {
+  runTimeframeMetrics,
+};
+
+if (require.main === module) {
   runTimeframeMetrics().catch((err) => {
     console.error("❌ Fatal timeframe metric error:", err);
     process.exit(1);
