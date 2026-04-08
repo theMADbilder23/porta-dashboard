@@ -204,7 +204,7 @@ async function getStoredTimeframeMetrics(timeframe) {
   return data || null;
 }
 
-module.exports = async function handler(req, res) {
+export async function GET(req) {
   try {
     const timeframe = String(req.query.timeframe || "daily").toLowerCase();
     const timeframeStart = getTimeframeStart(timeframe).toISOString();
