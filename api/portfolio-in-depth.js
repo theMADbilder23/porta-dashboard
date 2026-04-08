@@ -1,5 +1,5 @@
-const { createClient } = require("@supabase/supabase-js");
-const {
+import { createClient } from "@supabase/supabase-js";
+import {
   normalizeTimeframe,
   getMinimumRequiredRows,
   getStartDateIso,
@@ -7,20 +7,16 @@ const {
   buildStoredTrend,
   buildIntradayTrend,
   buildSummary,
-} = require("./lib/porta-math/derived-metrics");
+} from "./lib/porta-math/derived-metrics.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-module.exports = async function handler(req, res) {
-  if (req.method !== "GET") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
+export default async function handler(req, res) {
   try {
-    const timeframe = normalizeTimeframe(req.query.timeframe);
+    const timeframe = normalizeTimeframe(req.query?.timeframe);
 
     if (timeframe === "daily") {
       const intradayStartIso = getIntradayStartIso();
@@ -32,7 +28,6 @@ module.exports = async function handler(req, res) {
         .order("metric_time", { ascending: true });
 
       if (error) {
-        console.error("[portfolio-in-depth] intraday fetch error", error);
         return res.status(500).json({
           error: "Failed to load intraday portfolio metrics",
         });
@@ -78,7 +73,6 @@ module.exports = async function handler(req, res) {
       .order("metric_date", { ascending: true });
 
     if (error) {
-      console.error("[portfolio-in-depth] daily_metric_snapshots fetch error", error);
       return res.status(500).json({
         error: "Failed to load portfolio in-depth metrics",
       });
@@ -113,10 +107,9 @@ module.exports = async function handler(req, res) {
       rows,
     });
   } catch (error) {
-    console.error("[portfolio-in-depth] unexpected error", error);
     return res.status(500).json({
       error: "Unexpected server error",
       details: error?.message || "Unknown error",
     });
   }
-};
+}
