@@ -144,7 +144,6 @@ function getTrendValue(row: PerformanceApiRow, metric: OverviewMetricKey) {
     case "realizedLosses":
       return 0;
     case "totalPassiveIncome":
-      // Only the chart line changes to claimable accumulation.
       return Number(row.total_claimable_usd || 0);
     default:
       return Number(row.total_value_usd || 0);
@@ -172,7 +171,6 @@ function getDailyStats(
   }
 
   if (metric === "totalPassiveIncome") {
-    // Keep original WYF stat-pill meaning.
     const max = Number(row.max_total_claimable_usd ?? 0);
     const min = Number(
       row.min_non_zero_total_claimable_usd ??
@@ -246,11 +244,37 @@ function buildDailySummaryBars(
   ];
 }
 
+function getInitialZoomWindow(pointCount: number, timeframe: string) {
+  if (pointCount <= 0) {
+    return { start: 0, end: 100 };
+  }
+
+  if (timeframe === "weekly") {
+    return { start: 0, end: 100 };
+  }
+
+  if (timeframe === "monthly") {
+    return pointCount > 14 ? { start: 35, end: 100 } : { start: 0, end: 100 };
+  }
+
+  if (timeframe === "quarterly") {
+    return pointCount > 30 ? { start: 55, end: 100 } : { start: 0, end: 100 };
+  }
+
+  if (timeframe === "yearly") {
+    return pointCount > 60 ? { start: 75, end: 100 } : { start: 0, end: 100 };
+  }
+
+  return { start: 0, end: 100 };
+}
+
 function generateLineSpec(
   data: TrendPoint[],
-  metric: OverviewMetricKey
+  metric: OverviewMetricKey,
+  timeframe: string
 ): ILineChartSpec {
   const color = getSeriesColor(metric);
+  const zoomWindow = getInitialZoomWindow(data.length, timeframe);
 
   return {
     type: "line",
@@ -264,7 +288,7 @@ function generateLineSpec(
     xField: "label",
     yField: "value",
     seriesField: "series",
-    padding: [20, 24, 24, 16],
+    padding: [20, 24, 60, 16],
     legends: {
       visible: true,
       position: "start",
@@ -307,8 +331,42 @@ function generateLineSpec(
         label: {
           style: {
             fill: "#A78BFA",
+            fontSize: 11,
+          },
+          flush: true,
+        },
+      },
+    ],
+    dataZoom: [
+      {
+        orient: "bottom",
+        start: zoomWindow.start,
+        end: zoomWindow.end,
+        brushSelect: false,
+        background: {
+          visible: true,
+          style: {
+            fill: "rgba(36, 21, 51, 0.35)",
           },
         },
+        selectedBackground: {
+          style: {
+            fill: "rgba(175, 89, 255, 0.18)",
+            stroke: "#AF59FF",
+          },
+        },
+        middleHandler: {
+          visible: true,
+        },
+      },
+      {
+        orient: "bottom",
+        start: zoomWindow.start,
+        end: zoomWindow.end,
+        zoomLock: false,
+        roamZoom: true,
+        roamDrag: true,
+        brushSelect: false,
       },
     ],
     line: {
@@ -325,15 +383,15 @@ function generateLineSpec(
     point: {
       state: {
         hover: {
-          scaleX: 1.4,
-          scaleY: 1.4,
+          scaleX: 1.35,
+          scaleY: 1.35,
         },
       },
-      visible: true,
+      visible: data.length <= 90,
       style: (_datum: LineStyleDatum) => ({
         fill: "#e1c2ff",
         stroke: "#0F0617",
-        size: 6,
+        size: 5,
       }),
     },
     color: [color],
@@ -687,7 +745,7 @@ export default function Chart() {
       );
     }
 
-    return generateLineSpec(trendData, selectedMetric);
+    return generateLineSpec(trendData, selectedMetric, timeframe);
   }, [timeframe, dailySummary, trendData, selectedMetric]);
 
   return (
@@ -707,7 +765,7 @@ export default function Chart() {
         </div>
       </div>
 
-      <div className="relative h-[360px] w-full flex-1">
+      <div className="relative h-[400px] w-full flex-1">
         <VChart spec={spec} />
       </div>
     </section>
