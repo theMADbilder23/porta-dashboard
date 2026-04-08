@@ -111,55 +111,6 @@ export default function Chart({
         ],
       },
     },
-    indicator: [
-      {
-        visible: true,
-        trigger: "hover",
-        title: {
-          visible: true,
-          autoFit: true,
-          style: {
-            fontSize: 12,
-            fill: "#8B5CF6",
-            fontWeight: "600",
-          },
-        },
-        content: [
-          {
-            visible: true,
-            style: {
-              fontSize: 18,
-              fill: "#2D1B45",
-              fontWeight: "700",
-            },
-          },
-        ],
-      },
-      {
-        visible: true,
-        trigger: "none",
-        title: {
-          visible: true,
-          text: "MMII",
-          style: {
-            fontSize: 12,
-            fill: "#8B5CF6",
-            fontWeight: "600",
-          },
-        },
-        content: [
-          {
-            visible: true,
-            text: "100%",
-            style: {
-              fontSize: 20,
-              fill: "#2D1B45",
-              fontWeight: "700",
-            },
-          },
-        ],
-      },
-    ],
     animationEnter: {
       easing: "cubicInOut",
       duration: 700,
