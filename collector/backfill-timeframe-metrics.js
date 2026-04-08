@@ -1,13 +1,13 @@
-const { createClient } = require("@supabase/supabase-js");
-const { safeNumber } = require("./lib/porta-math/dyf");
-const {
+import { createClient } from "@supabase/supabase-js";
+import { safeNumber } from "./lib/porta-math/dyf.js";
+import {
   normalizeTimeframe,
   getMinimumRequiredRows,
   getStartDateIso,
   getAsOfDateIso,
   buildSummary,
   findStrongestWeakest,
-} = require("./lib/porta-math/derived-metrics");
+} from "./lib/porta-math/derived-metrics.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -118,7 +118,7 @@ function buildTimeframeMetricRow(timeframe, rows) {
   };
 }
 
-async function runTimeframeMetrics() {
+export async function runTimeframeMetrics() {
   console.log("🚀 Starting timeframe metric backfill...");
 
   for (const timeframe of TIMEFRAMES) {
@@ -141,11 +141,7 @@ async function runTimeframeMetrics() {
   console.log("\n🎉 Timeframe metric backfill complete");
 }
 
-module.exports = {
-  runTimeframeMetrics,
-};
-
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   runTimeframeMetrics().catch((err) => {
     console.error("❌ Fatal timeframe metric error:", err);
     process.exit(1);
