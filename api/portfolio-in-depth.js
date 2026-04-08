@@ -1,5 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
-import {
+const { createClient } = require("@supabase/supabase-js");
+const {
   normalizeTimeframe,
   getMinimumRequiredRows,
   getStartDateIso,
@@ -7,14 +7,14 @@ import {
   buildStoredTrend,
   buildIntradayTrend,
   buildSummary,
-} from "./lib/porta-math/derived-metrics.js";
+} = require("./lib/porta-math/derived-metrics.js");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   try {
     const timeframe = normalizeTimeframe(req.query?.timeframe);
 
@@ -112,4 +112,4 @@ export default async function handler(req, res) {
       details: error?.message || "Unknown error",
     });
   }
-}
+};
