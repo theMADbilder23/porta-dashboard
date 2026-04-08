@@ -1,15 +1,15 @@
-import {
+const {
   safeNumber,
   getAverageValue,
   getMinValue,
   getMaxValue,
   getPctChange,
-} from "./dyf.js";
+} = require("./dyf.js");
 
 const CLAIMABLE_RESET_RATIO_THRESHOLD = 0.6;
 const CLAIMABLE_RESET_MIN_DROP_USD = 5;
 
-export function normalizeTimeframe(value) {
+function normalizeTimeframe(value) {
   const timeframe = String(value || "daily").toLowerCase();
 
   if (
@@ -25,7 +25,7 @@ export function normalizeTimeframe(value) {
   return "daily";
 }
 
-export function getTimeframeDays(timeframe) {
+function getTimeframeDays(timeframe) {
   switch (timeframe) {
     case "weekly":
       return 7;
@@ -41,7 +41,7 @@ export function getTimeframeDays(timeframe) {
   }
 }
 
-export function getMinimumRequiredRows(timeframe) {
+function getMinimumRequiredRows(timeframe) {
   switch (timeframe) {
     case "weekly":
       return 5;
@@ -57,12 +57,20 @@ export function getMinimumRequiredRows(timeframe) {
   }
 }
 
-export function getStartDateIso(timeframe) {
+function getStartDateIso(timeframe) {
   const now = new Date();
   const days = getTimeframeDays(timeframe);
 
   const start = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      0,
+      0,
+      0,
+      0
+    )
   );
 
   start.setUTCDate(start.getUTCDate() - (days - 1));
@@ -70,24 +78,36 @@ export function getStartDateIso(timeframe) {
   return start.toISOString().split("T")[0];
 }
 
-export function getIntradayStartIso() {
+function getIntradayStartIso() {
   const now = new Date();
 
   return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      0,
+      0,
+      0,
+      0
+    )
   ).toISOString();
 }
 
-export function getAsOfDateIso() {
+function getAsOfDateIso() {
   return new Date().toISOString().split("T")[0];
 }
 
-export function formatMetricDateLabel(metricDate, timeframe) {
+function formatMetricDateLabel(metricDate, timeframe) {
   const date = new Date(`${metricDate}T00:00:00Z`);
 
   if (!Number.isFinite(date.getTime())) return "—";
 
-  if (timeframe === "daily" || timeframe === "weekly" || timeframe === "monthly") {
+  if (
+    timeframe === "daily" ||
+    timeframe === "weekly" ||
+    timeframe === "monthly"
+  ) {
     return date.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
@@ -107,7 +127,7 @@ export function formatMetricDateLabel(metricDate, timeframe) {
   });
 }
 
-export function formatDailyBucketLabel(metricTime) {
+function formatDailyBucketLabel(metricTime) {
   const date = new Date(metricTime);
 
   if (!Number.isFinite(date.getTime())) return "—";
@@ -120,7 +140,7 @@ export function formatDailyBucketLabel(metricTime) {
   });
 }
 
-export function getYieldFlowPrefix(timeframe) {
+function getYieldFlowPrefix(timeframe) {
   switch (timeframe) {
     case "weekly":
       return "WYF";
@@ -136,7 +156,7 @@ export function getYieldFlowPrefix(timeframe) {
   }
 }
 
-export function getPeriodYieldLabel(timeframe) {
+function getPeriodYieldLabel(timeframe) {
   switch (timeframe) {
     case "weekly":
       return "Weekly Yield %";
@@ -152,7 +172,7 @@ export function getPeriodYieldLabel(timeframe) {
   }
 }
 
-export function buildStoredTrend(rows, timeframe) {
+function buildStoredTrend(rows, timeframe) {
   return rows.map((row) => ({
     metric_date: row.metric_date,
     metric_time: null,
@@ -168,7 +188,7 @@ export function buildStoredTrend(rows, timeframe) {
   }));
 }
 
-export function buildIntradayTrend(rows) {
+function buildIntradayTrend(rows) {
   return rows.map((row) => ({
     metric_date: row.metric_date,
     metric_time: row.metric_time,
@@ -184,7 +204,7 @@ export function buildIntradayTrend(rows) {
   }));
 }
 
-export function shouldTreatAsClaimableReset(previousRow, currentRow) {
+function shouldTreatAsClaimableReset(previousRow, currentRow) {
   if (!previousRow || !currentRow) return false;
 
   const previousClaimable = safeNumber(previousRow.total_claimable_usd);
@@ -201,7 +221,7 @@ export function shouldTreatAsClaimableReset(previousRow, currentRow) {
   );
 }
 
-export function buildResetAwareTotalClaimable(rows) {
+function buildResetAwareTotalClaimable(rows) {
   if (!Array.isArray(rows) || rows.length === 0) {
     return {
       total_claimable_usd: 0,
@@ -248,18 +268,20 @@ export function buildResetAwareTotalClaimable(rows) {
   };
 }
 
-export function buildTimeframeSummary(rows, timeframe) {
+function buildTimeframeSummary(rows, timeframe) {
   if (!Array.isArray(rows) || rows.length === 0) {
     return {
       is_live_mode: timeframe === "daily",
       header_labels: {
         tpv: timeframe === "daily" ? "Current TPV" : "Avg TPV",
-        claimable: timeframe === "daily" ? "Current Claimable" : "Total Claimable",
+        claimable:
+          timeframe === "daily" ? "Current Claimable" : "Total Claimable",
         yield_flow:
           timeframe === "daily"
             ? "Current DYF"
             : `Total ${getYieldFlowPrefix(timeframe)}`,
-        ratio: timeframe === "daily" ? "Yield / TVD" : getPeriodYieldLabel(timeframe),
+        ratio:
+          timeframe === "daily" ? "Yield / TVD" : getPeriodYieldLabel(timeframe),
       },
       latest_metric_date: null,
       latest_metric_time: null,
@@ -276,7 +298,9 @@ export function buildTimeframeSummary(rows, timeframe) {
   }
 
   const latest = rows[rows.length - 1];
-  const avgTpv = getAverageValue(rows.map((row) => safeNumber(row.total_portfolio_value)));
+  const avgTpv = getAverageValue(
+    rows.map((row) => safeNumber(row.total_portfolio_value))
+  );
   const totalYieldFlowUsd = rows.reduce(
     (sum, row) => sum + safeNumber(row.total_daily_yield_flow),
     0
@@ -289,12 +313,14 @@ export function buildTimeframeSummary(rows, timeframe) {
     is_live_mode: timeframe === "daily",
     header_labels: {
       tpv: timeframe === "daily" ? "Current TPV" : "Avg TPV",
-      claimable: timeframe === "daily" ? "Current Claimable" : "Total Claimable",
+      claimable:
+        timeframe === "daily" ? "Current Claimable" : "Total Claimable",
       yield_flow:
         timeframe === "daily"
           ? "Current DYF"
           : `Total ${getYieldFlowPrefix(timeframe)}`,
-      ratio: timeframe === "daily" ? "Yield / TVD" : getPeriodYieldLabel(timeframe),
+      ratio:
+        timeframe === "daily" ? "Yield / TVD" : getPeriodYieldLabel(timeframe),
     },
     latest_metric_date: latest.metric_date || null,
     latest_metric_time: latest.metric_time || null,
@@ -310,7 +336,7 @@ export function buildTimeframeSummary(rows, timeframe) {
   };
 }
 
-export function buildSummary(rows, { intraday = false, timeframe = "daily" } = {}) {
+function buildSummary(rows, { intraday = false, timeframe = "daily" } = {}) {
   const emptyTimeframeSummary = buildTimeframeSummary([], timeframe);
 
   if (!rows.length) {
@@ -400,7 +426,7 @@ export function buildSummary(rows, { intraday = false, timeframe = "daily" } = {
   };
 }
 
-export function findStrongestWeakest(rows, timeframe) {
+function findStrongestWeakest(rows, timeframe) {
   if (!Array.isArray(rows) || rows.length === 0) {
     return {
       strongest_period_label: null,
@@ -414,19 +440,51 @@ export function findStrongestWeakest(rows, timeframe) {
   let weakestRow = rows[0];
 
   for (const row of rows) {
-    if (safeNumber(row.total_daily_yield_flow) > safeNumber(strongestRow.total_daily_yield_flow)) {
+    if (
+      safeNumber(row.total_daily_yield_flow) >
+      safeNumber(strongestRow.total_daily_yield_flow)
+    ) {
       strongestRow = row;
     }
 
-    if (safeNumber(row.total_daily_yield_flow) < safeNumber(weakestRow.total_daily_yield_flow)) {
+    if (
+      safeNumber(row.total_daily_yield_flow) <
+      safeNumber(weakestRow.total_daily_yield_flow)
+    ) {
       weakestRow = row;
     }
   }
 
   return {
-    strongest_period_label: formatMetricDateLabel(strongestRow.metric_date, timeframe),
+    strongest_period_label: formatMetricDateLabel(
+      strongestRow.metric_date,
+      timeframe
+    ),
     strongest_period_value: safeNumber(strongestRow.total_daily_yield_flow),
-    weakest_period_label: formatMetricDateLabel(weakestRow.metric_date, timeframe),
+    weakest_period_label: formatMetricDateLabel(
+      weakestRow.metric_date,
+      timeframe
+    ),
     weakest_period_value: safeNumber(weakestRow.total_daily_yield_flow),
   };
 }
+
+module.exports = {
+  normalizeTimeframe,
+  getTimeframeDays,
+  getMinimumRequiredRows,
+  getStartDateIso,
+  getIntradayStartIso,
+  getAsOfDateIso,
+  formatMetricDateLabel,
+  formatDailyBucketLabel,
+  getYieldFlowPrefix,
+  getPeriodYieldLabel,
+  buildStoredTrend,
+  buildIntradayTrend,
+  shouldTreatAsClaimableReset,
+  buildResetAwareTotalClaimable,
+  buildTimeframeSummary,
+  buildSummary,
+  findStrongestWeakest,
+};
