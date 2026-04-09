@@ -446,7 +446,20 @@ export default async function handler(req, res) {
       (bucket) => bucket.portfolio_total_usd ?? bucket.total_value_usd
     );
 
+    const claimableBucketValues = bucketTotalsForStats.map(
+      (bucket) => bucket.claimable_total_usd ?? bucket.total_claimable_usd
+    );
+
     const minPortfolioValueLive = getMinValue(portfolioBucketValues);
+    const minClaimableValue = getMinValue(claimableBucketValues, {
+      ignoreZero: true,
+    });
+    const maxClaimableValue = getMaxValue(claimableBucketValues);
+
+    const currentClaimableValue =
+      claimableBucketValues.length > 0
+        ? safeNumber(claimableBucketValues[claimableBucketValues.length - 1])
+        : 0;
 
     let totalYieldFlow = null;
     let totalPortfolioValue = totalPortfolioValueLive;
@@ -454,7 +467,12 @@ export default async function handler(req, res) {
       totalPortfolioValueLive,
       minPortfolioValueLive
     );
-    let passiveIncomeChangePct = null;
+
+    let passiveIncomeChangePct = getChangePctFromMin(
+      currentClaimableValue,
+      minClaimableValue
+    );
+
     let dailyRolloverDebug = null;
 
     if (timeframe === "daily") {
@@ -464,24 +482,33 @@ export default async function handler(req, res) {
       dailyRolloverDebug = dailySummary.daily_rollover_debug;
     } else if (storedTimeframeMetrics && storedTimeframeMetrics.sufficient_data) {
       totalYieldFlow = safeNumber(storedTimeframeMetrics.total_yield_flow_usd);
-      totalPortfolioValue = safeNumber(storedTimeframeMetrics.avg_tpv);
-      totalPortfolioValueChangePct = safeNumber(
-        storedTimeframeMetrics.period_range_pct
-      );
-      passiveIncomeChangePct = safeNumber(
-        storedTimeframeMetrics.period_yield_pct
-      );
+
+      const avgTpv = safeNumber(storedTimeframeMetrics.avg_tpv);
+      if (avgTpv > 0) {
+        totalPortfolioValue = avgTpv;
+        totalPortfolioValueChangePct = getChangePctFromMin(
+          avgTpv,
+          minPortfolioValueLive
+        );
+      }
     } else {
-      const claimableBucketValues = bucketTotalsForStats.map(
-        (bucket) => bucket.claimable_total_usd ?? bucket.total_claimable_usd
-      );
-
-      const minClaimableValue = getMinValue(claimableBucketValues, {
-        ignoreZero: true,
-      });
-      const maxClaimableValue = getMaxValue(claimableBucketValues);
-
       totalYieldFlow = getRangeFlow(maxClaimableValue, minClaimableValue);
+
+      const numericPortfolioValues = portfolioBucketValues
+        .map((value) => safeNumber(value))
+        .filter((value) => Number.isFinite(value) && value > 0);
+
+      if (numericPortfolioValues.length > 0) {
+        const avgTpv =
+          numericPortfolioValues.reduce((sum, value) => sum + value, 0) /
+          numericPortfolioValues.length;
+
+        totalPortfolioValue = avgTpv;
+        totalPortfolioValueChangePct = getChangePctFromMin(
+          avgTpv,
+          minPortfolioValueLive
+        );
+      }
     }
 
     const stableFlowWeight =

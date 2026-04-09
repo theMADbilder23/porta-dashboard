@@ -12,6 +12,7 @@ type MetricCardProps = {
   helperText?: string;
   active?: boolean;
   onClick?: () => void;
+  changeTooltip?: string;
 };
 
 export default function MetricCard({
@@ -23,6 +24,7 @@ export default function MetricCard({
   helperText = "vs selected period",
   active = false,
   onClick,
+  changeTooltip,
 }: MetricCardProps) {
   const content = (
     <>
@@ -44,7 +46,7 @@ export default function MetricCard({
         <span className="truncate text-[1.55rem] font-semibold leading-none tracking-[-0.02em] text-[#2D1B45] dark:text-[#F3E8FF] md:text-[1.75rem]">
           {value}
         </span>
-        <ChangeIndicator change={change} />
+        <ChangeIndicator change={change} tooltip={changeTooltip} />
       </div>
 
       <div className="mt-3 text-xs font-medium text-[#6B5A86] dark:text-[#BFA9F5]">
@@ -75,14 +77,22 @@ export default function MetricCard({
   return <section className={cn(baseClasses, stateClasses, className)}>{content}</section>;
 }
 
-function ChangeIndicator({ change }: { change: number }) {
+function ChangeIndicator({
+  change,
+  tooltip,
+}: {
+  change: number;
+  tooltip?: string;
+}) {
   const positive = change >= 0;
   const roundedValue = Math.round(Math.abs(change) * 100);
 
   return (
     <span
+      title={tooltip}
       className={cn(
         "inline-flex shrink-0 items-center rounded-full px-2 py-1 text-xs font-semibold leading-none",
+        tooltip ? "cursor-help" : "",
         positive
           ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300"
           : "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
