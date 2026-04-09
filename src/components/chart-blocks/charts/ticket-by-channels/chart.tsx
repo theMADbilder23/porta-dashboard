@@ -5,7 +5,7 @@ import { ShieldCheck, TriangleAlert, Info } from "lucide-react";
 import { useOverview } from "@/hooks/use-overview";
 import { useAtomValue } from "jotai";
 import { overviewTimeframeAtom } from "@/lib/atoms/overview";
-import { formatUsdRounded, formatPercent } from "@/lib/utils";
+import { formatUsdRounded, formatPercent, cn } from "@/lib/utils";
 
 type HealthResult = {
   score: number;
@@ -102,7 +102,7 @@ function polarToCartesian(
   radius: number,
   angleInDegrees: number
 ) {
-  const angleInRadians = ((angleInDegrees - 180) * Math.PI) / 180.0;
+  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180.0;
   return {
     x: centerX + radius * Math.cos(angleInRadians),
     y: centerY + radius * Math.sin(angleInRadians),
@@ -129,27 +129,10 @@ function describeArc(
     radius,
     0,
     largeArcFlag,
-    0,
+    1,
     end.x,
     end.y,
   ].join(" ");
-}
-
-function getHealthColor(index: number, active: boolean) {
-  const activeColors = [
-    "#F3E8FF",
-    "#E9D5FF",
-    "#D8B4FE",
-    "#C084FC",
-    "#A855F7",
-    "#9333EA",
-    "#7E22CE",
-    "#6D28D9",
-  ];
-
-  const inactiveColor = "#F5F0FF";
-
-  return active ? activeColors[index] ?? "#6D28D9" : inactiveColor;
 }
 
 function InfoTooltip({
@@ -182,14 +165,127 @@ function AllocationPill({
   description: string;
 }) {
   return (
-    <div className="rounded-2xl border border-[#E9DAFF] bg-white px-4 py-3 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-      <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+    <div className="rounded-xl border border-[#E9DAFF] bg-white px-3.5 py-3 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
         <span>{label}</span>
         <InfoTooltip title={label} description={description} />
       </div>
 
-      <div className="mt-2 text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+      <div className="mt-1.5 text-lg font-semibold leading-none text-[#2D1B45] dark:text-[#F3E8FF]">
         {formatPercent(value * 100, 1)}
+      </div>
+    </div>
+  );
+}
+
+function getScoreColor(score: number) {
+  if (score >= 75) return "#7C3AED";
+  if (score >= 50) return "#A855F7";
+  return "#C084FC";
+}
+
+function Gauge({
+  score,
+  label,
+}: {
+  score: number;
+  label: string;
+}) {
+  const clampedScore = clamp(score);
+  const startAngle = 180;
+  const endAngle = 360;
+  const filledEndAngle = startAngle + (180 * clampedScore) / 100;
+
+  const trackPath = describeArc(160, 160, 96, startAngle, endAngle);
+  const valuePath = describeArc(160, 160, 96, startAngle, filledEndAngle);
+  const accent = getScoreColor(clampedScore);
+
+  return (
+    <div className="flex justify-center rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-4 dark:border-[#241533] dark:bg-[#140D20]">
+      <div className="relative h-[240px] w-full max-w-[360px]">
+        <svg viewBox="0 0 320 240" className="h-full w-full overflow-visible">
+          <path
+            d={trackPath}
+            fill="none"
+            stroke="rgba(168, 85, 247, 0.14)"
+            strokeWidth="18"
+            strokeLinecap="round"
+          />
+
+          <path
+            d={valuePath}
+            fill="none"
+            stroke={accent}
+            strokeWidth="18"
+            strokeLinecap="round"
+          />
+
+          <text
+            x="58"
+            y="196"
+            textAnchor="middle"
+            fill="currentColor"
+            className="text-[#6B5A86] dark:text-[#BFA9F5]"
+            style={{ fontSize: 11, fontWeight: 500 }}
+          >
+            Low
+          </text>
+
+          <text
+            x="160"
+            y="72"
+            textAnchor="middle"
+            fill="currentColor"
+            className="text-[#6B5A86] dark:text-[#BFA9F5]"
+            style={{ fontSize: 11, fontWeight: 500 }}
+          >
+            Moderate
+          </text>
+
+          <text
+            x="262"
+            y="196"
+            textAnchor="middle"
+            fill="currentColor"
+            className="text-[#6B5A86] dark:text-[#BFA9F5]"
+            style={{ fontSize: 11, fontWeight: 500 }}
+          >
+            Strong
+          </text>
+
+          <text
+            x="160"
+            y="150"
+            textAnchor="middle"
+            fill="currentColor"
+            className="text-[#2D1B45] dark:text-[#F3E8FF]"
+            style={{ fontSize: 16, fontWeight: 500 }}
+          >
+            Portfolio Health
+          </text>
+
+          <text
+            x="160"
+            y="178"
+            textAnchor="middle"
+            fill="currentColor"
+            className="text-[#2D1B45] dark:text-[#F3E8FF]"
+            style={{ fontSize: 28, fontWeight: 700 }}
+          >
+            {clampedScore}/100
+          </text>
+
+          <text
+            x="160"
+            y="201"
+            textAnchor="middle"
+            fill="currentColor"
+            className="text-[#6B5A86] dark:text-[#BFA9F5]"
+            style={{ fontSize: 12, fontWeight: 600 }}
+          >
+            {label}
+          </text>
+        </svg>
       </div>
     </div>
   );
@@ -209,24 +305,6 @@ export default function Chart() {
       }),
     [overview]
   );
-
-  const segments = 8;
-  const activeSegments = Math.max(
-    0,
-    Math.round((health.score / 100) * segments)
-  );
-
-  const meterSegments = Array.from({ length: segments }, (_, index) => {
-    const startAngle = 180 - index * 22;
-    const endAngle = startAngle - 16;
-    const active = index < activeSegments;
-
-    return {
-      path: describeArc(160, 150, 96, startAngle, endAngle),
-      color: getHealthColor(index, active),
-      key: `segment-${index}`,
-    };
-  });
 
   const defensiveBase =
     safeNumber(overview?.stable_value) + safeNumber(overview?.rotational_value);
@@ -263,7 +341,7 @@ export default function Chart() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[120px_minmax(280px,360px)_120px] xl:items-center xl:justify-center">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[120px_minmax(320px,380px)_120px] xl:items-center xl:justify-center">
         <div className="flex flex-col gap-3">
           <AllocationPill
             label="Stable Core"
@@ -277,44 +355,7 @@ export default function Chart() {
           />
         </div>
 
-        <div className="flex justify-center rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-4 dark:border-[#241533] dark:bg-[#140D20]">
-          <div className="relative h-[220px] w-full max-w-[340px]">
-            <svg viewBox="0 0 320 220" className="h-full w-full overflow-visible">
-              {meterSegments.map((segment) => (
-                <path
-                  key={segment.key}
-                  d={segment.path}
-                  fill="none"
-                  stroke={segment.color}
-                  strokeWidth="18"
-                  strokeLinecap="round"
-                />
-              ))}
-
-              <text
-                x="160"
-                y="145"
-                textAnchor="middle"
-                fill="currentColor"
-                className="text-[#2D1B45] dark:text-[#F3E8FF]"
-                style={{ fontSize: 16, fontWeight: 500 }}
-              >
-                Portfolio Health
-              </text>
-
-              <text
-                x="160"
-                y="170"
-                textAnchor="middle"
-                fill="currentColor"
-                className="text-[#2D1B45] dark:text-[#F3E8FF]"
-                style={{ fontSize: 22, fontWeight: 700 }}
-              >
-                {health.score}/100
-              </text>
-            </svg>
-          </div>
-        </div>
+        <Gauge score={health.score} label={health.label} />
 
         <div className="flex flex-col gap-3">
           <AllocationPill
