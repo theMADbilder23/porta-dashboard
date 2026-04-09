@@ -81,7 +81,9 @@ function getYieldFlowHelperText(timeframe: OverviewTimeframe) {
 
 export default function Metrics() {
   const timeframe = useAtomValue(overviewTimeframeAtom);
-  const [selectedMetric, setSelectedMetric] = useAtom(overviewSelectedMetricAtom);
+  const [selectedMetric, setSelectedMetric] = useAtom(
+    overviewSelectedMetricAtom,
+  );
 
   const apiTimeframe = useMemo(() => {
     switch (timeframe) {
@@ -152,11 +154,11 @@ export default function Metrics() {
 
   return (
     <section className="border-b border-border bg-transparent">
-      <Container className="py-5">
-        <div className="rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+      <Container className="py-4 md:py-5">
+        <div className="rounded-2xl border border-[#E9DAFF] bg-white p-4 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19] md:p-5">
           <div className="flex flex-col gap-5">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
                 <h1 className="text-3xl font-bold tracking-tight text-[#2D1B45] dark:text-[#F3E8FF]">
                   Overview
                 </h1>
@@ -168,7 +170,9 @@ export default function Metrics() {
                 </p>
               </div>
 
-              <OverviewTimeframeTabs />
+              <div className="shrink-0">
+                <OverviewTimeframeTabs />
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 phone:grid-cols-2 desktop:grid-cols-4">
