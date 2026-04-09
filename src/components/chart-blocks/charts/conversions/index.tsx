@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Layers3, Info } from "lucide-react";
+import { Layers3 } from "lucide-react";
 import ChartTitle from "../../components/chart-title";
 import Chart from "./chart";
 import { buildConversionsFromOverview } from "@/data/conversions";
@@ -74,10 +74,10 @@ export default function Conversions() {
   }, [strategyFlow]);
 
   return (
-    <section className="flex h-full flex-col rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+    <section className="flex h-full flex-col rounded-2xl border border-[#E9DAFF] bg-white p-4 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
       <ChartTitle title="MMII Allocation" icon={Layers3} />
 
-      <div className="mt-4 flex flex-1 flex-col gap-4">
+      <div className="mt-3 flex flex-1 flex-col gap-3">
         <AllocationSection
           title="MMII Tiers"
           description="Top-level structural distribution across Foundational Hub, Collateralized Liquidity, and Direct Allocation."
@@ -158,21 +158,21 @@ function AllocationSection({
   gridClassName: string;
 }) {
   return (
-    <div className="rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-4 dark:border-[#241533] dark:bg-[#140D20]">
-      <div className="mb-3">
-        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#6B5A86] dark:text-[#BFA9F5]">
+    <div className="rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-3 dark:border-[#241533] dark:bg-[#140D20]">
+      <div className="mb-2">
+        <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#6B5A86] dark:text-[#BFA9F5]">
           {title}
         </p>
-        <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
+        <p className="mt-0.5 text-[11px] leading-relaxed text-[#6B5A86] dark:text-[#BFA9F5]">
           {description}
         </p>
       </div>
 
-      <div className="h-[240px] w-full">
+      <div className="h-[180px] w-full">
         <Chart conversions={conversions as ConversionBucket[]} />
       </div>
 
-      <div className={`mt-3 grid gap-2 ${gridClassName}`}>
+      <div className={`mt-2 grid gap-2 ${gridClassName}`}>
         {cards.map((card) => (
           <SleeveCard
             key={card.label}
@@ -233,32 +233,32 @@ function AlignmentMeter({
   });
 
   return (
-    <div className="rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-4 dark:border-[#241533] dark:bg-[#140D20]">
+    <div className="rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-3 dark:border-[#241533] dark:bg-[#140D20]">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#6B5A86] dark:text-[#BFA9F5]">
+          <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#6B5A86] dark:text-[#BFA9F5]">
             MMII Alignment Meter
           </p>
-          <p className="mt-1 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+          <p className="mt-0.5 text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
             {label}
           </p>
         </div>
 
         <div className="text-right">
-          <p className="text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+          <p className="text-base font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
             {score}/100
           </p>
         </div>
       </div>
 
-      <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-[#EFE7FF] dark:bg-white/10">
+      <div className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-[#EFE7FF] dark:bg-white/10">
         <div
           className="h-full rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-purple-400 transition-all duration-500"
           style={{ width: `${score}%` }}
         />
       </div>
 
-      <div className="mt-3 flex items-start justify-between gap-3 text-xs">
+      <div className="mt-2.5 flex items-start justify-between gap-3 text-[11px] leading-relaxed">
         <span className="font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
           {label}
         </span>
@@ -280,11 +280,13 @@ function SleeveCard({
   accentClass: string;
 }) {
   return (
-    <div className="rounded-xl border border-[#E9DAFF] bg-white px-3 py-3 dark:border-[#2A1D3B] dark:bg-[#100A19]">
-      <p className={`text-[11px] font-medium uppercase tracking-[0.14em] ${accentClass}`}>
+    <div className="rounded-xl border border-[#E9DAFF] bg-white px-2.5 py-2.5 dark:border-[#2A1D3B] dark:bg-[#100A19]">
+      <p
+        className={`text-[10px] font-medium uppercase tracking-[0.12em] leading-snug ${accentClass}`}
+      >
         {label}
       </p>
-      <p className="mt-1 text-xl font-semibold leading-none text-[#2D1B45] dark:text-[#F3E8FF]">
+      <p className="mt-1 text-lg font-semibold leading-none text-[#2D1B45] dark:text-[#F3E8FF]">
         {Math.round(value)}%
       </p>
     </div>
@@ -296,18 +298,12 @@ function getNodeValueByKey(nodes: StrategyFlowNode[], key: string) {
   return Number(match?.total_value_usd) || 0;
 }
 
-function getRawValueByName(
-  conversions: Slice[],
-  name: string
-) {
+function getRawValueByName(conversions: Slice[], name: string) {
   const item = conversions.find((entry) => entry.name === name);
   return Number(item?.value) || 0;
 }
 
-function getPercentByName(
-  conversions: Slice[],
-  name: string
-) {
+function getPercentByName(conversions: Slice[], name: string) {
   const total = conversions.reduce(
     (sum, entry) => sum + (Number(entry.value) || 0),
     0
