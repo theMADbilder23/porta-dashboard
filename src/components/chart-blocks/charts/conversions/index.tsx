@@ -25,22 +25,22 @@ export default function Conversions() {
         <div className="grid grid-cols-2 gap-2">
           <SleeveCard
             label="Stable Core"
-            value={getValueByName(conversions, "Stable Core")}
+            value={getPercentByName(conversions, "Stable Core")}
             accentClass="text-[#A78BFA] dark:text-[#C4B5FD]"
           />
           <SleeveCard
             label="Rotational Core"
-            value={getValueByName(conversions, "Rotational Core")}
+            value={getPercentByName(conversions, "Rotational Core")}
             accentClass="text-[#C084FC] dark:text-[#D8B4FE]"
           />
           <SleeveCard
             label="Growth"
-            value={getValueByName(conversions, "Growth")}
+            value={getPercentByName(conversions, "Growth")}
             accentClass="text-[#7C3AED] dark:text-[#A78BFA]"
           />
           <SleeveCard
             label="Swing"
-            value={getValueByName(conversions, "Swing")}
+            value={getPercentByName(conversions, "Swing")}
             accentClass="text-[#8B5CF6] dark:text-[#C4B5FD]"
           />
         </div>
@@ -56,10 +56,10 @@ function AlignmentMeter({
 }: {
   conversions: ConversionBucket[];
 }) {
-  const stable = getValueByName(conversions, "Stable Core");
-  const rotational = getValueByName(conversions, "Rotational Core");
-  const growth = getValueByName(conversions, "Growth");
-  const swing = getValueByName(conversions, "Swing");
+  const stable = getPercentByName(conversions, "Stable Core");
+  const rotational = getPercentByName(conversions, "Rotational Core");
+  const growth = getPercentByName(conversions, "Growth");
+  const swing = getPercentByName(conversions, "Swing");
 
   let score = 0;
 
@@ -141,12 +141,27 @@ function SleeveCard({
   );
 }
 
-function getValueByName(
+function getRawValueByName(
   conversions: ConversionBucket[],
   name: ConversionBucket["name"]
 ) {
   const item = conversions.find((entry) => entry.name === name);
   return Number(item?.value) || 0;
+}
+
+function getPercentByName(
+  conversions: ConversionBucket[],
+  name: ConversionBucket["name"]
+) {
+  const total = conversions.reduce(
+    (sum, entry) => sum + (Number(entry.value) || 0),
+    0
+  );
+
+  if (total <= 0) return 0;
+
+  const rawValue = getRawValueByName(conversions, name);
+  return (rawValue / total) * 100;
 }
 
 function buildAlignmentInsight(values: {
