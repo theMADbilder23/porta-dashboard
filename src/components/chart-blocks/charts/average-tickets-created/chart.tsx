@@ -750,34 +750,34 @@ export default function Chart() {
     return generateLineSpec(trendData, selectedMetric, timeframe);
   }, [timeframe, dailySummary, trendData, selectedMetric]);
 
-  return (
+    return (
     <section className="flex h-full flex-col gap-3">
       <div className="flex w-full justify-center">
-        <div className="flex flex-wrap justify-center gap-2 max-w-[900px]">
-        {statCards.map((card) => (
-          <div key={card.label} className="flex flex-col gap-1">
-            <div className="flex items-center gap-1.5 pl-1">
-              <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                {card.label}
-              </span>
-              <InfoTooltip
-                title={card.tooltipTitle ?? card.label}
-                description={card.description}
-              />
+        <div className="flex max-w-[900px] flex-wrap justify-center gap-2">
+          {statCards.map((card) => (
+            <div key={card.label} className="flex flex-col gap-1">
+              <div className="flex items-center gap-1.5 pl-1">
+                <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                  {card.label}
+                </span>
+                <InfoTooltip
+                  title={card.tooltipTitle ?? card.label}
+                  description={card.description}
+                />
               </div>
-            </div>
 
-            <MetricCard
-              title={card.label}
-              value={card.value}
-              color={getSeriesColor(selectedMetric)}
-              isPercent={card.isPercent}
-              helperText={card.helperText}
-              warning={shouldWarnStat(card.label, card.value, card.isPercent)}
-              className="min-w-[110px]"
-            />
-          </div>
-        ))}
+              <MetricCard
+                title={card.label}
+                value={card.value}
+                color={getSeriesColor(selectedMetric)}
+                isPercent={card.isPercent}
+                helperText={card.helperText}
+                warning={shouldWarnStat(card.label, card.value, card.isPercent)}
+                className="min-w-[110px]"
+              />
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="relative h-[460px] w-full flex-1">
