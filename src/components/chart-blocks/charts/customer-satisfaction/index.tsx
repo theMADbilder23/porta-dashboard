@@ -36,10 +36,12 @@ export default function CustomerSatisfaction() {
 
   const totalAvgApy =
     totalDistributed > 0
-      ? yieldSources.reduce(
+      ? (yieldSources.reduce(
           (sum, item) => sum + item.value * (item.avgYield / 100),
-          0,
-        ) / totalDistributed * 100
+          0
+        ) /
+          totalDistributed) *
+        100
       : 0;
 
   return (
@@ -51,7 +53,7 @@ export default function CustomerSatisfaction() {
           <TotalDistributed value={totalDistributed} totalAvgApy={totalAvgApy} />
         </div>
 
-        <div className="mx-auto flex w-full max-w-[560px] flex-col gap-4 pt-1">
+        <div className="mx-auto flex w-full max-w-[680px] flex-col gap-4">
           {yieldSources.map((source) => (
             <LinearProgress
               key={source.label}
@@ -80,8 +82,10 @@ function TotalDistributed({
 }) {
   return (
     <div className="flex flex-col items-center justify-center text-center">
-      <div className="text-xs text-muted-foreground">Total Value Distributed</div>
-      <div className="text-4xl font-semibold leading-none">
+      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+        Total Value Distributed
+      </div>
+      <div className="mt-1 text-5xl font-semibold leading-none">
         {formatUsdRounded(value)}
       </div>
       <div className="mt-2 text-sm text-muted-foreground">
@@ -92,7 +96,7 @@ function TotalDistributed({
 }
 
 function buildYieldSourcesFromOverview(
-  overview?: Partial<OverviewResponse> | null,
+  overview?: Partial<OverviewResponse> | null
 ): YieldSummarySourceWithMeta[] {
   const stableValue = safeNumber(overview?.stable_yield_value);
   const hardAssetValue = safeNumber(overview?.hard_asset_yield_value);

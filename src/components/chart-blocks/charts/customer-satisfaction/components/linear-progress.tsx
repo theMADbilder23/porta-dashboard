@@ -106,7 +106,7 @@ const getSpec = (
           },
         },
         maxWidth: "68%",
-        width: 40,
+        width: 42,
       },
     ],
     background: "transparent",
@@ -133,9 +133,9 @@ export default function LinearProgress({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="w-full rounded-2xl border border-[#E9DAFF] bg-white px-4 py-4 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-2.5">
+    <div className="w-full rounded-2xl border border-[#E9DAFF] bg-white px-5 py-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+      <div className="flex items-start justify-between gap-5">
+        <div className="flex min-w-0 items-start gap-3">
           <div className="mt-0.5 shrink-0 text-[#8B5CF6]">{icon}</div>
 
           <div className="min-w-0">
@@ -146,24 +146,24 @@ export default function LinearProgress({
               <InfoTooltip title={label} description={description} />
             </div>
 
-            <div className="mt-1 text-xs text-muted-foreground">
+            <div className="mt-1.5 max-w-[420px] text-xs leading-relaxed text-muted-foreground">
               {description}
             </div>
           </div>
         </div>
 
         <div className="shrink-0 text-right">
-          <div className="text-2xl font-semibold leading-none text-foreground">
+          <div className="text-4xl font-semibold leading-none text-foreground">
             {formatUsdRounded(value)}
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">
+          <div className="mt-1.5 text-xs text-muted-foreground">
             {formatPercent(avgYield, 1)} avg. APY ({formatUsdPrecise(dailyYield)}
             /day)
           </div>
         </div>
       </div>
 
-      <div className="mt-4 w-full">
+      <div className="mt-5 w-full">
         <VChart
           spec={getSpec(
             label,
