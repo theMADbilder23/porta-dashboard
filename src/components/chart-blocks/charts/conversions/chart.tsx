@@ -38,10 +38,10 @@ export default function Chart({
     ],
     valueField: "value",
     categoryField: "name",
-    outerRadius: 0.82,
-    innerRadius: 0.58,
+    outerRadius: 0.8,
+    innerRadius: 0.62,
     padAngle: 1.5,
-    cornerRadius: 6,
+    cornerRadius: 5,
     pie: {
       style: {
         stroke: "transparent",
@@ -55,7 +55,7 @@ export default function Chart({
       {
         visible: true,
         orient: "top",
-        position: "start",
+        position: "middle",
         padding: 0,
         item: {
           shape: {
@@ -65,7 +65,7 @@ export default function Chart({
           },
           label: {
             style: {
-              fill: "#6B5A86",
+              fill: "#BFA9F5",
               fontSize: 12,
             },
           },
@@ -73,13 +73,7 @@ export default function Chart({
       },
     ],
     label: {
-      visible: true,
-      position: "inside",
-      style: {
-        fill: "#ffffff",
-        fontWeight: 600,
-        fontSize: 12,
-      },
+      visible: false,
     },
     tooltip: {
       visible: true,
@@ -103,9 +97,9 @@ export default function Chart({
                 percentage?: number;
               };
 
-              return `${formatUsdRounded(node.value ?? 0)} • ${(
+              return `${formatUsdRounded(node.value ?? 0)} · ${(
                 node.percentage ?? 0
-              ).toFixed(2)}%`;
+              ).toFixed(0)}%`;
             },
           },
         ],
@@ -113,15 +107,15 @@ export default function Chart({
     },
     animationEnter: {
       easing: "cubicInOut",
-      duration: 700,
+      duration: 650,
     },
     animationUpdate: {
       easing: "cubicInOut",
-      duration: 400,
+      duration: 350,
     },
     animationExit: {
       easing: "cubicInOut",
-      duration: 300,
+      duration: 250,
     },
     background: "transparent",
   };
