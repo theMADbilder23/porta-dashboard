@@ -1167,7 +1167,7 @@ export default function QcapCustomChart({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3" ref={timeframeMenuRef}>
+      <div className="relative flex items-center gap-3" ref={timeframeMenuRef}>
         <button
           type="button"
           onClick={() => setShowTimeframeMenu((prev) => !prev)}
@@ -1180,7 +1180,7 @@ export default function QcapCustomChart({
         </button>
 
         {showTimeframeMenu ? (
-          <div className="absolute z-20 mt-36 w-40 rounded-lg border border-white/10 bg-[#0b1020] p-1 shadow-xl">
+          <div className="absolute left-0 top-[calc(100%+8px)] z-50 w-40 rounded-lg border border-white/10 bg-[#0b1020] p-1 shadow-xl">
             {TIMEFRAMES.map((option) => {
               const isActive = option.key === timeframe
               const isSupported = supportedTimeframes.includes(option.key)
