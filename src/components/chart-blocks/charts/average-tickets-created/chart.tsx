@@ -752,7 +752,8 @@ export default function Chart() {
 
   return (
     <section className="flex h-full flex-col gap-3">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex w-full justify-center">
+        <div className="flex flex-wrap justify-center gap-2 max-w-[900px]">
         {statCards.map((card) => (
           <div key={card.label} className="flex flex-col gap-1">
             <div className="flex items-center gap-1.5 pl-1">
@@ -763,6 +764,7 @@ export default function Chart() {
                 title={card.tooltipTitle ?? card.label}
                 description={card.description}
               />
+              </div>
             </div>
 
             <MetricCard
