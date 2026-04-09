@@ -1,20 +1,27 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ShieldCheck, TriangleAlert, Info } from "lucide-react";
 import { useOverview } from "@/hooks/use-overview";
 import { useAtomValue } from "jotai";
 import { overviewTimeframeAtom } from "@/lib/atoms/overview";
-import { formatUsdRounded, formatPercent, cn } from "@/lib/utils";
+import { formatUsdRounded, formatPercent } from "@/lib/utils";
 
 type HealthResult = {
   score: number;
   label: string;
   summary: string;
-  stablePct: number;
-  rotationalPct: number;
-  growthPct: number;
-  swingPct: number;
+};
+
+type StrategyFlowNode = {
+  key?: string;
+  label?: string;
+  total_value_usd?: number;
+  children?: StrategyFlowNode[];
+};
+
+type StrategyFlowResponse = {
+  structure?: StrategyFlowNode;
 };
 
 function clamp(value: number, min = 0, max = 100) {
@@ -45,10 +52,6 @@ function buildHealthResult(input: {
       label: "No Data",
       summary:
         "Health score will improve once more tracked allocation data is available.",
-      stablePct: 0,
-      rotationalPct: 0,
-      growthPct: 0,
-      swingPct: 0,
     };
   }
 
@@ -89,10 +92,6 @@ function buildHealthResult(input: {
     score,
     label,
     summary,
-    stablePct,
-    rotationalPct,
-    growthPct,
-    swingPct,
   };
 }
 
@@ -102,7 +101,7 @@ function polarToCartesian(
   radius: number,
   angleInDegrees: number
 ) {
-  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180.0;
+  const angleInRadians = (angleInDegrees * Math.PI) / 180;
   return {
     x: centerX + radius * Math.cos(angleInRadians),
     y: centerY + radius * Math.sin(angleInRadians),
@@ -116,9 +115,9 @@ function describeArc(
   startAngle: number,
   endAngle: number
 ) {
-  const start = polarToCartesian(x, y, radius, endAngle);
-  const end = polarToCartesian(x, y, radius, startAngle);
-  const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+  const start = polarToCartesian(x, y, radius, startAngle);
+  const end = polarToCartesian(x, y, radius, endAngle);
+  const largeArcFlag = Math.abs(endAngle - startAngle) <= 180 ? "0" : "1";
 
   return [
     "M",
@@ -133,6 +132,12 @@ function describeArc(
     end.x,
     end.y,
   ].join(" ");
+}
+
+function getScoreColor(score: number) {
+  if (score >= 75) return "#7C3AED";
+  if (score >= 50) return "#A855F7";
+  return "#C084FC";
 }
 
 function InfoTooltip({
@@ -155,33 +160,23 @@ function InfoTooltip({
   );
 }
 
-function AllocationPill({
-  label,
-  value,
-  description,
-}: {
-  label: string;
-  value: number;
-  description: string;
-}) {
-  return (
-    <div className="rounded-xl border border-[#E9DAFF] bg-white px-3.5 py-3 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-        <span>{label}</span>
-        <InfoTooltip title={label} description={description} />
-      </div>
+function findCoreLayerValue(
+  node: StrategyFlowNode | undefined,
+  targetKeys: string[]
+): number {
+  if (!node) return 0;
 
-      <div className="mt-1.5 text-lg font-semibold leading-none text-[#2D1B45] dark:text-[#F3E8FF]">
-        {formatPercent(value * 100, 1)}
-      </div>
-    </div>
-  );
-}
+  let total = 0;
 
-function getScoreColor(score: number) {
-  if (score >= 75) return "#7C3AED";
-  if (score >= 50) return "#A855F7";
-  return "#C084FC";
+  if (node.key && targetKeys.includes(node.key)) {
+    total += safeNumber(node.total_value_usd);
+  }
+
+  for (const child of node.children || []) {
+    total += findCoreLayerValue(child, targetKeys);
+  }
+
+  return total;
 }
 
 function Gauge({
@@ -192,22 +187,22 @@ function Gauge({
   label: string;
 }) {
   const clampedScore = clamp(score);
-  const startAngle = 180;
-  const endAngle = 360;
-  const filledEndAngle = startAngle + (180 * clampedScore) / 100;
-
-  const trackPath = describeArc(160, 160, 96, startAngle, endAngle);
-  const valuePath = describeArc(160, 160, 96, startAngle, filledEndAngle);
+  const trackStart = 180;
+  const trackEnd = 360;
+  const filledEnd = trackStart + ((trackEnd - trackStart) * clampedScore) / 100;
   const accent = getScoreColor(clampedScore);
 
+  const trackPath = describeArc(160, 148, 88, trackStart, trackEnd);
+  const valuePath = describeArc(160, 148, 88, trackStart, filledEnd);
+
   return (
-    <div className="flex justify-center rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-4 dark:border-[#241533] dark:bg-[#140D20]">
-      <div className="relative h-[240px] w-full max-w-[360px]">
-        <svg viewBox="0 0 320 240" className="h-full w-full overflow-visible">
+    <div className="mx-auto flex w-full max-w-[460px] justify-center rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-4 dark:border-[#241533] dark:bg-[#140D20]">
+      <div className="relative h-[250px] w-full">
+        <svg viewBox="0 0 320 230" className="h-full w-full overflow-visible">
           <path
             d={trackPath}
             fill="none"
-            stroke="rgba(168, 85, 247, 0.14)"
+            stroke="rgba(168, 85, 247, 0.16)"
             strokeWidth="18"
             strokeLinecap="round"
           />
@@ -221,8 +216,8 @@ function Gauge({
           />
 
           <text
-            x="58"
-            y="196"
+            x="56"
+            y="194"
             textAnchor="middle"
             fill="currentColor"
             className="text-[#6B5A86] dark:text-[#BFA9F5]"
@@ -233,7 +228,7 @@ function Gauge({
 
           <text
             x="160"
-            y="72"
+            y="42"
             textAnchor="middle"
             fill="currentColor"
             className="text-[#6B5A86] dark:text-[#BFA9F5]"
@@ -243,8 +238,8 @@ function Gauge({
           </text>
 
           <text
-            x="262"
-            y="196"
+            x="264"
+            y="194"
             textAnchor="middle"
             fill="currentColor"
             className="text-[#6B5A86] dark:text-[#BFA9F5]"
@@ -255,7 +250,7 @@ function Gauge({
 
           <text
             x="160"
-            y="150"
+            y="132"
             textAnchor="middle"
             fill="currentColor"
             className="text-[#2D1B45] dark:text-[#F3E8FF]"
@@ -266,7 +261,7 @@ function Gauge({
 
           <text
             x="160"
-            y="178"
+            y="160"
             textAnchor="middle"
             fill="currentColor"
             className="text-[#2D1B45] dark:text-[#F3E8FF]"
@@ -277,7 +272,7 @@ function Gauge({
 
           <text
             x="160"
-            y="201"
+            y="184"
             textAnchor="middle"
             fill="currentColor"
             className="text-[#6B5A86] dark:text-[#BFA9F5]"
@@ -295,6 +290,42 @@ export default function Chart() {
   const timeframe = useAtomValue(overviewTimeframeAtom);
   const { data: overview } = useOverview(timeframe);
 
+  const [defensiveBaseValue, setDefensiveBaseValue] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadStrategyFlow() {
+      try {
+        const res = await fetch("/api/strategy-flow", {
+          cache: "no-store",
+        });
+
+        const data: StrategyFlowResponse = await res.json();
+
+        if (cancelled) return;
+
+        const total = findCoreLayerValue(data?.structure, [
+          "stable_core",
+          "rotational_core",
+          "rotational_anchors",
+        ]);
+
+        setDefensiveBaseValue(total);
+      } catch {
+        if (!cancelled) {
+          setDefensiveBaseValue(0);
+        }
+      }
+    }
+
+    loadStrategyFlow();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const health = useMemo(
     () =>
       buildHealthResult({
@@ -306,8 +337,9 @@ export default function Chart() {
     [overview]
   );
 
-  const defensiveBase =
-    safeNumber(overview?.stable_value) + safeNumber(overview?.rotational_value);
+  const totalPortfolioValue = safeNumber(overview?.total_portfolio_value);
+  const defensiveBasePct =
+    totalPortfolioValue > 0 ? defensiveBaseValue / totalPortfolioValue : 0;
 
   return (
     <div className="flex h-full flex-col gap-5 rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
@@ -341,47 +373,23 @@ export default function Chart() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[120px_minmax(320px,380px)_120px] xl:items-center xl:justify-center">
-        <div className="flex flex-col gap-3">
-          <AllocationPill
-            label="Stable Core"
-            value={health.stablePct}
-            description="Defensive stable-yield allocation. Higher Stable Core generally improves overall portfolio health."
-          />
-          <AllocationPill
-            label="Growth"
-            value={health.growthPct}
-            description="Higher-upside growth allocation used to build liquidity during expansion phases."
-          />
-        </div>
+      <Gauge score={health.score} label={health.label} />
 
-        <Gauge score={health.score} label={health.label} />
-
-        <div className="flex flex-col gap-3">
-          <AllocationPill
-            label="Rotational Core"
-            value={health.rotationalPct}
-            description="Secondary core bucket used to rebalance between defensive capital and higher-growth allocations."
-          />
-          <AllocationPill
-            label="Swing"
-            value={health.swingPct}
-            description="Highest-risk tactical sleeve. Larger swing exposure tends to weaken portfolio health."
-          />
-        </div>
-      </div>
-
-      <div className="mx-auto w-full max-w-[360px] rounded-2xl border border-[#E9DAFF] bg-white px-4 py-4 text-center shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+      <div className="mx-auto w-full max-w-[460px] rounded-2xl border border-[#E9DAFF] bg-white px-4 py-4 text-center shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
         <div className="flex items-center justify-center gap-2 text-[11px] uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
           <span>Current tracked defensive base</span>
           <InfoTooltip
             title="Current Tracked Defensive Base"
-            description="Combined tracked Stable Core + Rotational Core value. This is the currently visible defensive base inside the dashboard."
+            description="Combined tracked Stable Core, Rotational Core, and Rotational Anchors value sourced from the MMII Structural Tree."
           />
         </div>
 
-        <div className="mt-2 text-base font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-          {formatUsdRounded(defensiveBase)}
+        <div className="mt-2 text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+          {formatUsdRounded(defensiveBaseValue)}
+        </div>
+
+        <div className="mt-1 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
+          {formatPercent(defensiveBasePct * 100, 1)} of total portfolio
         </div>
       </div>
     </div>
