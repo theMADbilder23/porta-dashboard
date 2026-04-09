@@ -11,7 +11,6 @@ export default function AverageTicketsCreated() {
         <ChartTitle
           title="Portfolio Performance"
           icon={TrendingUp}
-          className="text-base md:text-lg"
         />
       </div>
 
