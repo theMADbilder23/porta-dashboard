@@ -5,16 +5,25 @@ import {
   Banknote,
   Building2,
   Landmark,
-  Search,
   Shield,
   Wallet,
 } from "lucide-react";
+import AccountsAssetSearch from "@/components/accounts-asset-search";
 
 type BlockchainAccountsSummary = {
   total_blockchain_value?: number;
   yield_contribution?: number;
   active_accounts?: number;
   chains_covered?: number;
+};
+
+type AssetRouteItem = {
+  route_param: string;
+  token_symbol: string;
+  token_name: string;
+  network: string;
+  price_per_unit_usd?: number;
+  total_value_usd?: number;
 };
 
 function formatUsd(value: number) {
@@ -34,30 +43,48 @@ function formatCompactUsd(value: number) {
   }).format(Number.isFinite(value) ? value : 0);
 }
 
+async function getBaseUrl() {
+  const headerStore = await headers();
+  const host = headerStore.get("host");
+  const proto =
+    headerStore.get("x-forwarded-proto") ||
+    (host?.includes("localhost") ? "http" : "https");
+
+  if (!host) return null;
+  return `${proto}://${host}`;
+}
+
 async function getBlockchainSummary(): Promise<BlockchainAccountsSummary | null> {
   try {
-    const headerStore = await headers();
-    const host = headerStore.get("host");
-    const proto =
-      headerStore.get("x-forwarded-proto") ||
-      (host?.includes("localhost") ? "http" : "https");
+    const baseUrl = await getBaseUrl();
+    if (!baseUrl) return null;
 
-    if (!host) return null;
+    const response = await fetch(`${baseUrl}/api/blockchain-accounts-summary`, {
+      cache: "no-store",
+    });
 
-    const response = await fetch(
-      `${proto}://${host}/api/blockchain-accounts-summary`,
-      {
-        cache: "no-store",
-      }
-    );
-
-    if (!response.ok) {
-      return null;
-    }
-
+    if (!response.ok) return null;
     return response.json();
   } catch {
     return null;
+  }
+}
+
+async function getAssetRoutes(): Promise<AssetRouteItem[]> {
+  try {
+    const baseUrl = await getBaseUrl();
+    if (!baseUrl) return [];
+
+    const response = await fetch(`${baseUrl}/api/asset-viewer?mode=routes`, {
+      cache: "no-store",
+    });
+
+    if (!response.ok) return [];
+
+    const json = await response.json();
+    return Array.isArray(json?.routes) ? json.routes : [];
+  } catch {
+    return [];
   }
 }
 
@@ -194,7 +221,10 @@ function QuickAction({
 }
 
 export default async function AccountsPage() {
-  const blockchainSummary = await getBlockchainSummary();
+  const [blockchainSummary, assetRoutes] = await Promise.all([
+    getBlockchainSummary(),
+    getAssetRoutes(),
+  ]);
 
   const blockchainValue = blockchainSummary?.total_blockchain_value ?? 0;
   const blockchainYield = blockchainSummary?.yield_contribution ?? 0;
@@ -250,9 +280,7 @@ export default async function AccountsPage() {
             extraMetricLabel="Chains Covered"
             extraMetricValue={String(blockchainChains)}
             mmiiExposure="Stable / Growth / Swing"
-            syncStatus={
-              blockchainSummary ? "Connected" : "Unavailable"
-            }
+            syncStatus={blockchainSummary ? "Connected" : "Unavailable"}
             lastUpdate={blockchainSummary ? "Live summary loaded" : "Summary unavailable"}
             accentLabel="Live First"
             isLive={Boolean(blockchainSummary)}
@@ -295,7 +323,7 @@ export default async function AccountsPage() {
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]">
             <div>
               <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#E9DAFF] bg-[#FAF7FF] px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-[#7A3FFF] dark:border-[#312046] dark:bg-[#140F1F] dark:text-[#CDAEFF]">
-                <Search className="h-3.5 w-3.5" />
+                <Wallet className="h-3.5 w-3.5" />
                 Asset Viewer Quick Access
               </div>
 
@@ -304,35 +332,13 @@ export default async function AccountsPage() {
               </h2>
 
               <p className="mt-3 max-w-2xl text-sm leading-7 text-[#6B5A86] dark:text-[#BFA9D5]">
-                This panel should mirror the Asset Viewer search UX so users can
-                quickly find any portfolio asset and route straight into its
-                dedicated viewer page.
+                Search the same live tracked asset universe used by the Asset
+                Viewer route system, then jump straight into the selected asset
+                page.
               </p>
 
-              <div className="mt-5 rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-3 dark:border-[#241733] dark:bg-[#120D1B]">
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <div className="relative flex-1">
-                    <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8E7AAE] dark:text-[#9F89BA]" />
-                    <input
-                      type="text"
-                      placeholder="Search portfolio assets..."
-                      className="h-12 w-full rounded-xl border border-[#E9DAFF] bg-white pl-11 pr-4 text-sm text-[#2D1B45] outline-none transition placeholder:text-[#9A88B6] focus:border-[#CDAEFF] dark:border-[#2C1C3F] dark:bg-[#0E0916] dark:text-[#F3E8FF] dark:placeholder:text-[#8F7AA7] dark:focus:border-[#5C3692]"
-                    />
-                  </div>
-
-                  <Link
-                    href="/portfolio/assets"
-                    className="inline-flex h-12 items-center justify-center rounded-xl bg-[#7A3FFF] px-5 text-sm font-medium text-white transition hover:bg-[#6B33EB]"
-                  >
-                    Open Asset Viewer
-                  </Link>
-                </div>
-
-                <div className="mt-3 text-xs text-[#8E7AAE] dark:text-[#9F89BA]">
-                  Planned behavior: identical search dropdown UX as the Asset
-                  Viewer hero panel, with direct routing into the selected asset
-                  page.
-                </div>
+              <div className="mt-5">
+                <AccountsAssetSearch routes={assetRoutes} />
               </div>
             </div>
 
@@ -357,9 +363,9 @@ export default async function AccountsPage() {
                       Build order
                     </div>
                     <div className="mt-1 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9D5]">
-                      Blockchain is now wired to the live summary endpoint.
-                      Investment and Banking stay cleanly stubbed until their
-                      collectors and account APIs are ready.
+                      Blockchain is live. Asset Viewer quick access is now fed
+                      from the route list endpoint. Investment and Banking stay
+                      stubbed until their collectors and account APIs are ready.
                     </div>
                   </div>
                 </div>
