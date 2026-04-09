@@ -62,29 +62,38 @@ function getYieldFlowTitle(timeframe: OverviewTimeframe) {
   }
 }
 
-function getYieldFlowHelperText(timeframe: OverviewTimeframe) {
+function getTpvHelperText(timeframe: OverviewTimeframe) {
   switch (timeframe) {
     case "daily":
-      return "from today’s low";
+      return "today’s current value";
     case "weekly":
-      return "from weekly low";
+      return "weekly average value";
     case "monthly":
-      return "from monthly low";
+      return "monthly average value";
     case "quarterly":
-      return "from quarterly low";
+      return "quarterly average value";
     case "yearly":
-      return "from yearly low";
+      return "yearly average value";
     default:
-      return "from timeframe low";
+      return "selected period value";
   }
 }
 
-function getTpvHelperText(timeframe: OverviewTimeframe) {
-  if (timeframe === "daily") {
-    return "from today’s low";
+function getYieldFlowHelperText(timeframe: OverviewTimeframe) {
+  switch (timeframe) {
+    case "daily":
+      return "current daily yield";
+    case "weekly":
+      return "weekly yield sum";
+    case "monthly":
+      return "monthly yield sum";
+    case "quarterly":
+      return "quarterly yield sum";
+    case "yearly":
+      return "yearly yield sum";
+    default:
+      return "selected period yield";
   }
-
-  return "from period low to avg";
 }
 
 function getTpvChangeTooltip(timeframe: OverviewTimeframe) {
@@ -179,8 +188,6 @@ export default function Metrics() {
   };
 
   const passiveIncomeTitle = getYieldFlowTitle(timeframe);
-  const passiveIncomeHelperText = getYieldFlowHelperText(timeframe);
-  const tpvHelperText = getTpvHelperText(timeframe);
 
   function isActive(metric: OverviewMetricKey) {
     return selectedMetric === metric;
@@ -188,18 +195,18 @@ export default function Metrics() {
 
   return (
     <section className="border-b border-border bg-transparent">
-      <Container className="py-3 md:py-4">
-        <div className="rounded-2xl border border-[#E9DAFF] bg-white p-4 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19] md:p-4">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+      <Container className="py-2 md:py-3">
+        <div className="rounded-2xl border border-[#E9DAFF] bg-white p-3.5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19] md:p-4">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2.5 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
-                <h1 className="text-[2rem] font-bold tracking-tight text-[#2D1B45] dark:text-[#F3E8FF]">
+                <h1 className="text-[1.85rem] font-bold tracking-tight text-[#2D1B45] dark:text-[#F3E8FF]">
                   Overview
                 </h1>
                 <p className="text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
                   MMII portfolio intelligence across your selected timeframe
                 </p>
-                <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
+                <p className="mt-0.5 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
                   All values displayed in USD
                 </p>
               </div>
@@ -209,7 +216,7 @@ export default function Metrics() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 phone:grid-cols-2 desktop:grid-cols-4">
+            <div className="grid grid-cols-1 gap-2.5 phone:grid-cols-2 desktop:grid-cols-4">
               <MetricCard
                 title="Total Portfolio Value"
                 value={metrics.totalPortfolioValue}
@@ -219,7 +226,7 @@ export default function Metrics() {
                 onClick={() => setSelectedMetric("totalPortfolioValue")}
                 className="min-w-0"
                 icon={<WalletCards size={16} />}
-                helperText={tpvHelperText}
+                helperText={getTpvHelperText(timeframe)}
               />
 
               <MetricCard
@@ -255,7 +262,7 @@ export default function Metrics() {
                 onClick={() => setSelectedMetric("totalPassiveIncome")}
                 className="min-w-0"
                 icon={<HandCoins size={16} />}
-                helperText={passiveIncomeHelperText}
+                helperText={getYieldFlowHelperText(timeframe)}
               />
             </div>
           </div>
