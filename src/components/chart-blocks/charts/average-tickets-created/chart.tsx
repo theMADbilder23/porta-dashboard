@@ -11,6 +11,7 @@ import {
   overviewTimeframeAtom,
 } from "@/lib/atoms/overview";
 import { useOverview } from "@/hooks/use-overview";
+import MetricCard from "./components/metric-card";
 
 type PerformanceApiRow = {
   mode?: "daily_summary" | "trend";
@@ -75,6 +76,7 @@ type StatMeta = {
   description: string;
   value: number;
   isPercent?: boolean;
+  helperText?: string;
 };
 
 function formatUsd(value: number) {
@@ -93,11 +95,6 @@ function formatAxisUsd(value: number) {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(value);
-}
-
-function formatStatUsd(value: number) {
-  if (!Number.isFinite(value)) return "$0.00";
-  return formatUsd(value);
 }
 
 function formatPct(value: number) {
@@ -327,7 +324,7 @@ function generateLineSpec(
     xField: "label",
     yField: "value",
     seriesField: "series",
-    padding: [20, 24, 30, 16],
+    padding: [18, 24, 26, 12],
     legends: {
       visible: true,
       position: "start",
@@ -336,6 +333,8 @@ function generateLineSpec(
         label: {
           style: {
             fill: "#C4B5FD",
+            fontSize: 14,
+            fontWeight: 600,
           },
         },
       },
@@ -381,26 +380,26 @@ function generateLineSpec(
     line: {
       state: {
         hover: {
-          lineWidth: 6,
+          lineWidth: 5,
         },
       },
       style: (_datum: LineStyleDatum) => ({
         stroke: color,
-        lineWidth: 4,
+        lineWidth: 3,
       }),
     },
     point: {
       state: {
         hover: {
-          scaleX: 1.3,
-          scaleY: 1.3,
+          scaleX: 1.2,
+          scaleY: 1.2,
         },
       },
       visible: data.length <= 72,
       style: (_datum: LineStyleDatum) => ({
         fill: "#e1c2ff",
         stroke: "#0F0617",
-        size: 5,
+        size: 4,
       }),
     },
     color: [color],
@@ -452,7 +451,7 @@ function generateBarSpec(
     xField: "label",
     yField: "value",
     seriesField: "series",
-    padding: [20, 24, 24, 16],
+    padding: [18, 24, 22, 12],
     legends: {
       visible: true,
       position: "start",
@@ -461,6 +460,8 @@ function generateBarSpec(
         label: {
           style: {
             fill: "#C4B5FD",
+            fontSize: 14,
+            fontWeight: 600,
           },
         },
       },
@@ -503,6 +504,8 @@ function generateBarSpec(
       style: {
         fill: color,
         cornerRadius: 6,
+        width: 26,
+        maxWidth: 26,
       },
       state: {
         hover: {
@@ -549,30 +552,8 @@ function InfoTooltip({
   );
 }
 
-function StatPill({
-  label,
-  tooltipTitle,
-  description,
-  value,
-  isPercent = false,
-}: {
-  label: string;
-  tooltipTitle?: string;
-  description: string;
-  value: number;
-  isPercent?: boolean;
-}) {
-  return (
-    <div className="min-w-[110px] rounded-md border border-border/60 bg-muted/20 px-3 py-2">
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-        <span>{label}</span>
-        <InfoTooltip title={tooltipTitle ?? label} description={description} />
-      </div>
-      <div className="mt-1 text-sm font-medium text-foreground">
-        {isPercent ? formatPct(value) : formatStatUsd(value)}
-      </div>
-    </div>
-  );
+function shouldWarnStat(_label: string, _value: number, _isPercent?: boolean) {
+  return false;
 }
 
 export default function Chart() {
@@ -663,6 +644,7 @@ export default function Chart() {
           description:
             "Estimated yield flow earned during the selected timeframe, calculated from the claimable yield range.",
           value: stats.current,
+          helperText: "current yield flow",
         },
         {
           label: "Min",
@@ -670,6 +652,7 @@ export default function Chart() {
           description:
             "Lowest claimable yield observed across the selected timeframe snapshots.",
           value: stats.min,
+          helperText: "lowest reading",
         },
         {
           label: "Avg",
@@ -677,6 +660,7 @@ export default function Chart() {
           description:
             "Average claimable yield balance across the selected timeframe snapshots.",
           value: stats.avg,
+          helperText: "average reading",
         },
         {
           label: "Max",
@@ -684,6 +668,7 @@ export default function Chart() {
           description:
             "Highest claimable yield observed across the selected timeframe snapshots.",
           value: stats.max,
+          helperText: "highest reading",
         },
         {
           label: "Min → Max",
@@ -692,6 +677,7 @@ export default function Chart() {
             "Percentage increase from the lowest to the highest claimable yield over the selected timeframe.",
           value: stats.rangePct,
           isPercent: true,
+          helperText: "range expansion",
         },
         {
           label: "Yield / TVD",
@@ -700,6 +686,7 @@ export default function Chart() {
             "Current yield flow as a percentage of Total Value Distributed. This shows how much yield the distributed capital generated during the selected timeframe.",
           value: yieldToTvdPct,
           isPercent: true,
+          helperText: "yield efficiency",
         },
       ];
     }
@@ -710,24 +697,28 @@ export default function Chart() {
         description:
           "Most recent portfolio value captured in the selected timeframe.",
         value: stats.current,
+        helperText: "latest reading",
       },
       {
         label: "Min",
         description:
           "Lowest portfolio value recorded in the selected timeframe.",
         value: stats.min,
+        helperText: "period floor",
       },
       {
         label: "Avg",
         description:
           "Average portfolio value across the selected timeframe.",
         value: stats.avg,
+        helperText: "period average",
       },
       {
         label: "Max",
         description:
           "Highest portfolio value recorded in the selected timeframe.",
         value: stats.max,
+        helperText: "period peak",
       },
       {
         label: "Min → Max",
@@ -735,6 +726,7 @@ export default function Chart() {
           "Percentage increase from the lowest to the highest portfolio value in the selected timeframe.",
         value: stats.rangePct,
         isPercent: true,
+        helperText: "total range",
       },
       {
         label: "Current → Max",
@@ -742,6 +734,7 @@ export default function Chart() {
           "Potential upside from the current portfolio value to the highest value recorded in the selected timeframe.",
         value: stats.upsidePct,
         isPercent: true,
+        helperText: "remaining upside",
       },
     ];
   }, [selectedMetric, stats, timeframe, yieldToTvdPct]);
@@ -759,19 +752,30 @@ export default function Chart() {
 
   return (
     <section className="flex h-full flex-col gap-3">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div className="flex flex-wrap gap-2 md:justify-end">
-          {statCards.map((card) => (
-            <StatPill
-              key={card.label}
-              label={card.label}
-              tooltipTitle={card.tooltipTitle}
-              description={card.description}
+      <div className="flex flex-wrap gap-3">
+        {statCards.map((card) => (
+          <div key={card.label} className="flex flex-col gap-1">
+            <div className="flex items-center gap-1.5 pl-1">
+              <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                {card.label}
+              </span>
+              <InfoTooltip
+                title={card.tooltipTitle ?? card.label}
+                description={card.description}
+              />
+            </div>
+
+            <MetricCard
+              title={card.label}
               value={card.value}
+              color={getSeriesColor(selectedMetric)}
               isPercent={card.isPercent}
+              helperText={card.helperText}
+              warning={shouldWarnStat(card.label, card.value, card.isPercent)}
+              className="min-w-[132px] md:min-w-[146px]"
             />
-          ))}
-        </div>
+          </div>
+        ))}
       </div>
 
       <div className="relative h-[400px] w-full flex-1">
