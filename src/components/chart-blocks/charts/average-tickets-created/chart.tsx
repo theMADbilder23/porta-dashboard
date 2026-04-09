@@ -752,7 +752,7 @@ export default function Chart() {
 
   return (
     <section className="flex h-full flex-col gap-3">
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-2">
         {statCards.map((card) => (
           <div key={card.label} className="flex flex-col gap-1">
             <div className="flex items-center gap-1.5 pl-1">
@@ -772,13 +772,13 @@ export default function Chart() {
               isPercent={card.isPercent}
               helperText={card.helperText}
               warning={shouldWarnStat(card.label, card.value, card.isPercent)}
-              className="min-w-[132px] md:min-w-[146px]"
+              className="min-w-[110px]"
             />
           </div>
         ))}
       </div>
 
-      <div className="relative h-[400px] w-full flex-1">
+      <div className="relative h-[460px] w-full flex-1">
         <VChart spec={spec} />
       </div>
     </section>

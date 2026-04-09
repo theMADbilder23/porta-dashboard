@@ -20,42 +20,44 @@ export default function MetricCard({
 }) {
   const formattedValue = isPercent
     ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`
-    : addThousandsSeparator(value);
+    : new Intl.NumberFormat("en-US", {
+        maximumFractionDigits: 2,
+      }).format(value);
 
   return (
     <section
       className={cn(
-        "flex min-w-[122px] flex-col rounded-xl border px-3.5 py-3 transition-all duration-200 md:min-w-[132px] md:px-4 md:py-3.5",
+        "flex min-w-[110px] flex-col rounded-lg border px-3 py-2 transition-all duration-200",
         warning
-          ? "border-amber-400/70 bg-amber-500/10 shadow-[0_0_0_1px_rgba(251,191,36,0.12)] animate-pulse"
-          : "border-border/70 bg-muted/20",
-        className,
+          ? "border-amber-400/70 bg-amber-500/10 animate-pulse"
+          : "border-border/60 bg-muted/10",
+        className
       )}
     >
-      <div className="mb-1.5 flex items-center gap-2">
+      <div className="mb-1 flex items-center gap-2">
         <div
-          className="h-3 w-3 rounded-sm shrink-0"
+          className="h-2.5 w-2.5 rounded-sm shrink-0"
           style={{ backgroundColor: color }}
         />
         <h2
           className={cn(
             chartTitle({ color: "mute", size: "sm" }),
-            "text-[10px] uppercase tracking-[0.08em] md:text-[11px]",
+            "text-[10px] uppercase tracking-[0.06em]"
           )}
         >
           {title}
         </h2>
       </div>
 
-      <div className="text-[1rem] font-semibold leading-none text-foreground md:text-[1.08rem]">
+      <div className="text-[0.95rem] font-semibold leading-none text-foreground">
         {formattedValue}
       </div>
 
-      {helperText ? (
-        <div className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+      {helperText && (
+        <div className="mt-1 text-[10px] text-muted-foreground">
           {helperText}
         </div>
-      ) : null}
+      )}
     </section>
   );
 }
