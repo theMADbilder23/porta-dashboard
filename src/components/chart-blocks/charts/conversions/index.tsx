@@ -1,72 +1,219 @@
 "use client";
 
-import { Layers3 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Layers3, Info } from "lucide-react";
 import ChartTitle from "../../components/chart-title";
 import Chart from "./chart";
 import { buildConversionsFromOverview } from "@/data/conversions";
 import { useOverview } from "@/hooks/use-overview";
 import type { ConversionBucket } from "@/types/types";
 
+type StrategyFlowNode = {
+  key?: string;
+  label?: string;
+  total_value_usd?: number;
+  allocation_pct?: number;
+  children?: StrategyFlowNode[];
+};
+
+type StrategyFlowResponse = {
+  structure?: StrategyFlowNode;
+};
+
+type Slice = {
+  name: string;
+  value: number;
+};
+
 export default function Conversions() {
   const { data: overview } = useOverview();
-  const conversions = buildConversionsFromOverview(overview);
+  const bucketConversions = buildConversionsFromOverview(overview);
+
+  const [strategyFlow, setStrategyFlow] = useState<StrategyFlowResponse | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadStrategyFlow() {
+      try {
+        const res = await fetch("/api/strategy-flow", {
+          cache: "no-store",
+        });
+
+        const data: StrategyFlowResponse = await res.json();
+
+        if (!cancelled) {
+          setStrategyFlow(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setStrategyFlow(null);
+        }
+      }
+    }
+
+    loadStrategyFlow();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const tierConversions = useMemo<Slice[]>(() => {
+    const tiers = strategyFlow?.structure?.children ?? [];
+
+    const tier0 = getNodeValueByKey(tiers, "tier_0");
+    const tier1 = getNodeValueByKey(tiers, "tier_1");
+    const tier2 = getNodeValueByKey(tiers, "tier_2");
+
+    return [
+      { name: "Tier 0", value: tier0 },
+      { name: "Tier 1", value: tier1 },
+      { name: "Tier 2", value: tier2 },
+    ];
+  }, [strategyFlow]);
 
   return (
     <section className="flex h-full flex-col rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
       <ChartTitle title="MMII Allocation" icon={Layers3} />
 
       <div className="mt-4 flex flex-1 flex-col gap-4">
-        <div className="rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-4 dark:border-[#241533] dark:bg-[#140D20]">
-          <div className="h-[260px] w-full">
-            <Chart conversions={conversions} />
-          </div>
-        </div>
+        <AllocationSection
+          title="MMII Tiers"
+          description="Top-level structural distribution across Foundational Hub, Collateralized Liquidity, and Direct Allocation."
+          conversions={tierConversions}
+          cards={[
+            {
+              label: "Tier 0 — Foundational Hub",
+              value: getPercentByName(tierConversions, "Tier 0"),
+              accentClass: "text-[#A78BFA] dark:text-[#C4B5FD]",
+            },
+            {
+              label: "Tier 1 — Collateralized Liquidity",
+              value: getPercentByName(tierConversions, "Tier 1"),
+              accentClass: "text-[#C084FC] dark:text-[#D8B4FE]",
+            },
+            {
+              label: "Tier 2 — Direct Allocation",
+              value: getPercentByName(tierConversions, "Tier 2"),
+              accentClass: "text-[#7C3AED] dark:text-[#A78BFA]",
+            },
+          ]}
+          gridClassName="grid-cols-1 md:grid-cols-3"
+        />
 
-        <div className="grid grid-cols-2 gap-2">
-          <SleeveCard
-            label="Stable Core"
-            value={getPercentByName(conversions, "Stable Core")}
-            accentClass="text-[#A78BFA] dark:text-[#C4B5FD]"
-          />
-          <SleeveCard
-            label="Rotational Core"
-            value={getPercentByName(conversions, "Rotational Core")}
-            accentClass="text-[#C084FC] dark:text-[#D8B4FE]"
-          />
-          <SleeveCard
-            label="Growth"
-            value={getPercentByName(conversions, "Growth")}
-            accentClass="text-[#7C3AED] dark:text-[#A78BFA]"
-          />
-          <SleeveCard
-            label="Swing"
-            value={getPercentByName(conversions, "Swing")}
-            accentClass="text-[#8B5CF6] dark:text-[#C4B5FD]"
-          />
-        </div>
+        <AllocationSection
+          title="MMII Buckets"
+          description="Core bucket distribution across Stable Core, Rotational Core, Growth, and Swing."
+          conversions={bucketConversions}
+          cards={[
+            {
+              label: "Stable Core",
+              value: getPercentByName(bucketConversions, "Stable Core"),
+              accentClass: "text-[#A78BFA] dark:text-[#C4B5FD]",
+            },
+            {
+              label: "Rotational Core",
+              value: getPercentByName(bucketConversions, "Rotational Core"),
+              accentClass: "text-[#C084FC] dark:text-[#D8B4FE]",
+            },
+            {
+              label: "Growth",
+              value: getPercentByName(bucketConversions, "Growth"),
+              accentClass: "text-[#7C3AED] dark:text-[#A78BFA]",
+            },
+            {
+              label: "Swing",
+              value: getPercentByName(bucketConversions, "Swing"),
+              accentClass: "text-[#8B5CF6] dark:text-[#C4B5FD]",
+            },
+          ]}
+          gridClassName="grid-cols-2 md:grid-cols-4"
+        />
 
-        <AlignmentMeter conversions={conversions} />
+        <AlignmentMeter
+          tierConversions={tierConversions}
+          bucketConversions={bucketConversions}
+        />
       </div>
     </section>
   );
 }
 
-function AlignmentMeter({
+function AllocationSection({
+  title,
+  description,
   conversions,
+  cards,
+  gridClassName,
 }: {
-  conversions: ConversionBucket[];
+  title: string;
+  description: string;
+  conversions: Slice[];
+  cards: Array<{
+    label: string;
+    value: number;
+    accentClass: string;
+  }>;
+  gridClassName: string;
 }) {
-  const stable = getPercentByName(conversions, "Stable Core");
-  const rotational = getPercentByName(conversions, "Rotational Core");
-  const growth = getPercentByName(conversions, "Growth");
-  const swing = getPercentByName(conversions, "Swing");
+  return (
+    <div className="rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-4 dark:border-[#241533] dark:bg-[#140D20]">
+      <div className="mb-3">
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#6B5A86] dark:text-[#BFA9F5]">
+          {title}
+        </p>
+        <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
+          {description}
+        </p>
+      </div>
+
+      <div className="h-[240px] w-full">
+        <Chart conversions={conversions as ConversionBucket[]} />
+      </div>
+
+      <div className={`mt-3 grid gap-2 ${gridClassName}`}>
+        {cards.map((card) => (
+          <SleeveCard
+            key={card.label}
+            label={card.label}
+            value={card.value}
+            accentClass={card.accentClass}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AlignmentMeter({
+  tierConversions,
+  bucketConversions,
+}: {
+  tierConversions: Slice[];
+  bucketConversions: Slice[];
+}) {
+  const tier0 = getPercentByName(tierConversions, "Tier 0");
+  const tier1 = getPercentByName(tierConversions, "Tier 1");
+  const tier2 = getPercentByName(tierConversions, "Tier 2");
+
+  const stable = getPercentByName(bucketConversions, "Stable Core");
+  const rotational = getPercentByName(bucketConversions, "Rotational Core");
+  const growth = getPercentByName(bucketConversions, "Growth");
+  const swing = getPercentByName(bucketConversions, "Swing");
 
   let score = 0;
 
-  if (stable > rotational) score += 25;
-  if (rotational > growth) score += 25;
-  if (growth > swing) score += 25;
-  if (swing === Math.min(stable, rotational, growth, swing)) score += 25;
+  if (tier0 >= 5) score += 20;
+  if (tier1 >= 5) score += 20;
+  if (tier2 <= 85) score += 15;
+
+  if (stable >= 10) score += 15;
+  if (rotational >= 10) score += 10;
+  if (growth <= 70) score += 10;
+  if (swing <= 10) score += 10;
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
 
   const label =
     score >= 75
@@ -76,6 +223,9 @@ function AlignmentMeter({
       : "Low Alignment";
 
   const insight = buildAlignmentInsight({
+    tier0,
+    tier1,
+    tier2,
     stable,
     rotational,
     growth,
@@ -141,17 +291,22 @@ function SleeveCard({
   );
 }
 
+function getNodeValueByKey(nodes: StrategyFlowNode[], key: string) {
+  const match = nodes.find((node) => node.key === key);
+  return Number(match?.total_value_usd) || 0;
+}
+
 function getRawValueByName(
-  conversions: ConversionBucket[],
-  name: ConversionBucket["name"]
+  conversions: Slice[],
+  name: string
 ) {
   const item = conversions.find((entry) => entry.name === name);
   return Number(item?.value) || 0;
 }
 
 function getPercentByName(
-  conversions: ConversionBucket[],
-  name: ConversionBucket["name"]
+  conversions: Slice[],
+  name: string
 ) {
   const total = conversions.reduce(
     (sum, entry) => sum + (Number(entry.value) || 0),
@@ -165,33 +320,29 @@ function getPercentByName(
 }
 
 function buildAlignmentInsight(values: {
+  tier0: number;
+  tier1: number;
+  tier2: number;
   stable: number;
   rotational: number;
   growth: number;
   swing: number;
 }) {
-  const entries = [
-    { name: "Stable Core", value: values.stable },
-    { name: "Rotational Core", value: values.rotational },
-    { name: "Growth", value: values.growth },
-    { name: "Swing", value: values.swing },
-  ].sort((a, b) => b.value - a.value);
-
-  const dominant = entries[0];
-  const total = entries.reduce((sum, entry) => sum + entry.value, 0);
-  const dominantPct = total > 0 ? Math.round((dominant.value / total) * 100) : 0;
-
-  if (dominant.name === "Growth") {
-    return `Portfolio heavily allocated toward growth exposure (${dominantPct}%)`;
+  if (values.tier2 >= 85 && values.growth >= 70) {
+    return "Portfolio remains heavily tilted toward direct growth allocation.";
   }
 
-  if (dominant.name === "Stable Core") {
-    return `Portfolio currently prioritizing capital preservation (${dominantPct}%)`;
+  if (values.tier0 >= 20 && values.tier1 >= 20 && values.swing <= 10) {
+    return "Structure is becoming more balanced across foundational, collateralized, and direct layers.";
   }
 
-  if (dominant.name === "Rotational Core") {
-    return `Portfolio tilted toward rotational core positioning (${dominantPct}%)`;
+  if (values.tier0 < 5 && values.tier1 < 5) {
+    return "Foundational and collateralized tiers remain underbuilt relative to direct allocation.";
   }
 
-  return `Portfolio carrying elevated swing exposure (${dominantPct}%)`;
+  if (values.swing > 10) {
+    return "Elevated swing exposure is weakening overall MMII structural alignment.";
+  }
+
+  return "Structure is progressing, but core foundational and rotational layers still need reinforcement.";
 }

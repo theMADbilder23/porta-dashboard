@@ -196,9 +196,9 @@ function Gauge({
   const valuePath = describeArc(160, 148, 88, trackStart, filledEnd);
 
   return (
-    <div className="mx-auto flex w-full max-w-[460px] justify-center rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-4 dark:border-[#241533] dark:bg-[#140D20]">
-      <div className="relative h-[250px] w-full">
-        <svg viewBox="0 0 320 230" className="h-full w-full overflow-visible">
+    <div className="mx-auto flex w-full max-w-[360px] justify-center rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-3 dark:border-[#241533] dark:bg-[#140D20]">
+      <div className="relative h-[220px] w-full">
+        <svg viewBox="0 0 320 220" className="h-full w-full overflow-visible">
           <path
             d={trackPath}
             fill="none"
@@ -217,7 +217,7 @@ function Gauge({
 
           <text
             x="56"
-            y="194"
+            y="186"
             textAnchor="middle"
             fill="currentColor"
             className="text-[#6B5A86] dark:text-[#BFA9F5]"
@@ -228,7 +228,7 @@ function Gauge({
 
           <text
             x="160"
-            y="42"
+            y="40"
             textAnchor="middle"
             fill="currentColor"
             className="text-[#6B5A86] dark:text-[#BFA9F5]"
@@ -239,7 +239,7 @@ function Gauge({
 
           <text
             x="264"
-            y="194"
+            y="186"
             textAnchor="middle"
             fill="currentColor"
             className="text-[#6B5A86] dark:text-[#BFA9F5]"
@@ -250,29 +250,29 @@ function Gauge({
 
           <text
             x="160"
-            y="132"
+            y="122"
             textAnchor="middle"
             fill="currentColor"
             className="text-[#2D1B45] dark:text-[#F3E8FF]"
-            style={{ fontSize: 16, fontWeight: 500 }}
+            style={{ fontSize: 15, fontWeight: 500 }}
           >
             Portfolio Health
           </text>
 
           <text
             x="160"
-            y="160"
+            y="148"
             textAnchor="middle"
             fill="currentColor"
             className="text-[#2D1B45] dark:text-[#F3E8FF]"
-            style={{ fontSize: 28, fontWeight: 700 }}
+            style={{ fontSize: 26, fontWeight: 700 }}
           >
             {clampedScore}/100
           </text>
 
           <text
             x="160"
-            y="184"
+            y="171"
             textAnchor="middle"
             fill="currentColor"
             className="text-[#6B5A86] dark:text-[#BFA9F5]"
@@ -342,11 +342,11 @@ export default function Chart() {
     totalPortfolioValue > 0 ? defensiveBaseValue / totalPortfolioValue : 0;
 
   return (
-    <div className="flex h-full flex-col gap-5 rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-      <div className="rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-5 dark:border-[#241533] dark:bg-[#140D20]">
+    <div className="flex h-full flex-col gap-4 rounded-2xl border border-[#E9DAFF] bg-white p-4 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+      <div className="rounded-2xl border border-[#F0E7FF] bg-[#FCFAFF] p-4 dark:border-[#241533] dark:bg-[#140D20]">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-xs uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+            <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
               MMII Health Meter
             </div>
 
@@ -375,7 +375,7 @@ export default function Chart() {
 
       <Gauge score={health.score} label={health.label} />
 
-      <div className="mx-auto w-full max-w-[460px] rounded-2xl border border-[#E9DAFF] bg-white px-4 py-4 text-center shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+      <div className="mx-auto w-full max-w-[360px] rounded-2xl border border-[#E9DAFF] bg-white px-4 py-4 text-center shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
         <div className="flex items-center justify-center gap-2 text-[11px] uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
           <span>Current tracked defensive base</span>
           <InfoTooltip
