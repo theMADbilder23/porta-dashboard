@@ -134,7 +134,7 @@ export default function LinearProgress({
 }) {
   return (
     <div className="w-full rounded-2xl border border-[#E9DAFF] bg-white px-5 py-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-      <div className="flex items-start justify-between gap-5">
+      <div className="flex items-start justify-between gap-6">
         <div className="flex min-w-0 items-start gap-3">
           <div className="mt-0.5 shrink-0 text-[#8B5CF6]">{icon}</div>
 
@@ -153,7 +153,7 @@ export default function LinearProgress({
         </div>
 
         <div className="shrink-0 text-right">
-          <div className="text-[2rem] font-semibold leading-none text-foreground md:text-[2.1rem]">
+          <div className="text-[1.38rem] font-semibold leading-none text-foreground md:text-[1.55rem]">
             {formatUsdRounded(value)}
           </div>
           <div className="mt-1.5 text-xs text-muted-foreground">

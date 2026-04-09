@@ -48,12 +48,12 @@ export default function CustomerSatisfaction() {
     <section className="flex h-full flex-col gap-3">
       <ChartTitle title="Yield Summary" icon={Coins} />
 
-      <div className="mt-3 flex h-full flex-col gap-6">
-        <div className="flex justify-center pt-2">
+      <div className="mt-4 flex h-full flex-col items-center gap-8">
+        <div className="flex w-full justify-center pt-3">
           <TotalDistributed value={totalDistributed} totalAvgApy={totalAvgApy} />
         </div>
 
-        <div className="mx-auto flex w-full max-w-[640px] flex-col gap-6 pt-2">
+        <div className="mx-auto flex w-full max-w-[700px] flex-col gap-5 pt-3">
           {yieldSources.map((source) => (
             <LinearProgress
               key={source.label}
@@ -85,7 +85,7 @@ function TotalDistributed({
       <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
         Total Value Distributed
       </div>
-      <div className="mt-2 text-[2.1rem] font-semibold leading-none text-foreground md:text-[2.35rem]">
+      <div className="mt-2 text-[1.38rem] font-semibold leading-none text-foreground md:text-[1.55rem]">
         {formatUsdRounded(value)}
       </div>
       <div className="mt-2 text-sm text-muted-foreground">
