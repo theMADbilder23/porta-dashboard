@@ -30,6 +30,7 @@ import {
 
 import { runIntradayMetrics } from "./backfill-intraday-metrics.js";
 import { runDailyMetrics } from "./backfill-daily-metrics.js";
+import { runTimeframeMetrics } from "./backfill-timeframe-metrics.js";
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
@@ -438,6 +439,14 @@ async function runMetricsPipeline() {
     console.log(`[metrics] Daily run finished at ${new Date().toISOString()}`);
   } catch (err) {
     console.error("[metrics] Daily metrics failed:", err);
+  }
+  
+  try {
+    console.log(`[metrics] Timeframe run started at ${new Date().toISOString()}`);
+    await runTimeframeMetrics();
+    console.log(`[metrics] Timeframe run finished at ${new Date().toISOString()}`);
+  } catch (err) {
+    console.error("[metrics] Timeframe metrics failed:", err);
   }
 }
 
