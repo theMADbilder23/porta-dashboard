@@ -80,6 +80,43 @@ type AssetRoutesResponse = {
   resolver?: string;
 };
 
+type AssetIndicatorsResponse = {
+  ok: boolean;
+  asset?: string;
+  timeframe?: string;
+  source?: string;
+  resolvedPool?: {
+    network: string;
+    tokenAddress: string;
+    poolAddress: string;
+    dexName: string | null;
+    baseSymbol: string | null;
+    quoteSymbol: string | null;
+  };
+  candleCount?: number;
+  lastCandle?: {
+    time: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+  } | null;
+  indicators?: {
+    rsi: number | null;
+    stoch_k: number | null;
+    stoch_d: number | null;
+    macd: number | null;
+    macd_signal: number | null;
+    macd_histogram: number | null;
+  };
+  signalBias?: {
+    label: "Bullish" | "Neutral" | "Bearish" | "Unavailable";
+    summary: string;
+  };
+  error?: string;
+};
+
 function decodeToken(value: string) {
   try {
     return decodeURIComponent(value);
@@ -162,6 +199,32 @@ function formatDateTimeLabel(value: string | null | undefined) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function formatIndicatorNumber(value: number | null | undefined, digits = 2) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "—";
+  }
+
+  return safeNumber(value).toFixed(digits);
+}
+
+function formatSignedIndicator(value: number | null | undefined, digits = 6) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "—";
+  }
+
+  const num = safeNumber(value);
+  if (num > 0) return `+${num.toFixed(digits)}`;
+  return num.toFixed(digits);
+}
+
+function formatVolumeCardValue(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "—";
+  }
+
+  return formatCompactCurrency(value);
 }
 
 function StatCard({
@@ -506,6 +569,38 @@ async function fetchAssetRoutes(): Promise<AssetRouteOption[]> {
   }
 }
 
+async function fetchAssetIndicators(
+  asset: string,
+  timeframe: "4h" | "1d" = "4h"
+): Promise<AssetIndicatorsResponse | null> {
+  const headerStore = await headers();
+  const host = headerStore.get("host");
+
+  if (!host) {
+    return null;
+  }
+
+  const protocol = host.includes("localhost") ? "http" : "https";
+  const baseUrl = `${protocol}://${host}`;
+
+  try {
+    const response = await fetch(
+      `${baseUrl}/api/indicators?asset=${encodeURIComponent(asset)}&timeframe=${timeframe}`,
+      {
+        cache: "no-store",
+      }
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as AssetIndicatorsResponse;
+  } catch {
+    return null;
+  }
+}
+
 export default async function AssetViewerPage({
   params,
 }: AssetViewerPageProps) {
@@ -513,9 +608,10 @@ export default async function AssetViewerPage({
   const token = decodeToken(rawToken);
   const routeAsset = parseAssetRoute(token);
 
-  const [data, assetRoutes] = await Promise.all([
+  const [data, assetRoutes, indicatorData] = await Promise.all([
     fetchAssetViewerData(token),
     fetchAssetRoutes(),
+    fetchAssetIndicators(token, "4h"),
   ]);
 
   const asset = data?.asset || {
@@ -581,9 +677,11 @@ export default async function AssetViewerPage({
       badge: "info" as const,
     },
     {
-      title: "Signal state unchanged",
-      meta: "Indicator shell state • Today at 9:00 AM",
-      value: "Neutral",
+      title: "Signal state refreshed",
+      meta: indicatorData?.ok
+        ? `4H intelligence active • ${indicatorData.signalBias?.label ?? "Unknown"}`
+        : "Indicator shell state • Today at 9:00 AM",
+      value: indicatorData?.signalBias?.label ?? "Neutral",
       badge: "default" as const,
     },
     {
@@ -596,8 +694,8 @@ export default async function AssetViewerPage({
 
   const mockNotes = [
     "Header and position snapshot are now wired to live wallet_holdings data.",
-    "Chart, thresholds, and thesis sections remain front-end shell panels for the next phases.",
-    "Wallet breakdown and role/bucket identity are now being resolved from the asset-viewer API.",
+    "Indicator cards now resolve from the live Porta indicator engine on the default 4H timeframe.",
+    "Chart timeframe sync, thresholds, and thesis sections remain the next live intelligence phases.",
   ];
 
   const liveRoleLabel =
@@ -619,6 +717,69 @@ export default async function AssetViewerPage({
   });
 
   const isQcap = asset.token_symbol.toUpperCase() === "QCAP";
+
+  const liveSignalBiasLabel =
+    indicatorData?.signalBias?.label ?? "Unavailable";
+
+  const liveSignalBiasSummary =
+    indicatorData?.signalBias?.summary ??
+    "Indicator engine is not yet available for this asset.";
+
+  const liveRsiValue = formatIndicatorNumber(indicatorData?.indicators?.rsi, 2);
+  const liveStochValue =
+    indicatorData?.indicators?.stoch_k !== null &&
+    indicatorData?.indicators?.stoch_k !== undefined &&
+    indicatorData?.indicators?.stoch_d !== null &&
+    indicatorData?.indicators?.stoch_d !== undefined
+      ? `${formatIndicatorNumber(indicatorData.indicators.stoch_k, 2)} / ${formatIndicatorNumber(
+          indicatorData.indicators.stoch_d,
+          2
+        )}`
+      : "—";
+
+  const liveMacdValue = formatSignedIndicator(
+    indicatorData?.indicators?.macd_histogram,
+    6
+  );
+
+  const liveMacdSummary =
+    indicatorData?.indicators?.macd !== null &&
+    indicatorData?.indicators?.macd !== undefined &&
+    indicatorData?.indicators?.macd_signal !== null &&
+    indicatorData?.indicators?.macd_signal !== undefined
+      ? `MACD ${formatSignedIndicator(
+          indicatorData.indicators.macd,
+          6
+        )} • Signal ${formatSignedIndicator(
+          indicatorData.indicators.macd_signal,
+          6
+        )}`
+      : "Tracked indicator unavailable.";
+
+  const live1hVolume =
+    indicatorData?.lastCandle?.volume !== null &&
+    indicatorData?.lastCandle?.volume !== undefined
+      ? formatTokenAmount(indicatorData.lastCandle.volume)
+      : "—";
+
+  const live1hVolumeSummary =
+    indicatorData?.lastCandle?.volume !== null &&
+    indicatorData?.lastCandle?.volume !== undefined
+      ? `Latest ${String(indicatorData.timeframe ?? "4h").toUpperCase()} candle volume.`
+      : "Short-term momentum placeholder.";
+
+  const live24hVolume = formatVolumeCardValue(market.volume_24h_usd);
+  const live24hVolumeSummary =
+    market.volume_24h_usd !== null && market.volume_24h_usd !== undefined
+      ? `Rolling 24H market activity (${formatCompactCurrency(
+          market.volume_24h_usd
+        )}).`
+      : "Daily activity placeholder.";
+
+  const topSignalState =
+    indicatorData?.signalBias?.label && indicatorData.signalBias.label !== "Unavailable"
+      ? indicatorData.signalBias.label
+      : "Neutral";
 
   return (
     <div className="min-h-screen space-y-6 p-6">
@@ -717,8 +878,8 @@ export default async function AssetViewerPage({
         />
         <StatCard
           label="Porta Signal State"
-          value="Neutral"
-          sublabel="Future AI interpretation of chart + thresholds."
+          value={topSignalState}
+          sublabel={liveSignalBiasSummary}
           emphasis
         />
       </section>
@@ -785,34 +946,38 @@ export default async function AssetViewerPage({
             <div className="grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-6">
               <CompactSignalCard
                 label="Signal Bias"
-                value="Neutral"
-                sublabel="Porta interpretation placeholder."
+                value={liveSignalBiasLabel}
+                sublabel={liveSignalBiasSummary}
                 emphasis
               />
               <CompactSignalCard
                 label="RSI"
-                value="—"
-                sublabel="Tracked indicator placeholder."
+                value={liveRsiValue}
+                sublabel={`Live ${String(
+                  indicatorData?.timeframe ?? "4h"
+                ).toUpperCase()} RSI reading.`}
               />
               <CompactSignalCard
                 label="Stoch RSI"
-                value="—"
-                sublabel="Tracked indicator placeholder."
+                value={liveStochValue}
+                sublabel={`K / D on ${String(
+                  indicatorData?.timeframe ?? "4h"
+                ).toUpperCase()} timeframe.`}
               />
               <CompactSignalCard
                 label="MACD"
-                value="—"
-                sublabel="Tracked indicator placeholder."
+                value={liveMacdValue}
+                sublabel={liveMacdSummary}
               />
               <CompactSignalCard
                 label="1H Volume"
-                value="—"
-                sublabel="Short-term momentum placeholder."
+                value={live1hVolume}
+                sublabel={live1hVolumeSummary}
               />
               <CompactSignalCard
                 label="24H Volume"
-                value="—"
-                sublabel="Daily activity placeholder."
+                value={live24hVolume}
+                sublabel={live24hVolumeSummary}
               />
             </div>
           ) : null}
@@ -957,7 +1122,7 @@ export default async function AssetViewerPage({
             description="This is where Porta’s asset-specific interpretation will eventually live."
           >
             <div className="space-y-3">
-              <InsightRow label="Signal State" value="Neutral" />
+              <InsightRow label="Signal State" value={liveSignalBiasLabel} />
               <InsightRow label="Alert Priority" value="Normal" />
               <InsightRow
                 label="Asset Health"
@@ -967,11 +1132,11 @@ export default async function AssetViewerPage({
                 label="Sizing Status"
                 value={position.wallet_count > 0 ? "Tracked" : "Not assessed"}
               />
-              <InsightRow label="Action Bias" value="Observe" />
+              <InsightRow label="Action Bias" value={liveSignalBiasLabel === "Bullish" ? "Observe / Trend Up" : liveSignalBiasLabel === "Bearish" ? "Caution" : "Observe"} />
             </div>
 
             <div className="mt-5 flex flex-wrap gap-2">
-              <TogglePill label="Neutral" active />
+              <TogglePill label={liveSignalBiasLabel} active />
               <TogglePill label="Accumulation" />
               <TogglePill label="Caution" />
               <TogglePill label="Exit Watch" />
