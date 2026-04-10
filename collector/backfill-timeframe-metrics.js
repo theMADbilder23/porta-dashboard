@@ -1,13 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
 import { safeNumber } from "./lib/porta-math/dyf.js";
-import {
+import derivedMetrics from "./lib/porta-math/derived-metrics.js";
+
+const {
   normalizeTimeframe,
   getMinimumRequiredRows,
   getStartDateIso,
   getAsOfDateIso,
   buildSummary,
   findStrongestWeakest,
-} from "./lib/porta-math/derived-metrics.js";
+} = derivedMetrics;
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
