@@ -1,15 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
 import { safeNumber } from "./lib/porta-math/dyf.js";
-import derivedMetrics from "./lib/porta-math/derived-metrics.js";
-
-const {
+import {
   normalizeTimeframe,
   getMinimumRequiredRows,
   getStartDateIso,
   getAsOfDateIso,
   buildSummary,
   findStrongestWeakest,
-} = derivedMetrics;
+} from "./lib/porta-math/derived-metrics.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -43,29 +41,35 @@ async function upsertTimeframeMetric(row) {
     });
 
   if (error) {
-    console.error("❌ timeframe upsert error:", error);
+    console.error("[timeframe-metrics] upsert error:", error);
     throw error;
   }
 }
 
 function buildTimeframeMetricRow(timeframe, rows) {
-  const minimumRequiredRows = getMinimumRequiredRows(timeframe);
+  const normalizedTimeframe = normalizeTimeframe(timeframe);
+  const minimumRequiredRows = getMinimumRequiredRows(normalizedTimeframe);
   const asOfDate = getAsOfDateIso();
-  const expectedWindowStartDate = getStartDateIso(timeframe);
+  const expectedWindowStartDate = getStartDateIso(normalizedTimeframe);
   const sufficientData = rows.length >= minimumRequiredRows;
 
-  const summary = buildSummary(rows, { intraday: false, timeframe });
+  const summary = buildSummary(rows, {
+    intraday: false,
+    timeframe: normalizedTimeframe,
+  });
+
   const timeframeSummary = summary.timeframe_summary;
   const historical = summary.historical;
-  const strongestWeakest = findStrongestWeakest(rows, timeframe);
+  const strongestWeakest = findStrongestWeakest(rows, normalizedTimeframe);
 
   const actualWindowStartDate =
     rows.length > 0 ? rows[0].metric_date : expectedWindowStartDate;
+
   const actualWindowEndDate =
     rows.length > 0 ? rows[rows.length - 1].metric_date : asOfDate;
 
   return {
-    timeframe: normalizeTimeframe(timeframe),
+    timeframe: normalizedTimeframe,
     window_start_date: actualWindowStartDate,
     window_end_date: actualWindowEndDate,
     as_of_date: asOfDate,
@@ -89,9 +93,9 @@ function buildTimeframeMetricRow(timeframe, rows) {
     period_range_pct: safeNumber(historical.range_portfolio_pct),
 
     strongest_period_label: strongestWeakest.strongest_period_label,
-    strongest_period_value: strongestWeakest.strongest_period_value,
+    strongest_period_value: safeNumber(strongestWeakest.strongest_period_value),
     weakest_period_label: strongestWeakest.weakest_period_label,
-    weakest_period_value: strongestWeakest.weakest_period_value,
+    weakest_period_value: safeNumber(strongestWeakest.weakest_period_value),
 
     source_row_count: rows.length,
     minimum_required_rows: minimumRequiredRows,
@@ -99,13 +103,13 @@ function buildTimeframeMetricRow(timeframe, rows) {
 
     summary_json: {
       source: "collector/backfill-timeframe-metrics",
-      timeframe,
+      timeframe: normalizedTimeframe,
       summary,
     },
 
     debug_json: {
       source: "collector/backfill-timeframe-metrics",
-      timeframe,
+      timeframe: normalizedTimeframe,
       row_count: rows.length,
       minimum_required_rows: minimumRequiredRows,
       sufficient_data: sufficientData,

@@ -1,10 +1,10 @@
-const {
+import {
   safeNumber,
   getAverageValue,
   getMinValue,
   getMaxValue,
   getPctChange,
-} = require("./dyf.js");
+} from "./dyf.js";
 
 const CLAIMABLE_RESET_RATIO_THRESHOLD = 0.6;
 const CLAIMABLE_RESET_MIN_DROP_USD = 5;
@@ -469,7 +469,7 @@ function findStrongestWeakest(rows, timeframe) {
   };
 }
 
-module.exports = {
+export {
   normalizeTimeframe,
   getTimeframeDays,
   getMinimumRequiredRows,
