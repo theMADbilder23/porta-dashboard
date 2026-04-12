@@ -20,71 +20,74 @@ type QuickFilter =
   | "max-tpv"
   | "min-tpv";
 
-type PortfolioInDepthResponse = {
-  timeframe: Timeframe;
-  metric_label: string;
-  sufficient_data: boolean;
-  minimum_required_rows: number;
-  actual_rows: number;
-  summary: {
-    current: {
-      metric_date: string | null;
-      metric_time?: string | null;
-      total_portfolio_value: number;
-      total_claimable_usd: number;
-      total_daily_yield_flow: number;
-      min_claimable_usd: number;
-      avg_claimable_usd: number;
-      max_claimable_usd: number;
-      yield_tvd_ratio: number;
-    };
-    historical: {
-      avg_portfolio_value: number;
-      min_portfolio_value: number;
-      max_portfolio_value: number;
-      avg_claimable_usd: number;
-      min_claimable_usd: number;
-      max_claimable_usd: number;
-      avg_daily_yield_flow: number;
-      min_daily_yield_flow: number;
-      max_daily_yield_flow: number;
-      avg_yield_tvd_ratio: number;
-      min_yield_tvd_ratio: number;
-      max_yield_tvd_ratio: number;
-      range_portfolio_pct: number;
-      range_claimable_pct: number;
-      range_daily_yield_pct: number;
-    };
-    timeframe_summary?: {
-      is_live_mode: boolean;
-      header_labels: {
-        tpv: string;
-        claimable: string;
-        yield_flow: string;
-        ratio: string;
-      };
-      latest_metric_date: string | null;
-      latest_metric_time?: string | null;
-      avg_tpv: number;
-      total_claimable_usd: number;
-      total_yield_flow_usd: number;
-      period_yield_ratio: number;
-      period_yield_pct: number;
-      locked_claimable_usd?: number;
-      active_claimable_usd?: number;
-      claimable_reset_count?: number;
-      claimable_reset_points?: Array<{
-        previous_metric_date: string;
-        current_metric_date: string;
-        locked_claimable_usd: number;
-        restarted_claimable_usd: number;
-      }>;
-    };
-  };
-  trend: Array<{
-    metric_date: string;
+type BaseTrendRow = {
+  metric_date: string;
+  metric_time?: string | null;
+  label: string;
+  total_portfolio_value: number;
+  total_claimable_usd: number;
+  total_daily_yield_flow: number;
+  min_claimable_usd: number;
+  avg_claimable_usd: number;
+  max_claimable_usd: number;
+  yield_tvd_ratio: number;
+  debug_json: Record<string, unknown> | null;
+};
+
+type HistoricalArchiveRow = {
+  id?: string | null;
+  timeframe?: Timeframe;
+  label: string;
+  metric_date: string;
+  metric_time?: string | null;
+
+  total_portfolio_value: number;
+  total_claimable_usd: number;
+  total_daily_yield_flow: number;
+  min_claimable_usd: number;
+  avg_claimable_usd: number;
+  max_claimable_usd: number;
+  yield_tvd_ratio: number;
+
+  avg_tpv?: number;
+  min_tpv?: number;
+  max_tpv?: number;
+
+  total_yield_flow_usd?: number;
+  avg_yield_flow_usd?: number;
+  min_yield_flow_usd?: number;
+  max_yield_flow_usd?: number;
+
+  period_yield_ratio?: number;
+  period_yield_pct?: number;
+
+  locked_claimable_usd?: number;
+  active_claimable_usd?: number;
+  claimable_reset_count?: number;
+
+  strongest_period_label?: string | null;
+  strongest_period_value?: number;
+  weakest_period_label?: string | null;
+  weakest_period_value?: number;
+
+  source_row_count?: number;
+  minimum_required_rows?: number;
+  sufficient_data?: boolean;
+
+  window_start_date?: string | null;
+  window_end_date?: string | null;
+  as_of_date?: string | null;
+
+  summary_json?: Record<string, unknown> | null;
+  debug_json?: Record<string, unknown> | null;
+
+  created_at?: string | null;
+};
+
+type SharedSummary = {
+  current: {
+    metric_date: string | null;
     metric_time?: string | null;
-    label: string;
     total_portfolio_value: number;
     total_claimable_usd: number;
     total_daily_yield_flow: number;
@@ -92,8 +95,71 @@ type PortfolioInDepthResponse = {
     avg_claimable_usd: number;
     max_claimable_usd: number;
     yield_tvd_ratio: number;
-    debug_json: Record<string, unknown> | null;
-  }>;
+  };
+  historical: {
+    avg_portfolio_value: number;
+    min_portfolio_value: number;
+    max_portfolio_value: number;
+    avg_claimable_usd: number;
+    min_claimable_usd: number;
+    max_claimable_usd: number;
+    avg_daily_yield_flow: number;
+    min_daily_yield_flow: number;
+    max_daily_yield_flow: number;
+    avg_yield_tvd_ratio: number;
+    min_yield_tvd_ratio: number;
+    max_yield_tvd_ratio: number;
+    range_portfolio_pct: number;
+    range_claimable_pct: number;
+    range_daily_yield_pct: number;
+  };
+  timeframe_summary?: {
+    is_live_mode: boolean;
+    header_labels: {
+      tpv: string;
+      claimable: string;
+      yield_flow: string;
+      ratio: string;
+    };
+    latest_metric_date: string | null;
+    latest_metric_time?: string | null;
+    avg_tpv: number;
+    total_claimable_usd: number;
+    total_yield_flow_usd: number;
+    period_yield_ratio: number;
+    period_yield_pct: number;
+    locked_claimable_usd?: number;
+    active_claimable_usd?: number;
+    claimable_reset_count?: number;
+    claimable_reset_points?: Array<{
+      previous_metric_date: string;
+      current_metric_date: string;
+      locked_claimable_usd: number;
+      restarted_claimable_usd: number;
+    }>;
+  };
+};
+
+type HistoricalTablePayload = {
+  enabled: boolean;
+  source: "daily_metric_snapshots" | "timeframe_metric_snapshots";
+  metric_label: string;
+  sufficient_data: boolean;
+  minimum_required_rows: number;
+  actual_rows: number;
+  summary: SharedSummary;
+  trend: BaseTrendRow[];
+  rows: HistoricalArchiveRow[];
+};
+
+type PortfolioInDepthResponse = {
+  timeframe: Timeframe;
+  metric_label: string;
+  sufficient_data: boolean;
+  minimum_required_rows: number;
+  actual_rows: number;
+  summary: SharedSummary;
+  trend: BaseTrendRow[];
   rows: Array<{
     id?: string;
     metric_date: string;
@@ -109,6 +175,7 @@ type PortfolioInDepthResponse = {
     created_at?: string;
     updated_at?: string;
   }>;
+  historical_table?: HistoricalTablePayload;
 };
 
 function safeNumber(value: number | null | undefined) {
@@ -301,10 +368,7 @@ function SectionHeader({
   );
 }
 
-function getRowSearchText(
-  row: PortfolioInDepthResponse["trend"][number],
-  isDaily: boolean
-) {
+function getRowSearchText(row: BaseTrendRow, isDaily: boolean) {
   const dateText = row.metric_date || "";
   const timeText = row.metric_time || "";
   const labelText = row.label || "";
@@ -312,11 +376,7 @@ function getRowSearchText(
   return [dateText, timeText, labelText].join(" ").toLowerCase();
 }
 
-function getRowSortValue(
-  row: PortfolioInDepthResponse["trend"][number],
-  field: SortField,
-  isDaily: boolean
-) {
+function getRowSortValue(row: BaseTrendRow, field: SortField, isDaily: boolean) {
   switch (field) {
     case "tpv":
       return safeNumber(row.total_portfolio_value);
@@ -393,6 +453,7 @@ export default function PortfolioInDepthPage() {
   const historical = data?.summary.historical;
   const timeframeSummary = data?.summary.timeframe_summary;
   const trend = data?.trend ?? [];
+  const historicalTable = data?.historical_table;
 
   const timeframeOptions: Timeframe[] = [
     "daily",
@@ -479,6 +540,35 @@ export default function PortfolioInDepthPage() {
 
     return rows;
   }, [trend, searchTerm, quickFilter, sortField, sortDirection, isDaily]);
+
+  const historicalRows = historicalTable?.rows ?? [];
+  const historicalTrend = historicalTable?.trend ?? [];
+  const historicalSummary = historicalTable?.summary?.historical;
+  const historicalSource = historicalTable?.source;
+
+  const historicalChartSeries = useMemo(() => {
+    return [...historicalTrend].map((row) => ({
+      label: isDaily
+        ? formatDateLabel(row.metric_date)
+        : row.label || formatDateLabel(row.metric_date),
+      tpv: safeNumber(row.total_portfolio_value),
+      claimable: safeNumber(row.total_claimable_usd),
+      dyf: safeNumber(row.total_daily_yield_flow),
+      min: safeNumber(row.min_claimable_usd),
+      avg: safeNumber(row.avg_claimable_usd),
+      max: safeNumber(row.max_claimable_usd),
+      yieldRatioPct: safeNumber(row.yield_tvd_ratio) * 100,
+    }));
+  }, [historicalTrend, isDaily]);
+
+  const chartMaxValue = useMemo(() => {
+    if (!historicalChartSeries.length) return 0;
+    return Math.max(
+      ...historicalChartSeries.map((row) =>
+        Math.max(row.tpv, row.claimable, row.dyf, row.min, row.avg, row.max)
+      )
+    );
+  }, [historicalChartSeries]);
 
   const headerCardLabels = isDaily
     ? {
@@ -867,7 +957,7 @@ export default function PortfolioInDepthPage() {
             </div>
 
             <div className="mt-4 rounded-2xl border border-[#E9DAFF] dark:border-[#312047]">
-              <div className="max-h-[320px] overflow-x-auto overflow-y-auto">
+              <div className="max-h-[168px] overflow-x-auto overflow-y-auto">
                 <table className="min-w-full text-left">
                   <thead className="sticky top-0 z-10 bg-[#F6F0FF] dark:bg-[#140D20]">
                     <tr className="border-b border-[#F0E8FF] dark:border-[#241533]">
@@ -958,76 +1048,281 @@ export default function PortfolioInDepthPage() {
 
             <div className="mt-6 grid grid-cols-1 gap-6">
               <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-5 dark:border-[#312047] dark:bg-[#120B1C]">
-                <SectionHeader
-                  title={historicalTableTitle}
-                  description={
-                    isDaily
-                      ? "Stored prior-day review layer for daily metrics. This table will sit below the live intraday panel so the current-day view remains separate."
-                      : `Stored ${timeframe.toLowerCase()} archive review powered by timeframe metric snapshots. This section will support filtering, sorting, and cleaner long-range inspection as history expands.`
-                  }
-                />
+                <div className="flex flex-col gap-4 desktop:flex-row desktop:items-end desktop:justify-between">
+                  <SectionHeader
+                    title={historicalTableTitle}
+                    description={
+                      isDaily
+                        ? "Stored prior-day review layer for daily metrics. This table stays separate from the live intraday panel above."
+                        : `Stored ${timeframe.toLowerCase()} archive review powered by timeframe metric snapshots. This section supports cleaner long-range inspection as history expands.`
+                    }
+                  />
 
-                <div className="mt-4 rounded-2xl border border-dashed border-[#DCC8FF] bg-white p-5 dark:border-[#3A2552] dark:bg-[#100A19]">
-                  <p className="text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                    Historical table area reserved
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                    Next step: wire this section to the dedicated historical source
-                    for the selected timeframe.
-                    {isDaily
-                      ? " Daily will use daily_metric_snapshots."
-                      : " Weekly, Monthly, Quarterly, and Yearly will use timeframe_metric_snapshots."}
-                  </p>
+                  <div className="grid grid-cols-2 gap-2 desktop:w-[420px]">
+                    <CompactStat
+                      label="Source"
+                      value={
+                        historicalSource === "timeframe_metric_snapshots"
+                          ? "TF Snapshots"
+                          : "Daily Snapshots"
+                      }
+                      sublabel={historicalSource || "—"}
+                      compact
+                    />
+                    <CompactStat
+                      label="Archive Rows"
+                      value={String(historicalTable?.actual_rows ?? 0)}
+                      sublabel={`Minimum required: ${
+                        historicalTable?.minimum_required_rows ?? 0
+                      }`}
+                      compact
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-4 laptop:grid-cols-3 desktop:grid-cols-6">
+                  <CompactStat
+                    label="Archive Avg TPV"
+                    value={formatCompactCurrency(
+                      historicalSummary?.avg_portfolio_value ?? 0
+                    )}
+                    compact
+                  />
+                  <CompactStat
+                    label="Archive Min TPV"
+                    value={formatCompactCurrency(
+                      historicalSummary?.min_portfolio_value ?? 0
+                    )}
+                    compact
+                  />
+                  <CompactStat
+                    label="Archive Max TPV"
+                    value={formatCompactCurrency(
+                      historicalSummary?.max_portfolio_value ?? 0
+                    )}
+                    compact
+                  />
+                  <CompactStat
+                    label="Archive Avg DYF"
+                    value={formatCurrency(
+                      historicalSummary?.avg_daily_yield_flow ?? 0
+                    )}
+                    emphasis
+                    compact
+                  />
+                  <CompactStat
+                    label="Archive Min DYF"
+                    value={formatCurrency(
+                      historicalSummary?.min_daily_yield_flow ?? 0
+                    )}
+                    compact
+                  />
+                  <CompactStat
+                    label="Archive Max DYF"
+                    value={formatCurrency(
+                      historicalSummary?.max_daily_yield_flow ?? 0
+                    )}
+                    compact
+                  />
+                </div>
+
+                <div className="mt-5 rounded-2xl border border-[#E9DAFF] dark:border-[#312047]">
+                  <div className="max-h-[420px] overflow-x-auto overflow-y-auto">
+                    <table className="min-w-full text-left">
+                      <thead className="sticky top-0 z-10 bg-[#F6F0FF] dark:bg-[#140D20]">
+                        <tr className="border-b border-[#F0E8FF] dark:border-[#241533]">
+                          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            {isDaily ? "Date" : "Period"}
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            TPV
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            Claimable
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            DYF
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            Min
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            Avg
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            Max
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                            Yield / TVD
+                          </th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {historicalRows.map((row, index) => (
+                          <tr
+                            key={row.id || `${row.metric_date}-${index}`}
+                            className="border-b border-[#F7F1FF] bg-white dark:border-[#1C1328] dark:bg-[#100A19]"
+                          >
+                            <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                              {row.label || formatDateLabel(row.metric_date)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                              {formatCurrency(row.total_portfolio_value)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                              {formatCurrency(row.total_claimable_usd)}
+                            </td>
+                            <td className="px-4 py-3 text-sm font-semibold text-[#6D28D9] dark:text-[#D8B4FE]">
+                              {formatCurrency(row.total_daily_yield_flow)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                              {formatCurrency(row.min_claimable_usd)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                              {formatCurrency(row.avg_claimable_usd)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                              {formatCurrency(row.max_claimable_usd)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                              {formatRatioPercent(row.yield_tvd_ratio)}
+                            </td>
+                          </tr>
+                        ))}
+
+                        {!historicalRows.length ? (
+                          <tr>
+                            <td
+                              colSpan={8}
+                              className="px-4 py-6 text-center text-sm text-[#6B5A86] dark:text-[#BFA9F5]"
+                            >
+                              No historical rows available yet for this timeframe.
+                            </td>
+                          </tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
 
               <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-5 dark:border-[#312047] dark:bg-[#120B1C]">
                 <SectionHeader
                   title={historicalChartTitle}
-                  description="Advanced line chart workspace for the selected historical source. This will become the main visual explorer for TPV, claimable, DYF, min/avg/max, and yield efficiency over the selected range."
+                  description="Advanced line chart workspace for the selected historical source. This first pass now uses the real archive dataset so the chart area is no longer only placeholder."
                 />
 
                 <div className="mt-4 grid grid-cols-1 gap-3 laptop:grid-cols-2 desktop:grid-cols-4">
                   <CompactStat
-                    label="Planned Metrics"
+                    label="Chart Source"
+                    value={
+                      historicalSource === "timeframe_metric_snapshots"
+                        ? "TF Archive"
+                        : "Daily Archive"
+                    }
+                    sublabel={historicalSource || "—"}
+                    compact
+                  />
+                  <CompactStat
+                    label="Series Loaded"
+                    value={String(historicalChartSeries.length)}
+                    sublabel="Historical trend rows"
+                    compact
+                  />
+                  <CompactStat
+                    label="Primary Metrics"
                     value="TPV / DYF"
-                    sublabel="Expandable series toggles"
+                    sublabel="Claimable also loaded"
                     compact
                   />
                   <CompactStat
-                    label="Planned Range"
-                    value="Dynamic"
-                    sublabel="Date window + presets"
-                    compact
-                  />
-                  <CompactStat
-                    label="Planned Filters"
-                    value="Useful"
-                    sublabel="Metric + timeframe controls"
-                    compact
-                  />
-                  <CompactStat
-                    label="Planned Behavior"
-                    value="Interactive"
-                    sublabel="Hover, legend, select, compare"
+                    label="Chart State"
+                    value={historicalChartSeries.length ? "Live Data" : "Empty"}
+                    sublabel="Visual shell for next pass"
                     compact
                   />
                 </div>
 
-                <div className="mt-4 rounded-2xl border border-dashed border-[#DCC8FF] bg-white p-6 dark:border-[#3A2552] dark:bg-[#100A19]">
-                  <div className="flex min-h-[260px] items-center justify-center rounded-xl bg-[#FAF7FF] dark:bg-[#140D20]">
-                    <div className="max-w-2xl text-center">
-                      <p className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                        Advanced historical chart placeholder
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                        This is where the dynamic line chart will go once the historical
-                        source is wired. The live table above remains a compact utility
-                        panel, while this chart becomes one of the primary focal points
-                        of the page.
-                      </p>
+                <div className="mt-4 rounded-2xl border border-[#DCC8FF] bg-white p-6 dark:border-[#3A2552] dark:bg-[#100A19]">
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    <span className="rounded-full bg-[#F3E8FF] px-3 py-1 text-xs font-medium text-[#6D28D9] dark:bg-[#1A1226] dark:text-[#D8B4FE]">
+                      TPV
+                    </span>
+                    <span className="rounded-full bg-[#F3E8FF] px-3 py-1 text-xs font-medium text-[#6D28D9] dark:bg-[#1A1226] dark:text-[#D8B4FE]">
+                      Claimable
+                    </span>
+                    <span className="rounded-full bg-[#F3E8FF] px-3 py-1 text-xs font-medium text-[#6D28D9] dark:bg-[#1A1226] dark:text-[#D8B4FE]">
+                      DYF
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <div className="min-w-[900px]">
+                      <div className="flex h-[280px] items-end gap-3 rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
+                        {historicalChartSeries.length ? (
+                          historicalChartSeries.map((point, index) => {
+                            const tpvHeight =
+                              chartMaxValue > 0
+                                ? Math.max((point.tpv / chartMaxValue) * 100, 2)
+                                : 2;
+                            const dyfHeight =
+                              chartMaxValue > 0
+                                ? Math.max((point.dyf / chartMaxValue) * 100, 2)
+                                : 2;
+                            const claimableHeight =
+                              chartMaxValue > 0
+                                ? Math.max((point.claimable / chartMaxValue) * 100, 2)
+                                : 2;
+
+                            return (
+                              <div
+                                key={`${point.label}-${index}`}
+                                className="flex min-w-[72px] flex-1 flex-col items-center justify-end gap-2"
+                              >
+                                <div className="flex h-[210px] items-end gap-1">
+                                  <div
+                                    className="w-3 rounded-t-md bg-[#A78BFA]"
+                                    style={{ height: `${tpvHeight}%` }}
+                                    title={`TPV: ${formatCurrency(point.tpv)}`}
+                                  />
+                                  <div
+                                    className="w-3 rounded-t-md bg-[#C4B5FD]"
+                                    style={{ height: `${claimableHeight}%` }}
+                                    title={`Claimable: ${formatCurrency(point.claimable)}`}
+                                  />
+                                  <div
+                                    className="w-3 rounded-t-md bg-[#7C3AED]"
+                                    style={{ height: `${dyfHeight}%` }}
+                                    title={`DYF: ${formatCurrency(point.dyf)}`}
+                                  />
+                                </div>
+
+                                <div className="text-center">
+                                  <p className="line-clamp-2 text-[11px] font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                                    {point.label}
+                                  </p>
+                                  <p className="mt-1 text-[10px] text-[#6B5A86] dark:text-[#BFA9F5]">
+                                    DYF {formatCurrency(point.dyf)}
+                                  </p>
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
+                            No historical chart points available yet.
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
+
+                  <p className="mt-4 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+                    This first pass uses the real historical dataset in a compact visual shell.
+                    Next pass can upgrade this into a true advanced line chart with dynamic
+                    metric toggles, date presets, hover tooltips, and multi-series selection.
+                  </p>
                 </div>
               </div>
             </div>
