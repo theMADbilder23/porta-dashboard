@@ -1,6 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 type Timeframe = "daily" | "weekly" | "monthly" | "quarterly" | "yearly";
 type SortField =
@@ -19,6 +29,17 @@ type QuickFilter =
   | "weakest-dyf"
   | "max-tpv"
   | "min-tpv";
+
+type ChartMetric =
+  | "tpv"
+  | "claimable"
+  | "dyf"
+  | "min"
+  | "avg"
+  | "max"
+  | "yieldRatioPct";
+
+type RangePreset = "7" | "14" | "30" | "all";
 
 type BaseTrendRow = {
   metric_date: string;
@@ -159,7 +180,19 @@ type PortfolioInDepthResponse = {
   minimum_required_rows: number;
   actual_rows: number;
   summary: SharedSummary;
-  trend: BaseTrendRow[];
+  trend: Array<{
+    metric_date: string;
+    metric_time?: string | null;
+    label: string;
+    total_portfolio_value: number;
+    total_claimable_usd: number;
+    total_daily_yield_flow: number;
+    min_claimable_usd: number;
+    avg_claimable_usd: number;
+    max_claimable_usd: number;
+    yield_tvd_ratio: number;
+    debug_json: Record<string, unknown> | null;
+  }>;
   rows: Array<{
     id?: string;
     metric_date: string;
@@ -238,6 +271,27 @@ function formatDateTimeLabel(value: string | null | undefined) {
 
 function titleCaseTimeframe(timeframe: Timeframe) {
   return timeframe.charAt(0).toUpperCase() + timeframe.slice(1);
+}
+
+function metricButtonLabel(metric: ChartMetric) {
+  switch (metric) {
+    case "tpv":
+      return "TPV";
+    case "claimable":
+      return "Claimable";
+    case "dyf":
+      return "DYF";
+    case "min":
+      return "Min";
+    case "avg":
+      return "Avg";
+    case "max":
+      return "Max";
+    case "yieldRatioPct":
+      return "Yield / TVD";
+    default:
+      return metric;
+  }
 }
 
 function Tooltip({
@@ -412,6 +466,12 @@ export default function PortfolioInDepthPage() {
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("none");
 
+  const [selectedChartMetrics, setSelectedChartMetrics] = useState<ChartMetric[]>([
+    "tpv",
+    "dyf",
+  ]);
+  const [rangePreset, setRangePreset] = useState<RangePreset>("all");
+
   async function loadData(selectedTimeframe: Timeframe) {
     try {
       setIsLoading(true);
@@ -447,6 +507,8 @@ export default function PortfolioInDepthPage() {
     setSortField("date");
     setSortDirection("desc");
     setQuickFilter("none");
+    setSelectedChartMetrics(["tpv", "dyf"]);
+    setRangePreset("all");
   }, [timeframe]);
 
   const current = data?.summary.current;
@@ -462,6 +524,18 @@ export default function PortfolioInDepthPage() {
     "quarterly",
     "yearly",
   ];
+
+  const chartMetricOptions: ChartMetric[] = [
+    "tpv",
+    "claimable",
+    "dyf",
+    "min",
+    "avg",
+    "max",
+    "yieldRatioPct",
+  ];
+
+  const rangePresetOptions: RangePreset[] = ["7", "14", "30", "all"];
 
   const isDaily = timeframe === "daily";
   const timeframeLabel = titleCaseTimeframe(timeframe);
@@ -551,6 +625,7 @@ export default function PortfolioInDepthPage() {
       label: isDaily
         ? formatDateLabel(row.metric_date)
         : row.label || formatDateLabel(row.metric_date),
+      rawDate: row.metric_date,
       tpv: safeNumber(row.total_portfolio_value),
       claimable: safeNumber(row.total_claimable_usd),
       dyf: safeNumber(row.total_daily_yield_flow),
@@ -561,14 +636,22 @@ export default function PortfolioInDepthPage() {
     }));
   }, [historicalTrend, isDaily]);
 
-  const chartMaxValue = useMemo(() => {
-    if (!historicalChartSeries.length) return 0;
-    return Math.max(
-      ...historicalChartSeries.map((row) =>
-        Math.max(row.tpv, row.claimable, row.dyf, row.min, row.avg, row.max)
-      )
-    );
-  }, [historicalChartSeries]);
+  const rangedHistoricalChartSeries = useMemo(() => {
+    if (rangePreset === "all") return historicalChartSeries;
+    const count = Number(rangePreset);
+    if (!Number.isFinite(count) || count <= 0) return historicalChartSeries;
+    return historicalChartSeries.slice(-count);
+  }, [historicalChartSeries, rangePreset]);
+
+  const toggleChartMetric = (metric: ChartMetric) => {
+    setSelectedChartMetrics((prev) => {
+      if (prev.includes(metric)) {
+        if (prev.length === 1) return prev;
+        return prev.filter((item) => item !== metric);
+      }
+      return [...prev, metric];
+    });
+  };
 
   const headerCardLabels = isDaily
     ? {
@@ -1210,7 +1293,7 @@ export default function PortfolioInDepthPage() {
               <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-5 dark:border-[#312047] dark:bg-[#120B1C]">
                 <SectionHeader
                   title={historicalChartTitle}
-                  description="Advanced line chart workspace for the selected historical source. This first pass now uses the real archive dataset so the chart area is no longer only placeholder."
+                  description="Advanced line chart workspace for the selected historical source. This version now uses a true interactive line chart with metric toggles and range presets."
                 />
 
                 <div className="mt-4 grid grid-cols-1 gap-3 laptop:grid-cols-2 desktop:grid-cols-4">
@@ -1226,102 +1309,231 @@ export default function PortfolioInDepthPage() {
                   />
                   <CompactStat
                     label="Series Loaded"
-                    value={String(historicalChartSeries.length)}
-                    sublabel="Historical trend rows"
+                    value={String(rangedHistoricalChartSeries.length)}
+                    sublabel={`Range: ${rangePreset === "all" ? "All" : rangePreset}`}
                     compact
                   />
                   <CompactStat
-                    label="Primary Metrics"
-                    value="TPV / DYF"
-                    sublabel="Claimable also loaded"
+                    label="Selected Metrics"
+                    value={String(selectedChartMetrics.length)}
+                    sublabel={selectedChartMetrics.map(metricButtonLabel).join(" / ")}
                     compact
                   />
                   <CompactStat
                     label="Chart State"
-                    value={historicalChartSeries.length ? "Live Data" : "Empty"}
-                    sublabel="Visual shell for next pass"
+                    value={rangedHistoricalChartSeries.length ? "Interactive" : "Empty"}
+                    sublabel="Line chart active"
                     compact
                   />
                 </div>
 
-                <div className="mt-4 rounded-2xl border border-[#DCC8FF] bg-white p-6 dark:border-[#3A2552] dark:bg-[#100A19]">
-                  <div className="mb-4 flex flex-wrap gap-2">
-                    <span className="rounded-full bg-[#F3E8FF] px-3 py-1 text-xs font-medium text-[#6D28D9] dark:bg-[#1A1226] dark:text-[#D8B4FE]">
-                      TPV
-                    </span>
-                    <span className="rounded-full bg-[#F3E8FF] px-3 py-1 text-xs font-medium text-[#6D28D9] dark:bg-[#1A1226] dark:text-[#D8B4FE]">
-                      Claimable
-                    </span>
-                    <span className="rounded-full bg-[#F3E8FF] px-3 py-1 text-xs font-medium text-[#6D28D9] dark:bg-[#1A1226] dark:text-[#D8B4FE]">
-                      DYF
-                    </span>
-                  </div>
+                <div className="mt-4 flex flex-col gap-4 rounded-2xl border border-[#DCC8FF] bg-white p-5 dark:border-[#3A2552] dark:bg-[#100A19]">
+                  <div className="flex flex-col gap-4 desktop:flex-row desktop:items-center desktop:justify-between">
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                        Metric Toggles
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {chartMetricOptions.map((metric) => {
+                          const active = selectedChartMetrics.includes(metric);
 
-                  <div className="overflow-x-auto">
-                    <div className="min-w-[900px]">
-                      <div className="flex h-[280px] items-end gap-3 rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
-                        {historicalChartSeries.length ? (
-                          historicalChartSeries.map((point, index) => {
-                            const tpvHeight =
-                              chartMaxValue > 0
-                                ? Math.max((point.tpv / chartMaxValue) * 100, 2)
-                                : 2;
-                            const dyfHeight =
-                              chartMaxValue > 0
-                                ? Math.max((point.dyf / chartMaxValue) * 100, 2)
-                                : 2;
-                            const claimableHeight =
-                              chartMaxValue > 0
-                                ? Math.max((point.claimable / chartMaxValue) * 100, 2)
-                                : 2;
+                          return (
+                            <button
+                              key={metric}
+                              type="button"
+                              onClick={() => toggleChartMetric(metric)}
+                              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                                active
+                                  ? "bg-[#7C3AED] text-white"
+                                  : "border border-[#E9DAFF] bg-white text-[#6D28D9] hover:bg-[#F3E8FF] dark:border-[#312047] dark:bg-[#100A19] dark:text-[#D8B4FE] dark:hover:bg-[#1A1226]"
+                              }`}
+                            >
+                              {metricButtonLabel(metric)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
 
-                            return (
-                              <div
-                                key={`${point.label}-${index}`}
-                                className="flex min-w-[72px] flex-1 flex-col items-center justify-end gap-2"
-                              >
-                                <div className="flex h-[210px] items-end gap-1">
-                                  <div
-                                    className="w-3 rounded-t-md bg-[#A78BFA]"
-                                    style={{ height: `${tpvHeight}%` }}
-                                    title={`TPV: ${formatCurrency(point.tpv)}`}
-                                  />
-                                  <div
-                                    className="w-3 rounded-t-md bg-[#C4B5FD]"
-                                    style={{ height: `${claimableHeight}%` }}
-                                    title={`Claimable: ${formatCurrency(point.claimable)}`}
-                                  />
-                                  <div
-                                    className="w-3 rounded-t-md bg-[#7C3AED]"
-                                    style={{ height: `${dyfHeight}%` }}
-                                    title={`DYF: ${formatCurrency(point.dyf)}`}
-                                  />
-                                </div>
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                        Range Presets
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {rangePresetOptions.map((preset) => {
+                          const active = rangePreset === preset;
 
-                                <div className="text-center">
-                                  <p className="line-clamp-2 text-[11px] font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
-                                    {point.label}
-                                  </p>
-                                  <p className="mt-1 text-[10px] text-[#6B5A86] dark:text-[#BFA9F5]">
-                                    DYF {formatCurrency(point.dyf)}
-                                  </p>
-                                </div>
-                              </div>
-                            );
-                          })
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
-                            No historical chart points available yet.
-                          </div>
-                        )}
+                          return (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() => setRangePreset(preset)}
+                              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                                active
+                                  ? "bg-[#7C3AED] text-white"
+                                  : "border border-[#E9DAFF] bg-white text-[#6D28D9] hover:bg-[#F3E8FF] dark:border-[#312047] dark:bg-[#100A19] dark:text-[#D8B4FE] dark:hover:bg-[#1A1226]"
+                              }`}
+                            >
+                              {preset === "all" ? "All" : `Last ${preset}`}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
 
-                  <p className="mt-4 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                    This first pass uses the real historical dataset in a compact visual shell.
-                    Next pass can upgrade this into a true advanced line chart with dynamic
-                    metric toggles, date presets, hover tooltips, and multi-series selection.
+                  <div className="h-[360px] rounded-xl bg-[#FAF7FF] p-4 dark:bg-[#140D20]">
+                    {rangedHistoricalChartSeries.length ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart
+                          data={rangedHistoricalChartSeries}
+                          margin={{ top: 10, right: 16, left: 8, bottom: 10 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="#E9DAFF" />
+                          <XAxis
+                            dataKey="label"
+                            tick={{ fontSize: 11, fill: "#6B5A86" }}
+                            tickLine={false}
+                            axisLine={{ stroke: "#E9DAFF" }}
+                            interval="preserveStartEnd"
+                          />
+                          <YAxis
+                            tick={{ fontSize: 11, fill: "#6B5A86" }}
+                            tickLine={false}
+                            axisLine={{ stroke: "#E9DAFF" }}
+                            tickFormatter={(value) =>
+                              typeof value === "number"
+                                ? value >= 1000
+                                  ? `$${(value / 1000).toFixed(0)}K`
+                                  : `$${value.toFixed(0)}`
+                                : ""
+                            }
+                          />
+                          <RechartsTooltip
+                            formatter={(value: number, name: string) => {
+                              if (name === "yieldRatioPct") {
+                                return [formatPercent(value, 2), "Yield / TVD"];
+                              }
+
+                              const labelMap: Record<string, string> = {
+                                tpv: "TPV",
+                                claimable: "Claimable",
+                                dyf: "DYF",
+                                min: "Min",
+                                avg: "Avg",
+                                max: "Max",
+                              };
+
+                              return [formatCurrency(value), labelMap[name] || name];
+                            }}
+                            labelFormatter={(label) => `Period: ${label}`}
+                            contentStyle={{
+                              borderRadius: 12,
+                              border: "1px solid #E9DAFF",
+                              background: "#FFFFFF",
+                              fontSize: 12,
+                            }}
+                          />
+                          <Legend
+                            formatter={(value) => metricButtonLabel(value as ChartMetric)}
+                          />
+
+                          {selectedChartMetrics.includes("tpv") ? (
+                            <Line
+                              type="monotone"
+                              dataKey="tpv"
+                              name="tpv"
+                              stroke="#7C3AED"
+                              strokeWidth={3}
+                              dot={false}
+                              activeDot={{ r: 5 }}
+                            />
+                          ) : null}
+
+                          {selectedChartMetrics.includes("claimable") ? (
+                            <Line
+                              type="monotone"
+                              dataKey="claimable"
+                              name="claimable"
+                              stroke="#A78BFA"
+                              strokeWidth={2}
+                              dot={false}
+                              activeDot={{ r: 4 }}
+                            />
+                          ) : null}
+
+                          {selectedChartMetrics.includes("dyf") ? (
+                            <Line
+                              type="monotone"
+                              dataKey="dyf"
+                              name="dyf"
+                              stroke="#5B21B6"
+                              strokeWidth={2.5}
+                              dot={false}
+                              activeDot={{ r: 4 }}
+                            />
+                          ) : null}
+
+                          {selectedChartMetrics.includes("min") ? (
+                            <Line
+                              type="monotone"
+                              dataKey="min"
+                              name="min"
+                              stroke="#C4B5FD"
+                              strokeWidth={2}
+                              dot={false}
+                              activeDot={{ r: 3 }}
+                            />
+                          ) : null}
+
+                          {selectedChartMetrics.includes("avg") ? (
+                            <Line
+                              type="monotone"
+                              dataKey="avg"
+                              name="avg"
+                              stroke="#8B5CF6"
+                              strokeWidth={2}
+                              dot={false}
+                              activeDot={{ r: 3 }}
+                            />
+                          ) : null}
+
+                          {selectedChartMetrics.includes("max") ? (
+                            <Line
+                              type="monotone"
+                              dataKey="max"
+                              name="max"
+                              stroke="#DDD6FE"
+                              strokeWidth={2}
+                              dot={false}
+                              activeDot={{ r: 3 }}
+                            />
+                          ) : null}
+
+                          {selectedChartMetrics.includes("yieldRatioPct") ? (
+                            <Line
+                              type="monotone"
+                              dataKey="yieldRatioPct"
+                              name="yieldRatioPct"
+                              stroke="#6D28D9"
+                              strokeWidth={2}
+                              dot={false}
+                              activeDot={{ r: 3 }}
+                            />
+                          ) : null}
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
+                        No historical chart points available yet.
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+                    This is now a real trend chart using the historical archive dataset.
+                    Next pass can improve it further with dual-axis support, custom date
+                    selection, zoom controls, and richer metric scaling behavior.
                   </p>
                 </div>
               </div>
