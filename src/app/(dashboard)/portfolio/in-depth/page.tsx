@@ -169,6 +169,10 @@ function formatDateTimeLabel(value: string | null | undefined) {
   });
 }
 
+function titleCaseTimeframe(timeframe: Timeframe) {
+  return timeframe.charAt(0).toUpperCase() + timeframe.slice(1);
+}
+
 function Tooltip({
   label,
   children,
@@ -263,6 +267,34 @@ function CompactStat({
           }`}
         >
           {sublabel}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function SectionHeader({
+  eyebrow,
+  title,
+  description,
+}: {
+  eyebrow?: string;
+  title: string;
+  description?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      {eyebrow ? (
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8B5CF6] dark:text-[#C084FC]">
+          {eyebrow}
+        </p>
+      ) : null}
+      <h2 className="text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+        {title}
+      </h2>
+      {description ? (
+        <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+          {description}
         </p>
       ) : null}
     </div>
@@ -371,6 +403,7 @@ export default function PortfolioInDepthPage() {
   ];
 
   const isDaily = timeframe === "daily";
+  const timeframeLabel = titleCaseTimeframe(timeframe);
 
   const strongestDay = useMemo(() => {
     if (!trend.length) return null;
@@ -516,13 +549,21 @@ export default function PortfolioInDepthPage() {
           "Period yield percentage calculated from total timeframe yield flow relative to average TPV.",
       };
 
-  const tableSectionTitle = isDaily
-    ? "Live Daily Metrics Table"
-    : "Historical Metrics Table";
+  const livePanelTitle = isDaily
+    ? "Live Daily Metrics Panel"
+    : `Live ${timeframeLabel} Metrics Panel`;
 
-  const tableSectionDescription = isDaily
-    ? "Scrollable live 30-minute bucket view for the current UTC day. This keeps today’s intraday metrics compact while preserving quick scan utility."
-    : "Clean historical review of stored daily metrics. This includes search and sort controls so larger row sets stay useful as history expands.";
+  const livePanelDescription = isDaily
+    ? "Compact live 30-minute bucket review for the current UTC day. This section is meant for quick inspection without dominating the page."
+    : `Compact live ${timeframe.toLowerCase()} review panel derived from the current working calculation layer. This stays available for inspection while the deeper analysis below becomes the main focus.`;
+
+  const historicalTableTitle = isDaily
+    ? "Historical Daily Metrics Table"
+    : `Historical ${timeframeLabel} Metrics Table`;
+
+  const historicalChartTitle = isDaily
+    ? "Historical Daily Trend Explorer"
+    : `${timeframeLabel} Historical Trend Explorer`;
 
   return (
     <div className="min-h-screen space-y-6 p-6">
@@ -625,16 +666,14 @@ export default function PortfolioInDepthPage() {
           </section>
 
           <section className="rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-            <div className="flex flex-col gap-2">
-              <h2 className="text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                Metrics Table Overview
-              </h2>
-              <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                {isDaily
+            <SectionHeader
+              title="Metrics Table Overview"
+              description={
+                isDaily
                   ? "Live in-day summary of the current UTC day’s 30-minute bucket set."
-                  : "Summary layer for the currently selected historical dataset. This panel shows the minimum, average, and maximum values found inside the metrics table for the selected timeframe."}
-              </p>
-            </div>
+                  : "Summary layer for the currently selected historical dataset. This panel shows the minimum, average, and maximum values found inside the live metrics table for the selected timeframe."
+              }
+            />
 
             <div className="mt-4 grid grid-cols-2 gap-4 laptop:grid-cols-3 desktop:grid-cols-6">
               <CompactStat
@@ -668,16 +707,10 @@ export default function PortfolioInDepthPage() {
           </section>
 
           <section className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-4 shadow-sm dark:border-[#2A1D3B] dark:bg-[#140D20]">
-            <div className="flex flex-col gap-1.5 desktop:flex-row desktop:items-end desktop:justify-between">
-              <div>
-                <h2 className="text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                  Period Highlights
-                </h2>
-                <p className="text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
-                  Quick scan of the strongest and weakest yield-flow entries, row coverage, and TPV range.
-                </p>
-              </div>
-            </div>
+            <SectionHeader
+              title="Period Highlights"
+              description="Quick scan of the strongest and weakest yield-flow entries, row coverage, and TPV range."
+            />
 
             <div className="mt-3 grid grid-cols-2 gap-3 desktop:grid-cols-4">
               <CompactStat
@@ -724,17 +757,43 @@ export default function PortfolioInDepthPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
-            <div className="flex flex-col gap-2">
-              <h2 className="text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                {tableSectionTitle}
-              </h2>
-              <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                {tableSectionDescription}
-              </p>
+          <section className="rounded-2xl border border-[#E9DAFF] bg-white p-5 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+            <div className="flex flex-col gap-4 desktop:flex-row desktop:items-end desktop:justify-between">
+              <SectionHeader
+                eyebrow="Live inspection layer"
+                title={livePanelTitle}
+                description={livePanelDescription}
+              />
+
+              <div className="grid grid-cols-2 gap-2 desktop:w-[360px]">
+                <CompactStat
+                  label="Visible Rows"
+                  value={String(displayTrend.length)}
+                  sublabel={isDaily ? "Current UTC day buckets" : "Current live calculated rows"}
+                  compact
+                />
+                <CompactStat
+                  label="Sort Mode"
+                  value={
+                    quickFilter === "none"
+                      ? `${sortDirection === "asc" ? "Asc" : "Desc"}`
+                      : "Quick Filter"
+                  }
+                  sublabel={
+                    quickFilter === "none"
+                      ? sortField === "date"
+                        ? isDaily
+                          ? "Snapshot time"
+                          : "Date"
+                        : sortField.toUpperCase()
+                      : quickFilter
+                  }
+                  compact
+                />
+              </div>
             </div>
 
-            <div className="mt-5 rounded-2xl border border-[#E9DAFF] p-4 dark:border-[#312047]">
+            <div className="mt-4 rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-4 dark:border-[#312047] dark:bg-[#120B1C]">
               <div className="grid grid-cols-1 gap-3 laptop:grid-cols-2 desktop:grid-cols-5">
                 <div className="desktop:col-span-2">
                   <label className="mb-1 block text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
@@ -807,37 +866,33 @@ export default function PortfolioInDepthPage() {
               </div>
             </div>
 
-            <div className="mt-5 rounded-2xl border border-[#E9DAFF] dark:border-[#312047]">
-              <div
-                className={`overflow-x-auto ${
-                  isDaily ? "max-h-[560px] overflow-y-auto" : ""
-                }`}
-              >
+            <div className="mt-4 rounded-2xl border border-[#E9DAFF] dark:border-[#312047]">
+              <div className="max-h-[320px] overflow-x-auto overflow-y-auto">
                 <table className="min-w-full text-left">
                   <thead className="sticky top-0 z-10 bg-[#F6F0FF] dark:bg-[#140D20]">
                     <tr className="border-b border-[#F0E8FF] dark:border-[#241533]">
-                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                      <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
                         {isDaily ? "Snapshot Time" : "Date"}
                       </th>
-                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                      <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
                         TPV
                       </th>
-                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                      <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
                         Claimable
                       </th>
-                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                      <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
                         DYF
                       </th>
-                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                      <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
                         Min
                       </th>
-                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                      <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
                         Avg
                       </th>
-                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                      <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
                         Max
                       </th>
-                      <th className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
+                      <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B5CF6] dark:text-[#C084FC]">
                         Yield / TVD
                       </th>
                     </tr>
@@ -849,30 +904,30 @@ export default function PortfolioInDepthPage() {
                         key={row.metric_time || `${row.metric_date}-${index}`}
                         className="border-b border-[#F7F1FF] bg-white dark:border-[#1C1328] dark:bg-[#100A19]"
                       >
-                        <td className="px-4 py-4 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                        <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
                           {isDaily
                             ? formatDateTimeLabel(row.metric_time ?? null)
                             : formatDateLabel(row.metric_date)}
                         </td>
-                        <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                        <td className="px-4 py-3 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
                           {formatCurrency(row.total_portfolio_value)}
                         </td>
-                        <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                        <td className="px-4 py-3 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
                           {formatCurrency(row.total_claimable_usd)}
                         </td>
-                        <td className="px-4 py-4 text-sm font-semibold text-[#6D28D9] dark:text-[#D8B4FE]">
+                        <td className="px-4 py-3 text-sm font-semibold text-[#6D28D9] dark:text-[#D8B4FE]">
                           {formatCurrency(row.total_daily_yield_flow)}
                         </td>
-                        <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                        <td className="px-4 py-3 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
                           {formatCurrency(row.min_claimable_usd)}
                         </td>
-                        <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                        <td className="px-4 py-3 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
                           {formatCurrency(row.avg_claimable_usd)}
                         </td>
-                        <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                        <td className="px-4 py-3 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
                           {formatCurrency(row.max_claimable_usd)}
                         </td>
-                        <td className="px-4 py-4 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
+                        <td className="px-4 py-3 text-sm text-[#2D1B45] dark:text-[#F3E8FF]">
                           {formatRatioPercent(row.yield_tvd_ratio)}
                         </td>
                       </tr>
@@ -892,19 +947,90 @@ export default function PortfolioInDepthPage() {
                 </table>
               </div>
             </div>
+          </section>
 
-            {isDaily ? (
-              <div className="mt-4 rounded-2xl border border-dashed border-[#DCC8FF] bg-[#FCFAFF] p-4 dark:border-[#3A2552] dark:bg-[#120B1C]">
-                <h3 className="text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
-                  Historical Daily Metrics Table
-                </h3>
-                <p className="mt-1 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
-                  Reserved for stored prior-day bucket history and date-based daily review.
-                  Once we wire daily date selection, this section can load prior days without
-                  replacing the live current-day table above.
-                </p>
+          <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+            <SectionHeader
+              eyebrow="Primary historical analysis layer"
+              title="Historical Analysis"
+              description="This section is intended to become the core review workspace for stored metrics history, trend filtering, and deeper visual analysis."
+            />
+
+            <div className="mt-6 grid grid-cols-1 gap-6">
+              <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-5 dark:border-[#312047] dark:bg-[#120B1C]">
+                <SectionHeader
+                  title={historicalTableTitle}
+                  description={
+                    isDaily
+                      ? "Stored prior-day review layer for daily metrics. This table will sit below the live intraday panel so the current-day view remains separate."
+                      : `Stored ${timeframe.toLowerCase()} archive review powered by timeframe metric snapshots. This section will support filtering, sorting, and cleaner long-range inspection as history expands.`
+                  }
+                />
+
+                <div className="mt-4 rounded-2xl border border-dashed border-[#DCC8FF] bg-white p-5 dark:border-[#3A2552] dark:bg-[#100A19]">
+                  <p className="text-sm font-medium text-[#2D1B45] dark:text-[#F3E8FF]">
+                    Historical table area reserved
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+                    Next step: wire this section to the dedicated historical source
+                    for the selected timeframe.
+                    {isDaily
+                      ? " Daily will use daily_metric_snapshots."
+                      : " Weekly, Monthly, Quarterly, and Yearly will use timeframe_metric_snapshots."}
+                  </p>
+                </div>
               </div>
-            ) : null}
+
+              <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-5 dark:border-[#312047] dark:bg-[#120B1C]">
+                <SectionHeader
+                  title={historicalChartTitle}
+                  description="Advanced line chart workspace for the selected historical source. This will become the main visual explorer for TPV, claimable, DYF, min/avg/max, and yield efficiency over the selected range."
+                />
+
+                <div className="mt-4 grid grid-cols-1 gap-3 laptop:grid-cols-2 desktop:grid-cols-4">
+                  <CompactStat
+                    label="Planned Metrics"
+                    value="TPV / DYF"
+                    sublabel="Expandable series toggles"
+                    compact
+                  />
+                  <CompactStat
+                    label="Planned Range"
+                    value="Dynamic"
+                    sublabel="Date window + presets"
+                    compact
+                  />
+                  <CompactStat
+                    label="Planned Filters"
+                    value="Useful"
+                    sublabel="Metric + timeframe controls"
+                    compact
+                  />
+                  <CompactStat
+                    label="Planned Behavior"
+                    value="Interactive"
+                    sublabel="Hover, legend, select, compare"
+                    compact
+                  />
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-dashed border-[#DCC8FF] bg-white p-6 dark:border-[#3A2552] dark:bg-[#100A19]">
+                  <div className="flex min-h-[260px] items-center justify-center rounded-xl bg-[#FAF7FF] dark:bg-[#140D20]">
+                    <div className="max-w-2xl text-center">
+                      <p className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                        Advanced historical chart placeholder
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+                        This is where the dynamic line chart will go once the historical
+                        source is wired. The live table above remains a compact utility
+                        panel, while this chart becomes one of the primary focal points
+                        of the page.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </section>
         </>
       ) : null}
