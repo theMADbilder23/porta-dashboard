@@ -277,7 +277,9 @@ function formatTimeframeLabel(
   }
 }
 
-function toChartEmbedTimeframe(timeframe: AssetIndicatorTimeframe): string {
+function toChartEmbedTimeframe(
+  timeframe: AssetIndicatorTimeframe
+): "1H" | "4H" | "1D" | "3D" | "1W" | "1M" {
   switch (timeframe) {
     case "1h":
       return "1H";
