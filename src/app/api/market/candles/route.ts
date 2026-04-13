@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAssetRegistryEntry } from "@/lib/market/asset-registry"
-import {
-  fetchGeckoPoolCandles,
-  resolveBasePoolFromTokenAddress,
-} from "@/lib/market/gecko-terminal"
+import { fetchLockedAssetCandles, getLockedPoolAddress } from "@/lib/market/gecko-terminal"
 import type { PortaTimeframe } from "@/lib/market/types"
 
-const ALLOWED_TIMEFRAMES: PortaTimeframe[] = ["1h", "4h", "1d", "1w"]
+const ALLOWED_TIMEFRAMES: PortaTimeframe[] = ["1h", "4h", "1d", "3d", "1w", "1m"]
 
 function normalizeAssetKey(value: string | null): string {
   return String(value ?? "").trim()
@@ -57,23 +54,19 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    if (entry.source !== "gecko_pool" || !entry.tokenAddress) {
+    if (entry.source !== "gecko_pool") {
       return NextResponse.json(
         {
           ok: false,
           error: `Invalid asset configuration for ${asset}`,
+          source: entry.source,
         },
         { status: 500 }
       )
     }
 
-    const resolvedPool = await resolveBasePoolFromTokenAddress({
-      tokenAddress: entry.tokenAddress,
-      preferredDex: entry.preferredDex,
-    })
-
-    const candles = await fetchGeckoPoolCandles({
-      poolAddress: resolvedPool.poolAddress,
+    const candles = await fetchLockedAssetCandles({
+      entry,
       timeframe,
       currency: "usd",
       tokenSide: "base",
@@ -84,7 +77,14 @@ export async function GET(request: NextRequest) {
       asset,
       timeframe,
       source: entry.source,
-      resolvedPool,
+      resolvedPool: {
+        network: entry.network,
+        tokenAddress: entry.tokenAddress ?? "",
+        poolAddress: getLockedPoolAddress(entry) ?? "",
+        dexName: entry.preferredDex ?? null,
+        baseSymbol: entry.symbol ?? null,
+        quoteSymbol: entry.quoteSymbol ?? null,
+      },
       candleCount: candles.length,
       candles,
     })

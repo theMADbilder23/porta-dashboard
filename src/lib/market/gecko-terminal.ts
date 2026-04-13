@@ -1,4 +1,5 @@
 import type {
+  AssetRegistryEntry,
   ChartCandle,
   GeckoOhlcvResponse,
   PortaTimeframe,
@@ -64,45 +65,113 @@ function normalizeLower(value: unknown): string {
   return normalizeText(value).toLowerCase()
 }
 
+function uniqueCandlesByTime(candles: ChartCandle[]): ChartCandle[] {
+  const byTime = new Map<number, ChartCandle>()
+
+  for (const candle of candles) {
+    if (!Number.isFinite(candle.time) || candle.time <= 0) continue
+    byTime.set(candle.time, candle)
+  }
+
+  return Array.from(byTime.values()).sort((a, b) => a.time - b.time)
+}
+
+function aggregateCandles(candles: ChartCandle[], bucketSizeSeconds: number): ChartCandle[] {
+  if (!candles.length || bucketSizeSeconds <= 0) {
+    return uniqueCandlesByTime(candles)
+  }
+
+  const buckets = new Map<number, ChartCandle[]>()
+
+  for (const candle of candles) {
+    const bucket = Math.floor(candle.time / bucketSizeSeconds) * bucketSizeSeconds
+
+    if (!buckets.has(bucket)) {
+      buckets.set(bucket, [])
+    }
+
+    buckets.get(bucket)!.push(candle)
+  }
+
+  return Array.from(buckets.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([, group]) => {
+      const sorted = [...group].sort((a, b) => a.time - b.time)
+      const first = sorted[0]
+      const last = sorted[sorted.length - 1]
+
+      return {
+        time: first.time,
+        open: first.open,
+        high: Math.max(...sorted.map((c) => c.high)),
+        low: Math.min(...sorted.map((c) => c.low)),
+        close: last.close,
+        volume: sorted.reduce((sum, candle) => sum + candle.volume, 0),
+      }
+    })
+}
+
 function mapPortaTimeframe(timeframe: PortaTimeframe): {
-  geckoTimeframe: "hour" | "day"
+  geckoTimeframe: "minute" | "hour" | "day"
   aggregate: string
   limit: number
+  postAggregateSeconds: number | null
 } {
   switch (timeframe) {
     case "1h":
       return {
         geckoTimeframe: "hour",
         aggregate: "1",
-        limit: 240,
+        limit: 300,
+        postAggregateSeconds: null,
       }
 
     case "4h":
       return {
         geckoTimeframe: "hour",
         aggregate: "4",
-        limit: 240,
+        limit: 300,
+        postAggregateSeconds: null,
       }
 
     case "1d":
       return {
         geckoTimeframe: "day",
         aggregate: "1",
-        limit: 240,
+        limit: 300,
+        postAggregateSeconds: null,
+      }
+
+    case "3d":
+      return {
+        geckoTimeframe: "day",
+        aggregate: "3",
+        limit: 300,
+        postAggregateSeconds: null,
       }
 
     case "1w":
       return {
         geckoTimeframe: "day",
-        aggregate: "1",
-        limit: 240,
+        aggregate: "7",
+        limit: 300,
+        postAggregateSeconds: null,
+      }
+
+    case "1m":
+      return {
+        geckoTimeframe: "day",
+        aggregate: "30",
+        limit: 300,
+        postAggregateSeconds: null,
       }
 
     default:
       return {
         geckoTimeframe: "hour",
         aggregate: "4",
-        limit: 240,
+        limit: 300,
+        postAggregateSeconds: null,
       }
   }
 }
@@ -142,7 +211,6 @@ function pickPreferredPool(
       dexName,
       reserveUsd: safeNumber(pool.attributes?.reserve_in_usd),
       volume24hUsd: safeNumber(pool.attributes?.volume_usd?.h24),
-      raw: pool,
     }
   })
 
@@ -174,6 +242,10 @@ function pickPreferredPool(
   }
 }
 
+/**
+ * Fallback discovery only.
+ * Known tracked assets should use exact locked poolAddress from asset-registry.
+ */
 export async function resolveBasePoolFromTokenAddress(params: {
   tokenAddress: string
   preferredDex?: string
@@ -215,6 +287,11 @@ export async function resolveBasePoolFromTokenAddress(params: {
   }
 }
 
+export function getLockedPoolAddress(entry: AssetRegistryEntry): string | null {
+  const poolAddress = normalizeText(entry.poolAddress)
+  return poolAddress || null
+}
+
 export async function fetchGeckoPoolCandles(params: {
   poolAddress: string
   timeframe: PortaTimeframe
@@ -235,7 +312,6 @@ export async function fetchGeckoPoolCandles(params: {
   url.searchParams.set("limit", String(mapped.limit))
   url.searchParams.set("currency", params.currency ?? "usd")
   url.searchParams.set("token", params.tokenSide ?? "base")
-  url.searchParams.set("include_empty_intervals", "true")
 
   const response = await fetch(url.toString(), {
     method: "GET",
@@ -265,51 +341,61 @@ export async function fetchGeckoPoolCandles(params: {
         volume: safeNumber(volume),
       }
     })
-    .filter((candle) => candle.time > 0)
-    .sort((a, b) => a.time - b.time)
+    .filter(
+      (candle) =>
+        candle.time > 0 &&
+        Number.isFinite(candle.open) &&
+        Number.isFinite(candle.high) &&
+        Number.isFinite(candle.low) &&
+        Number.isFinite(candle.close) &&
+        Number.isFinite(candle.volume)
+    )
 
-  if (params.timeframe === "1w") {
-    return collapseDailyCandlesToWeekly(candles)
+  const normalized = uniqueCandlesByTime(candles)
+
+  if (mapped.postAggregateSeconds) {
+    return aggregateCandles(normalized, mapped.postAggregateSeconds)
   }
 
-  return candles
+  return normalized
 }
 
-function collapseDailyCandlesToWeekly(candles: ChartCandle[]): ChartCandle[] {
-  if (!candles.length) return []
+export async function fetchLockedAssetCandles(params: {
+  entry: AssetRegistryEntry
+  timeframe: PortaTimeframe
+  currency?: "usd" | "token"
+  tokenSide?: "base" | "quote"
+}): Promise<ChartCandle[]> {
+  const { entry, timeframe } = params
 
-  const weeks = new Map<number, ChartCandle[]>()
-
-  for (const candle of candles) {
-    const date = new Date(candle.time * 1000)
-    const utcMidnight = Date.UTC(
-      date.getUTCFullYear(),
-      date.getUTCMonth(),
-      date.getUTCDate()
-    )
-    const weekBucket = Math.floor(utcMidnight / (7 * 24 * 60 * 60 * 1000))
-
-    if (!weeks.has(weekBucket)) {
-      weeks.set(weekBucket, [])
-    }
-
-    weeks.get(weekBucket)!.push(candle)
+  if (entry.source !== "gecko_pool") {
+    throw new Error(`[market] unsupported locked candle source: ${entry.source}`)
   }
 
-  return Array.from(weeks.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([, group]) => {
-      const sorted = [...group].sort((a, b) => a.time - b.time)
-      const first = sorted[0]
-      const last = sorted[sorted.length - 1]
+  const lockedPoolAddress = getLockedPoolAddress(entry)
 
-      return {
-        time: first.time,
-        open: first.open,
-        high: Math.max(...sorted.map((c) => c.high)),
-        low: Math.min(...sorted.map((c) => c.low)),
-        close: last.close,
-        volume: sorted.reduce((sum, candle) => sum + candle.volume, 0),
-      }
+  if (lockedPoolAddress) {
+    return fetchGeckoPoolCandles({
+      poolAddress: lockedPoolAddress,
+      timeframe,
+      currency: params.currency ?? "usd",
+      tokenSide: params.tokenSide ?? "base",
     })
+  }
+
+  if (entry.tokenAddress && entry.network === "base") {
+    const resolved = await resolveBasePoolFromTokenAddress({
+      tokenAddress: entry.tokenAddress,
+      preferredDex: entry.preferredDex,
+    })
+
+    return fetchGeckoPoolCandles({
+      poolAddress: resolved.poolAddress,
+      timeframe,
+      currency: params.currency ?? "usd",
+      tokenSide: params.tokenSide ?? "base",
+    })
+  }
+
+  throw new Error(`[market] no locked pool or fallback token address for ${entry.assetKey}`)
 }

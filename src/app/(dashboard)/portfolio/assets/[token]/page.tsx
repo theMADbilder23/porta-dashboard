@@ -12,6 +12,8 @@ type AssetViewerPageProps = {
   }>;
 };
 
+type AssetIndicatorTimeframe = "4h" | "1d" | "3d" | "1w" | "1m";
+
 type AssetViewerResponse = {
   found: boolean;
   asset: {
@@ -83,7 +85,7 @@ type AssetRoutesResponse = {
 type AssetIndicatorsResponse = {
   ok: boolean;
   asset?: string;
-  timeframe?: string;
+  timeframe?: AssetIndicatorTimeframe | string;
   source?: string;
   resolvedPool?: {
     network: string;
@@ -225,6 +227,29 @@ function formatVolumeCardValue(value: number | null | undefined) {
   }
 
   return formatCompactCurrency(value);
+}
+
+function formatTimeframeLabel(
+  timeframe: AssetIndicatorTimeframe | string | null | undefined
+) {
+  if (!timeframe) return "4H";
+
+  const normalized = String(timeframe).toLowerCase();
+
+  switch (normalized) {
+    case "4h":
+      return "4H";
+    case "1d":
+      return "1D";
+    case "3d":
+      return "3D";
+    case "1w":
+      return "1W";
+    case "1m":
+      return "1M";
+    default:
+      return String(timeframe).toUpperCase();
+  }
 }
 
 function StatCard({
@@ -571,7 +596,7 @@ async function fetchAssetRoutes(): Promise<AssetRouteOption[]> {
 
 async function fetchAssetIndicators(
   asset: string,
-  timeframe: "4h" | "1d" = "4h"
+  timeframe: AssetIndicatorTimeframe = "4h"
 ): Promise<AssetIndicatorsResponse | null> {
   const headerStore = await headers();
   const host = headerStore.get("host");
@@ -679,7 +704,9 @@ export default async function AssetViewerPage({
     {
       title: "Signal state refreshed",
       meta: indicatorData?.ok
-        ? `4H intelligence active • ${indicatorData.signalBias?.label ?? "Unknown"}`
+        ? `${formatTimeframeLabel(
+            indicatorData.timeframe
+          )} intelligence active • ${indicatorData.signalBias?.label ?? "Unknown"}`
         : "Indicator shell state • Today at 9:00 AM",
       value: indicatorData?.signalBias?.label ?? "Neutral",
       badge: "default" as const,
@@ -725,16 +752,21 @@ export default async function AssetViewerPage({
     indicatorData?.signalBias?.summary ??
     "Indicator engine is not yet available for this asset.";
 
+  const liveIndicatorTimeframeLabel = formatTimeframeLabel(
+    indicatorData?.timeframe
+  );
+
   const liveRsiValue = formatIndicatorNumber(indicatorData?.indicators?.rsi, 2);
+
   const liveStochValue =
     indicatorData?.indicators?.stoch_k !== null &&
     indicatorData?.indicators?.stoch_k !== undefined &&
     indicatorData?.indicators?.stoch_d !== null &&
     indicatorData?.indicators?.stoch_d !== undefined
-      ? `${formatIndicatorNumber(indicatorData.indicators.stoch_k, 2)} / ${formatIndicatorNumber(
-          indicatorData.indicators.stoch_d,
+      ? `${formatIndicatorNumber(
+          indicatorData.indicators.stoch_k,
           2
-        )}`
+        )} / ${formatIndicatorNumber(indicatorData.indicators.stoch_d, 2)}`
       : "—";
 
   const liveMacdValue = formatSignedIndicator(
@@ -765,10 +797,11 @@ export default async function AssetViewerPage({
   const live1hVolumeSummary =
     indicatorData?.lastCandle?.volume !== null &&
     indicatorData?.lastCandle?.volume !== undefined
-      ? `Latest ${String(indicatorData.timeframe ?? "4h").toUpperCase()} candle volume.`
+      ? `Latest ${liveIndicatorTimeframeLabel} candle volume.`
       : "Short-term momentum placeholder.";
 
   const live24hVolume = formatVolumeCardValue(market.volume_24h_usd);
+
   const live24hVolumeSummary =
     market.volume_24h_usd !== null && market.volume_24h_usd !== undefined
       ? `Rolling 24H market activity (${formatCompactCurrency(
@@ -953,16 +986,12 @@ export default async function AssetViewerPage({
               <CompactSignalCard
                 label="RSI"
                 value={liveRsiValue}
-                sublabel={`Live ${String(
-                  indicatorData?.timeframe ?? "4h"
-                ).toUpperCase()} RSI reading.`}
+                sublabel={`Live ${liveIndicatorTimeframeLabel} RSI reading.`}
               />
               <CompactSignalCard
                 label="Stoch RSI"
                 value={liveStochValue}
-                sublabel={`K / D on ${String(
-                  indicatorData?.timeframe ?? "4h"
-                ).toUpperCase()} timeframe.`}
+                sublabel={`K / D on ${liveIndicatorTimeframeLabel} timeframe.`}
               />
               <CompactSignalCard
                 label="MACD"
@@ -1132,7 +1161,16 @@ export default async function AssetViewerPage({
                 label="Sizing Status"
                 value={position.wallet_count > 0 ? "Tracked" : "Not assessed"}
               />
-              <InsightRow label="Action Bias" value={liveSignalBiasLabel === "Bullish" ? "Observe / Trend Up" : liveSignalBiasLabel === "Bearish" ? "Caution" : "Observe"} />
+              <InsightRow
+                label="Action Bias"
+                value={
+                  liveSignalBiasLabel === "Bullish"
+                    ? "Observe / Trend Up"
+                    : liveSignalBiasLabel === "Bearish"
+                      ? "Caution"
+                      : "Observe"
+                }
+              />
             </div>
 
             <div className="mt-5 flex flex-wrap gap-2">

@@ -1,4 +1,4 @@
-export type PortaTimeframe = "1h" | "4h" | "1d" | "1w"
+export type PortaTimeframe = "1h" | "4h" | "1d" | "3d" | "1w" | "1m"
 
 export type ChartCandle = {
   time: number
@@ -16,8 +16,30 @@ export type AssetRegistryEntry = {
   symbol: string
   network: string
   source: AssetSourceKind
+
+  /**
+   * Optional token contract address.
+   * Useful for metadata or future discovery fallbacks,
+   * but tracked EVM assets should prefer locked poolAddress.
+   */
   tokenAddress?: string
+
+  /**
+   * Exact liquidity pool address used for chart / OHLCV fetching.
+   * This is the critical field for matching Dexscreener as closely as possible.
+   */
+  poolAddress?: string
+
+  /**
+   * Optional preferred dex label for metadata/debugging.
+   */
   preferredDex?: string
+
+  /**
+   * Optional chart metadata for clarity/debugging.
+   */
+  quoteSymbol?: string
+  pairLabel?: string
 }
 
 export type ResolvedPool = {
