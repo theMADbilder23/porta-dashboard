@@ -1,0 +1,145 @@
+import { NextRequest, NextResponse } from "next/server"
+import { getAssetRegistryEntry } from "@/lib/market/asset-registry"
+
+const GECKO_BASE_URL = "https://api.coingecko.com/api/v3"
+
+type GeckoPoolResponse = {
+  data?: {
+    attributes?: {
+      reserve_in_usd?: string
+      fdv_usd?: string
+      market_cap_usd?: string
+      volume_usd?: {
+        h24?: string
+      }
+      price_change_percentage?: {
+        h24?: string
+        h7d?: string
+      }
+      base_token_price_usd?: string
+      quote_token_price_usd?: string
+    }
+  }
+}
+
+function getDemoHeaders(): HeadersInit {
+  const apiKey = process.env.COINGECKO_DEMO_API_KEY
+
+  if (!apiKey) {
+    return {
+      accept: "application/json",
+    }
+  }
+
+  return {
+    accept: "application/json",
+    "x-cg-demo-api-key": apiKey,
+  }
+}
+
+function normalizeAssetKey(value: string | null): string {
+  return String(value ?? "").trim()
+}
+
+function safeNumber(value: unknown): number | null {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const asset = normalizeAssetKey(request.nextUrl.searchParams.get("asset"))
+
+    if (!asset) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Missing asset query param",
+        },
+        { status: 400 }
+      )
+    }
+
+    const entry = getAssetRegistryEntry(asset)
+
+    if (!entry) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Unsupported asset: ${asset}`,
+        },
+        { status: 404 }
+      )
+    }
+
+    if (entry.source !== "gecko_pool" || !entry.poolAddress || entry.network !== "base") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Market summary source not wired for ${asset}`,
+          source: entry.source,
+        },
+        { status: 501 }
+      )
+    }
+
+    const url = new URL(
+      `${GECKO_BASE_URL}/onchain/networks/base/pools/${entry.poolAddress}`
+    )
+    url.searchParams.set("include", "base_token,quote_token,dex")
+
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: getDemoHeaders(),
+      next: { revalidate: 30 },
+    })
+
+    if (!response.ok) {
+      throw new Error(
+        `[market-summary] pool request failed: ${response.status} ${response.statusText}`
+      )
+    }
+
+    const json = (await response.json()) as GeckoPoolResponse
+    const attrs = json?.data?.attributes
+
+    const liquidityUsd = safeNumber(attrs?.reserve_in_usd)
+    const fdvUsd = safeNumber(attrs?.fdv_usd)
+    const marketCapUsd = safeNumber(attrs?.market_cap_usd)
+    const volume24hUsd = safeNumber(attrs?.volume_usd?.h24)
+    const change24hPercent = safeNumber(attrs?.price_change_percentage?.h24)
+    const change7dPercent = safeNumber(attrs?.price_change_percentage?.h7d)
+    const pricePerUnitUsd = safeNumber(attrs?.base_token_price_usd)
+
+    return NextResponse.json({
+      ok: true,
+      asset,
+      source: entry.source,
+      resolvedPool: {
+        network: entry.network,
+        tokenAddress: entry.tokenAddress ?? "",
+        poolAddress: entry.poolAddress,
+        dexName: entry.preferredDex ?? null,
+        baseSymbol: entry.symbol ?? null,
+        quoteSymbol: entry.quoteSymbol ?? null,
+      },
+      market: {
+        price_per_unit_usd: pricePerUnitUsd,
+        change_24h_percent: change24hPercent,
+        change_7d_percent: change7dPercent,
+        market_cap_usd: marketCapUsd,
+        fdv_usd: fdvUsd,
+        volume_24h_usd: volume24hUsd,
+        liquidity_usd: liquidityUsd,
+      },
+    })
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 }
+    )
+  }
+}

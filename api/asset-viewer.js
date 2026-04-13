@@ -5,9 +5,42 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+const GECKO_BASE_URL = "https://api.coingecko.com/api/v3";
+
+const LOCKED_MARKET_POOLS = {
+  "base:well": {
+    network: "base",
+    poolAddress: "0x89D0F320ac73dd7d9513FFC5bc58D1161452a657",
+  },
+  "base:mamo": {
+    network: "base",
+    poolAddress: "0xE2B3aA806e56603a244bFc111c9474F7DeDD03db",
+  },
+};
+
+function getDemoHeaders() {
+  const apiKey = process.env.COINGECKO_DEMO_API_KEY;
+
+  if (!apiKey) {
+    return {
+      accept: "application/json",
+    };
+  }
+
+  return {
+    accept: "application/json",
+    "x-cg-demo-api-key": apiKey,
+  };
+}
+
 function safeNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
+}
+
+function nullableNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 function normalizeText(value) {
@@ -37,6 +70,7 @@ function parseAssetRoute(token) {
     symbol,
     symbolUpper: normalizeText(symbol).toUpperCase(),
     symbolLower: normalizeLower(symbol),
+    normalizedAssetKey: normalizeLower(decoded),
   };
 }
 
@@ -77,9 +111,7 @@ function pickPrimaryRow(rows) {
       new Date(a.snapshot_time || 0).getTime();
     if (snapshotDiff !== 0) return snapshotDiff;
 
-    return (
-      safeNumber(b.price_per_unit_usd) - safeNumber(a.price_per_unit_usd)
-    );
+    return safeNumber(b.price_per_unit_usd) - safeNumber(a.price_per_unit_usd);
   })[0];
 }
 
@@ -337,7 +369,54 @@ function reduceToLatestSnapshotRowsPerWallet(rows) {
   });
 }
 
-function buildResponse({ route, rows, walletMetaById }) {
+async function fetchLockedMarketSummary(route) {
+  const locked = LOCKED_MARKET_POOLS[route.normalizedAssetKey];
+
+  if (!locked || locked.network !== "base" || !locked.poolAddress) {
+    return {
+      price_per_unit_usd: null,
+      change_24h_percent: null,
+      change_7d_percent: null,
+      market_cap_usd: null,
+      fdv_usd: null,
+      volume_24h_usd: null,
+      liquidity_usd: null,
+      source: null,
+    };
+  }
+
+  const url = new URL(
+    `${GECKO_BASE_URL}/onchain/networks/base/pools/${locked.poolAddress}`
+  );
+  url.searchParams.set("include", "base_token,quote_token,dex");
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: getDemoHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `[asset-viewer] market summary fetch failed: ${response.status} ${response.statusText}`
+    );
+  }
+
+  const json = await response.json();
+  const attrs = json?.data?.attributes || {};
+
+  return {
+    price_per_unit_usd: nullableNumber(attrs.base_token_price_usd),
+    change_24h_percent: nullableNumber(attrs?.price_change_percentage?.h24),
+    change_7d_percent: nullableNumber(attrs?.price_change_percentage?.h7d),
+    market_cap_usd: nullableNumber(attrs.market_cap_usd),
+    fdv_usd: nullableNumber(attrs.fdv_usd),
+    volume_24h_usd: nullableNumber(attrs?.volume_usd?.h24),
+    liquidity_usd: nullableNumber(attrs.reserve_in_usd),
+    source: "gecko_pool_summary",
+  };
+}
+
+function buildResponse({ route, rows, walletMetaById, marketSummary }) {
   const primaryRow = pickPrimaryRow(rows);
   const totals = aggregateRows(rows);
   const walletBreakdown = buildWalletBreakdown(rows, walletMetaById);
@@ -369,14 +448,16 @@ function buildResponse({ route, rows, walletMetaById }) {
     },
 
     market: {
-      price_per_unit_usd: safeNumber(primaryRow?.price_per_unit_usd),
-      price_source: primaryRow?.price_source || null,
-      change_24h_percent: null,
-      change_7d_percent: null,
-      market_cap_usd: null,
-      fdv_usd: null,
-      volume_24h_usd: null,
-      liquidity_usd: null,
+      price_per_unit_usd:
+        marketSummary.price_per_unit_usd ?? safeNumber(primaryRow?.price_per_unit_usd),
+      price_source:
+        marketSummary.source || primaryRow?.price_source || null,
+      change_24h_percent: marketSummary.change_24h_percent,
+      change_7d_percent: marketSummary.change_7d_percent,
+      market_cap_usd: marketSummary.market_cap_usd,
+      fdv_usd: marketSummary.fdv_usd,
+      volume_24h_usd: marketSummary.volume_24h_usd,
+      liquidity_usd: marketSummary.liquidity_usd,
     },
 
     position: {
@@ -401,7 +482,7 @@ function buildResponse({ route, rows, walletMetaById }) {
     debug: {
       matched_rows: rows.length,
       matched_wallets: totals.wallet_count,
-      resolver: "wallet_holdings_case_insensitive_js_match",
+      resolver: "wallet_holdings_case_insensitive_js_match_with_market_summary",
     },
   };
 }
@@ -602,7 +683,10 @@ module.exports = async function handler(req, res) {
     }
 
     const walletIds = uniq(latestRows.map((row) => row.wallet_id));
-    const walletMetaById = await fetchWalletMeta(walletIds);
+    const [walletMetaById, marketSummary] = await Promise.all([
+      fetchWalletMeta(walletIds),
+      fetchLockedMarketSummary(route),
+    ]);
 
     return res.status(200).json({
       found: true,
@@ -610,6 +694,7 @@ module.exports = async function handler(req, res) {
         route,
         rows: latestRows,
         walletMetaById,
+        marketSummary,
       }),
     });
   } catch (error) {
