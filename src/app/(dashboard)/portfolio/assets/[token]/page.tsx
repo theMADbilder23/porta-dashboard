@@ -279,7 +279,7 @@ function formatTimeframeLabel(
 
 function toChartEmbedTimeframe(
   timeframe: AssetIndicatorTimeframe
-): "1H" | "4H" | "1D" | "3D" | "1W" | "1M" {
+): "1H" | "4H" | "1D" | "1W" {
   switch (timeframe) {
     case "1h":
       return "1H";
@@ -288,11 +288,11 @@ function toChartEmbedTimeframe(
     case "1d":
       return "1D";
     case "3d":
-      return "3D";
+      return "1D";
     case "1w":
       return "1W";
     case "1m":
-      return "1M";
+      return "1W";
     default:
       return "4H";
   }
