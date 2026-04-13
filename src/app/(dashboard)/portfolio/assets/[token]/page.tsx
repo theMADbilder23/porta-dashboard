@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { headers } from "next/headers";
 import AssetChartEmbed from "@/components/asset-chart-embed";
 import AssetRouteSwitcher, {
@@ -10,9 +11,12 @@ type AssetViewerPageProps = {
   params: Promise<{
     token: string;
   }>;
+  searchParams?: Promise<{
+    timeframe?: string;
+  }>;
 };
 
-type AssetIndicatorTimeframe = "4h" | "1d" | "3d" | "1w" | "1m";
+type AssetIndicatorTimeframe = "1h" | "4h" | "1d" | "3d" | "1w" | "1m";
 
 type AssetViewerResponse = {
   found: boolean;
@@ -119,6 +123,15 @@ type AssetIndicatorsResponse = {
   error?: string;
 };
 
+const TIMEFRAME_OPTIONS: AssetIndicatorTimeframe[] = [
+  "1h",
+  "4h",
+  "1d",
+  "3d",
+  "1w",
+  "1m",
+];
+
 function decodeToken(value: string) {
   try {
     return decodeURIComponent(value);
@@ -134,6 +147,16 @@ function parseAssetRoute(token: string) {
     network,
     symbol,
   };
+}
+
+function normalizeIndicatorTimeframe(
+  value: string | null | undefined
+): AssetIndicatorTimeframe {
+  const candidate = String(value ?? "4h")
+    .trim()
+    .toLowerCase() as AssetIndicatorTimeframe;
+
+  return TIMEFRAME_OPTIONS.includes(candidate) ? candidate : "4h";
 }
 
 function formatCategoryLabel(value: string) {
@@ -237,6 +260,8 @@ function formatTimeframeLabel(
   const normalized = String(timeframe).toLowerCase();
 
   switch (normalized) {
+    case "1h":
+      return "1H";
     case "4h":
       return "4H";
     case "1d":
@@ -249,6 +274,25 @@ function formatTimeframeLabel(
       return "1M";
     default:
       return String(timeframe).toUpperCase();
+  }
+}
+
+function toChartEmbedTimeframe(timeframe: AssetIndicatorTimeframe): string {
+  switch (timeframe) {
+    case "1h":
+      return "1H";
+    case "4h":
+      return "4H";
+    case "1d":
+      return "1D";
+    case "3d":
+      return "3D";
+    case "1w":
+      return "1W";
+    case "1m":
+      return "1M";
+    default:
+      return "4H";
   }
 }
 
@@ -536,6 +580,29 @@ function ActivityItem({
   );
 }
 
+function TimeframeLink({
+  token,
+  timeframe,
+  active,
+}: {
+  token: string;
+  timeframe: AssetIndicatorTimeframe;
+  active: boolean;
+}) {
+  return (
+    <Link
+      href={`/portfolio/assets/${encodeURIComponent(token)}?timeframe=${timeframe}`}
+      className={`rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+        active
+          ? "bg-[#7C3AED] text-white shadow-sm"
+          : "border border-[#E9DAFF] bg-white text-[#6D28D9] hover:bg-[#F3E8FF] dark:border-[#312047] dark:bg-[#100A19] dark:text-[#D8B4FE] dark:hover:bg-[#1A1226]"
+      }`}
+    >
+      {formatTimeframeLabel(timeframe)}
+    </Link>
+  );
+}
+
 async function fetchAssetViewerData(
   token: string
 ): Promise<AssetViewerResponse | null> {
@@ -596,7 +663,7 @@ async function fetchAssetRoutes(): Promise<AssetRouteOption[]> {
 
 async function fetchAssetIndicators(
   asset: string,
-  timeframe: AssetIndicatorTimeframe = "4h"
+  timeframe: AssetIndicatorTimeframe
 ): Promise<AssetIndicatorsResponse | null> {
   const headerStore = await headers();
   const host = headerStore.get("host");
@@ -628,16 +695,24 @@ async function fetchAssetIndicators(
 
 export default async function AssetViewerPage({
   params,
+  searchParams,
 }: AssetViewerPageProps) {
   const { token: rawToken } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : {};
   const token = decodeToken(rawToken);
   const routeAsset = parseAssetRoute(token);
 
-  const [data, assetRoutes, indicatorData] = await Promise.all([
-    fetchAssetViewerData(token),
-    fetchAssetRoutes(),
-    fetchAssetIndicators(token, "4h"),
-  ]);
+  const selectedTimeframe = normalizeIndicatorTimeframe(
+    resolvedSearchParams?.timeframe
+  );
+
+  const [data, assetRoutes, indicatorData, oneHourIndicatorData] =
+    await Promise.all([
+      fetchAssetViewerData(token),
+      fetchAssetRoutes(),
+      fetchAssetIndicators(token, selectedTimeframe),
+      fetchAssetIndicators(token, "1h"),
+    ]);
 
   const asset = data?.asset || {
     route_param: token,
@@ -721,7 +796,9 @@ export default async function AssetViewerPage({
 
   const mockNotes = [
     "Header and position snapshot are now wired to live wallet_holdings data.",
-    "Indicator cards now resolve from the live Porta indicator engine on the default 4H timeframe.",
+    `Indicator cards now resolve from the live Porta indicator engine on the selected ${formatTimeframeLabel(
+      selectedTimeframe
+    )} timeframe.`,
     "Chart timeframe sync, thresholds, and thesis sections remain the next live intelligence phases.",
   ];
 
@@ -734,8 +811,8 @@ export default async function AssetViewerPage({
     asset.yield_profile && asset.yield_profile !== "none"
       ? formatCategoryLabel(asset.yield_profile)
       : asset.is_yield_position
-        ? "Yield Tracked"
-        : "None";
+      ? "Yield Tracked"
+      : "None";
 
   const chartConfig = resolveChartConfig({
     network: asset.network,
@@ -745,15 +822,14 @@ export default async function AssetViewerPage({
 
   const isQcap = asset.token_symbol.toUpperCase() === "QCAP";
 
-  const liveSignalBiasLabel =
-    indicatorData?.signalBias?.label ?? "Unavailable";
+  const liveSignalBiasLabel = indicatorData?.signalBias?.label ?? "Unavailable";
 
   const liveSignalBiasSummary =
     indicatorData?.signalBias?.summary ??
     "Indicator engine is not yet available for this asset.";
 
   const liveIndicatorTimeframeLabel = formatTimeframeLabel(
-    indicatorData?.timeframe
+    indicatorData?.timeframe ?? selectedTimeframe
   );
 
   const liveRsiValue = formatIndicatorNumber(indicatorData?.indicators?.rsi, 2);
@@ -788,16 +864,28 @@ export default async function AssetViewerPage({
         )}`
       : "Tracked indicator unavailable.";
 
-  const live1hVolume =
+  const liveSelectedTfVolume =
     indicatorData?.lastCandle?.volume !== null &&
     indicatorData?.lastCandle?.volume !== undefined
       ? formatTokenAmount(indicatorData.lastCandle.volume)
       : "—";
 
-  const live1hVolumeSummary =
+  const liveSelectedTfVolumeSummary =
     indicatorData?.lastCandle?.volume !== null &&
     indicatorData?.lastCandle?.volume !== undefined
       ? `Latest ${liveIndicatorTimeframeLabel} candle volume.`
+      : "Selected timeframe candle volume unavailable.";
+
+  const liveOneHourVolume =
+    oneHourIndicatorData?.lastCandle?.volume !== null &&
+    oneHourIndicatorData?.lastCandle?.volume !== undefined
+      ? formatTokenAmount(oneHourIndicatorData.lastCandle.volume)
+      : "—";
+
+  const liveOneHourVolumeSummary =
+    oneHourIndicatorData?.lastCandle?.volume !== null &&
+    oneHourIndicatorData?.lastCandle?.volume !== undefined
+      ? "Latest 1H candle volume."
       : "Short-term momentum placeholder.";
 
   const live24hVolume = formatVolumeCardValue(market.volume_24h_usd);
@@ -810,7 +898,8 @@ export default async function AssetViewerPage({
       : "Daily activity placeholder.";
 
   const topSignalState =
-    indicatorData?.signalBias?.label && indicatorData.signalBias.label !== "Unavailable"
+    indicatorData?.signalBias?.label &&
+    indicatorData.signalBias.label !== "Unavailable"
       ? indicatorData.signalBias.label
       : "Neutral";
 
@@ -893,12 +982,12 @@ export default async function AssetViewerPage({
             market.price_source
               ? `Latest price source: ${formatCategoryLabel(market.price_source)}`
               : "Latest market price from holdings layer."
-          }
+                        }
         />
         <StatCard
           label="24H Move"
           value={formatPercent(market.change_24h_percent, 2)}
-          sublabel="Market move feed will be added in the next data phase."
+          sublabel="Live 24H market move from locked pool summary."
         />
         <StatCard
           label="Market Cap"
@@ -907,7 +996,7 @@ export default async function AssetViewerPage({
               ? formatCompactCurrency(market.market_cap_usd)
               : "—"
           }
-          sublabel="External market-cap enrichment comes next."
+          sublabel="Locked pool market-cap enrichment."
         />
         <StatCard
           label="Porta Signal State"
@@ -969,10 +1058,43 @@ export default async function AssetViewerPage({
         description="Primary chart zone for TradingView or Dexscreener-style intelligence. This section is now treated as the dominant page focus so the asset viewer feels more like a trading intelligence terminal than a summary dashboard."
       >
         <div className="space-y-5">
+          <div className="flex flex-col gap-4 laptop:flex-row laptop:items-end laptop:justify-between">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                Chart Source
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <TogglePill label="TradingView" />
+                <TogglePill label="Dexscreener" active />
+              </div>
+            </div>
+
+            {!isQcap ? (
+              <div className="laptop:text-right">
+                <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                  Chart Timeframe
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2 laptop:justify-end">
+                  {TIMEFRAME_OPTIONS.map((timeframe) => (
+                    <TimeframeLink
+                      key={timeframe}
+                      token={token}
+                      timeframe={timeframe}
+                      active={selectedTimeframe === timeframe}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
           {isQcap ? (
             <QcapCustomChart liveUsdPrice={market.price_per_unit_usd} />
           ) : (
-            <AssetChartEmbed chartConfig={chartConfig} defaultTimeframe="4H" />
+            <AssetChartEmbed
+              chartConfig={chartConfig}
+              defaultTimeframe={toChartEmbedTimeframe(selectedTimeframe)}
+            />
           )}
 
           {!isQcap ? (
@@ -999,14 +1121,34 @@ export default async function AssetViewerPage({
                 sublabel={liveMacdSummary}
               />
               <CompactSignalCard
-                label="1H Volume"
-                value={live1hVolume}
-                sublabel={live1hVolumeSummary}
+                label="TF Volume"
+                value={liveSelectedTfVolume}
+                sublabel={liveSelectedTfVolumeSummary}
               />
               <CompactSignalCard
                 label="24H Volume"
                 value={live24hVolume}
                 sublabel={live24hVolumeSummary}
+              />
+            </div>
+          ) : null}
+
+          {!isQcap ? (
+            <div className="grid grid-cols-1 gap-4 laptop:grid-cols-3">
+              <CompactSignalCard
+                label="1H Volume"
+                value={liveOneHourVolume}
+                sublabel={liveOneHourVolumeSummary}
+              />
+              <CompactSignalCard
+                label="Selected TF"
+                value={liveIndicatorTimeframeLabel}
+                sublabel="Current signal-card timeframe selection."
+              />
+              <CompactSignalCard
+                label="Indicator Source"
+                value={indicatorData?.source ? formatCategoryLabel(indicatorData.source) : "—"}
+                sublabel="Locked pool indicator engine source."
               />
             </div>
           ) : null}
@@ -1105,7 +1247,7 @@ export default async function AssetViewerPage({
                     ? formatCompactCurrency(market.volume_24h_usd)
                     : "—"
                 }
-                sublabel="Market activity enrichment comes next."
+                sublabel="Rolling 24H pool market activity."
               />
               <StatCard
                 label="Liquidity"
@@ -1123,7 +1265,7 @@ export default async function AssetViewerPage({
                     ? formatCompactCurrency(market.fdv_usd)
                     : "—"
                 }
-                sublabel="Future fully diluted valuation metric."
+                sublabel="Locked pool fully diluted valuation."
               />
               <StatCard
                 label="Supply State"
@@ -1152,6 +1294,7 @@ export default async function AssetViewerPage({
           >
             <div className="space-y-3">
               <InsightRow label="Signal State" value={liveSignalBiasLabel} />
+              <InsightRow label="Signal TF" value={liveIndicatorTimeframeLabel} />
               <InsightRow label="Alert Priority" value="Normal" />
               <InsightRow
                 label="Asset Health"
@@ -1167,8 +1310,8 @@ export default async function AssetViewerPage({
                   liveSignalBiasLabel === "Bullish"
                     ? "Observe / Trend Up"
                     : liveSignalBiasLabel === "Bearish"
-                      ? "Caution"
-                      : "Observe"
+                    ? "Caution"
+                    : "Observe"
                 }
               />
             </div>
