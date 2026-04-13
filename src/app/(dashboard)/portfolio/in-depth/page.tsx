@@ -1410,9 +1410,12 @@ export default function PortfolioInDepthPage() {
                             }
                           />
                           <RechartsTooltip
-                            formatter={(value: number, name: string) => {
-                              if (name === "yieldRatioPct") {
-                                return [formatPercent(value, 2), "Yield / TVD"];
+                            formatter={(value, name) => {
+                              const numericValue = safeNumber(value);
+                              const metricName = String(name);
+
+                              if (metricName === "yieldRatioPct") {
+                                return [formatPercent(numericValue, 2), "Yield / TVD"];
                               }
 
                               const labelMap: Record<string, string> = {
@@ -1424,9 +1427,9 @@ export default function PortfolioInDepthPage() {
                                 max: "Max",
                               };
 
-                              return [formatCurrency(value), labelMap[name] || name];
+                              return [formatCurrency(numericValue), labelMap[metricName] || metricName];
                             }}
-                            labelFormatter={(label) => `Period: ${label}`}
+                            labelFormatter={(label) => `Period: ${String(label)}`}
                             contentStyle={{
                               borderRadius: 12,
                               border: "1px solid #E9DAFF",
