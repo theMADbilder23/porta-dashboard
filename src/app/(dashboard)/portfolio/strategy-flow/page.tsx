@@ -31,17 +31,40 @@ type WalletNode = {
   snapshot_time: string | null;
 };
 
-type ExampleHolding = {
+type DrilldownSubclass = {
+  key: string;
+  label: string;
+  total_value_usd: number;
+  allocation_pct: number;
+  holding_count: number;
+  assets: Array<{
+    asset_id: string;
+    token_symbol: string;
+    value_usd: number;
+    yield_profile: string;
+  }>;
+};
+
+type DrilldownExample = {
   asset_id: string;
   token_symbol: string;
   value_usd: number;
+  mmii_subclass: string;
   yield_profile: string;
+  protocol: string;
+};
+
+type DrilldownMeta = {
+  subclasses: DrilldownSubclass[];
+  wallets: WalletNode[];
+  examples: DrilldownExample[];
+  total_holdings: number;
 };
 
 type StructureNode = {
   key: string;
   label: string;
-  type: "root" | "tier" | "core_layer" | "subclass";
+  type: "root" | "tier" | "core_layer";
   description: string;
   total_value_usd: number;
   allocation_pct: number;
@@ -51,7 +74,7 @@ type StructureNode = {
   wallets: WalletNode[];
   meta?: {
     dominant_tier?: string;
-    examples?: ExampleHolding[];
+    drilldown?: DrilldownMeta;
   };
 };
 
@@ -84,11 +107,10 @@ type FlowCardTone =
   | "tier_1"
   | "tier_2"
   | "core_layer"
-  | "subclass"
-  | "wallet"
   | "label";
 
 type FlowCardData = {
+  nodeKey: string;
   title: string;
   subtitle?: string;
   value?: string;
@@ -101,6 +123,8 @@ type FlowCardData = {
   warning?: boolean;
   pulse?: boolean;
   emphasis?: "high" | "medium" | "low";
+  interactive?: boolean;
+  onSelect?: (nodeKey: string) => void;
 };
 
 type TierKey = "tier_0" | "tier_1" | "tier_2";
@@ -111,7 +135,6 @@ type XY = {
 };
 
 type TierPositionMap = Record<TierKey, XY>;
-
 type CoreLayerPositionMap = Record<TierKey, Record<string, XY>>;
 
 function isTierKey(value: string): value is TierKey {
@@ -318,26 +341,16 @@ function getToneClasses(
         badge: "bg-[#DBEAFE] text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]",
       };
     case "core_layer":
-      return {
-        shell: `border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19] ${glow}`,
-        badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
-      };
-    case "subclass":
-      return {
-        shell: `border-[#E9DAFF] bg-[#FCFAFF] dark:border-[#312047] dark:bg-[#140D20] ${glow}`,
-        badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
-      };
-    case "wallet":
     default:
       return {
         shell: `border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19] ${glow}`,
-        badge: "bg-[#EEF4FF] text-[#2563EB] dark:bg-[#131D32] dark:text-[#93C5FD]",
+        badge: "bg-[#F3E8FF] text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]",
       };
   }
 }
 
 function computeNodeWidth(
-  level: "root" | "tier" | "core_layer" | "subclass" | "wallet",
+  level: "root" | "tier" | "core_layer",
   allocationPct: number
 ) {
   const pct = safeNumber(allocationPct);
@@ -348,19 +361,15 @@ function computeNodeWidth(
     case "tier":
       return clamp(290 + pct * 3.4, 290, 540);
     case "core_layer":
-      return clamp(250 + pct * 2.8, 250, 470);
-    case "subclass":
-      return clamp(210 + pct * 1.7, 210, 340);
-    case "wallet":
     default:
-      return clamp(210 + pct * 1.5, 210, 330);
+      return clamp(250 + pct * 2.8, 250, 470);
   }
 }
 
 function computeMinHeight(
-  level: "root" | "tier" | "core_layer" | "subclass" | "wallet",
-  allocationPct: number
-) {
+  level: "root" | "tier" | "core_layer",
+  allocationPct
+  ) {
   const pct = safeNumber(allocationPct);
 
   switch (level) {
@@ -369,17 +378,13 @@ function computeMinHeight(
     case "tier":
       return clamp(128 + pct * 0.8, 128, 190);
     case "core_layer":
-      return clamp(112 + pct * 0.55, 112, 165);
-    case "subclass":
-      return clamp(96 + pct * 0.24, 96, 132);
-    case "wallet":
     default:
-      return clamp(94 + pct * 0.22, 94, 128);
+      return clamp(112 + pct * 0.55, 112, 165);
   }
 }
 
 function getEmphasis(
-  level: "root" | "tier" | "core_layer" | "subclass" | "wallet",
+  level: "root" | "tier" | "core_layer",
   allocationPct: number
 ): FlowCardData["emphasis"] {
   if (level === "root") return "high";
@@ -408,13 +413,24 @@ function FlowCardNode({ data }: NodeProps<FlowCardData>) {
 
   return (
     <div
-      className={`rounded-2xl border px-4 py-3 ${tone.shell}`}
+      className={`rounded-2xl border px-4 py-3 transition-all ${tone.shell} ${
+        data.interactive ? "cursor-pointer hover:scale-[1.015]" : ""
+      }`}
       style={{
         width: data.width ?? 240,
         minHeight: data.minHeight ?? 100,
       }}
+      onClick={() => {
+        if (data.interactive && data.onSelect) {
+          data.onSelect(data.nodeKey);
+        }
+      }}
     >
-      <Handle type="target" position={Position.Top} className="!h-2.5 !w-2.5 !bg-[#C084FC]" />
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!h-2.5 !w-2.5 !bg-[#C084FC]"
+      />
 
       <div className="flex items-start justify-between gap-3">
         <span className={`rounded-full px-2.5 py-1 text-[10px] font-medium ${tone.badge}`}>
@@ -451,7 +467,11 @@ function FlowCardNode({ data }: NodeProps<FlowCardData>) {
         </p>
       ) : null}
 
-      <Handle type="source" position={Position.Bottom} className="!h-2.5 !w-2.5 !bg-[#8B5CF6]" />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!h-2.5 !w-2.5 !bg-[#8B5CF6]"
+      />
     </div>
   );
 }
@@ -484,9 +504,111 @@ function MetricCard({
   );
 }
 
+function SubclassCard({ subclass }: { subclass: DrilldownSubclass }) {
+  return (
+    <div className="rounded-xl border border-[#E9DAFF] bg-white p-3 dark:border-[#312047] dark:bg-[#100A19]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+            {subclass.label}
+          </p>
+          <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
+            {subclass.holding_count} holdings
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-sm font-semibold text-[#6D28D9] dark:text-[#D8B4FE]">
+            {formatCompactCurrency(subclass.total_value_usd)}
+          </p>
+          <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
+            {formatPercent(subclass.allocation_pct)}
+          </p>
+        </div>
+      </div>
+
+      {subclass.assets.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {subclass.assets.map((asset, index) => (
+            <span
+              key={`${subclass.key}-${asset.asset_id || asset.token_symbol}-${index}`}
+              className="rounded-full bg-[#F3E8FF] px-2.5 py-1 text-[10px] font-medium text-[#6D28D9] dark:bg-[#241533] dark:text-[#D8B4FE]"
+            >
+              {asset.token_symbol || "Unknown"} · {formatCompactCurrency(asset.value_usd)}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function WalletCard({ wallet }: { wallet: WalletNode }) {
+  return (
+    <div className="rounded-xl border border-[#E9DAFF] bg-white p-3 dark:border-[#312047] dark:bg-[#100A19]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+            {wallet.wallet_name}
+          </p>
+          <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
+            {wallet.role} • {wallet.network_group}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-sm font-semibold text-[#2563EB] dark:text-[#93C5FD]">
+            {formatCompactCurrency(wallet.total_value_usd)}
+          </p>
+          <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
+            {wallet.wallet_address_short}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExampleAssetCard({ asset }: { asset: DrilldownExample }) {
+  return (
+    <div className="rounded-xl border border-[#E9DAFF] bg-white p-3 dark:border-[#312047] dark:bg-[#100A19]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+            {asset.token_symbol || "Unknown"}
+          </p>
+          <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
+            {asset.mmii_subclass || "Unclassified"}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-sm font-semibold text-[#6D28D9] dark:text-[#D8B4FE]">
+            {formatCompactCurrency(asset.value_usd)}
+          </p>
+          <p className="mt-1 text-xs text-[#6B5A86] dark:text-[#BFA9F5]">
+            {asset.protocol || asset.yield_profile || "—"}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function buildNodeLookup(structure?: StructureNode) {
+  const map = new Map<string, StructureNode>();
+
+  function walk(node?: StructureNode) {
+    if (!node) return;
+    map.set(node.key, node);
+    node.children.forEach((child) => walk(child));
+  }
+
+  walk(structure);
+  return map;
+}
+
 function buildTreeElements(
-  structure?: StructureNode,
-  alignmentMap?: Map<string, AlignmentTier>
+  structure: StructureNode | undefined,
+  alignmentMap: Map<string, AlignmentTier>,
+  onSelectBucket: (nodeKey: string) => void
 ) {
   const nodes: Node<FlowCardData>[] = [];
   const edges: Edge[] = [];
@@ -509,6 +631,7 @@ function buildTreeElements(
     type: "flowCard",
     position: { x: rootX, y: rootY },
     data: {
+      nodeKey: structure.key,
       title: structure.label,
       value: formatCurrency(structure.total_value_usd),
       subtitle: structure.description,
@@ -518,6 +641,7 @@ function buildTreeElements(
       width: computeNodeWidth("root", 100),
       minHeight: computeMinHeight("root", 100),
       emphasis: "high",
+      interactive: false,
     },
     draggable: true,
   });
@@ -527,6 +651,7 @@ function buildTreeElements(
     type: "flowCard",
     position: { x: rootX - 70, y: 185 },
     data: {
+      nodeKey: "label-root-tier",
       title: "Foundation Routing",
       subtitle: "Root capital staging into structural tiers",
       tone: "label",
@@ -549,7 +674,7 @@ function buildTreeElements(
   for (const tier of tierRenderOrder) {
     const tierId = `tier-${tier.key}`;
     const tierPosition = tierPositions[tier.key];
-    const tierAlignment = alignmentMap?.get(tier.key);
+    const tierAlignment = alignmentMap.get(tier.key);
     const tierTone = getTierTone(tier.key);
     const tierEdgeColor = getTierEdgeColor(tier.key);
     const alignmentStyle = getAlignmentStyle(tierAlignment?.status);
@@ -559,6 +684,7 @@ function buildTreeElements(
       type: "flowCard",
       position: tierPosition,
       data: {
+        nodeKey: tier.key,
         title: tier.label,
         value: formatCurrency(tier.total_value_usd),
         subtitle: tier.description,
@@ -575,6 +701,7 @@ function buildTreeElements(
         warning: tierAlignment?.status === "warning",
         pulse: tierAlignment?.status === "warning",
         emphasis: getEmphasis("tier", tier.allocation_pct),
+        interactive: false,
       },
       draggable: true,
     });
@@ -628,6 +755,7 @@ function buildTreeElements(
           y: tierPositions[tier.key].y + 180,
         },
         data: {
+          nodeKey: `label-${tierId}-corelayer`,
           title:
             tier.key === "tier_0"
               ? "Stable Core Routing"
@@ -663,16 +791,20 @@ function buildTreeElements(
         type: "flowCard",
         position,
         data: {
+          nodeKey: coreLayer.key,
           title: coreLayer.label,
           value: formatCompactCurrency(coreLayer.total_value_usd),
           subtitle: `${coreLayer.wallet_count} wallets • ${coreLayer.holding_count} holdings`,
           meta: formatPercent(coreLayer.allocation_pct),
           secondary: `${formatPercent(coreLayer.allocation_pct)} of total structure`,
+          tertiary: "Click to inspect execution layer",
           tone: "core_layer",
           width: computeNodeWidth("core_layer", coreLayer.allocation_pct),
           minHeight: computeMinHeight("core_layer", coreLayer.allocation_pct),
           warning: coreWarning,
           emphasis: getEmphasis("core_layer", coreLayer.allocation_pct),
+          interactive: true,
+          onSelect: onSelectBucket,
         },
         draggable: true,
       });
@@ -684,118 +816,6 @@ function buildTreeElements(
         animated: true,
         markerEnd: { type: MarkerType.ArrowClosed },
         style: { strokeWidth: 3, stroke: tierEdgeColor },
-      });
-
-      if (coreLayer.children.length > 0 || coreLayer.wallets.length > 0) {
-        nodes.push({
-          id: `label-${coreLayerId}-execution`,
-          type: "flowCard",
-          position: { x: position.x - 50, y: position.y + 175 },
-          data: {
-            title: "Execution Layer",
-            subtitle: "Subclass sleeves and wallet deployment",
-            tone: "label",
-            width: 180,
-            minHeight: 42,
-          },
-          draggable: false,
-          selectable: false,
-        });
-      }
-
-      const subclassBaseX = position.x - 360;
-      const walletBaseX = position.x + 420;
-
-      coreLayer.children.forEach((subclass, subclassIndex) => {
-        const subclassId = `${coreLayerId}-subclass-${subclass.key}`;
-        const subclassX = subclassBaseX;
-        const subclassY = position.y + 260 + subclassIndex * 185;
-
-        const pctOfParent =
-          coreLayer.total_value_usd > 0
-            ? (safeNumber(subclass.total_value_usd) / safeNumber(coreLayer.total_value_usd)) *
-              100
-            : 0;
-
-        nodes.push({
-          id: subclassId,
-          type: "flowCard",
-          position: { x: subclassX, y: subclassY },
-          data: {
-            title: subclass.label,
-            value: formatCompactCurrency(subclass.total_value_usd),
-            subtitle: `${subclass.holding_count} holdings`,
-            meta: formatPercent(subclass.allocation_pct),
-            secondary: `${formatPercent(pctOfParent)} of ${coreLayer.label}`,
-            tone: "subclass",
-            width: computeNodeWidth("subclass", subclass.allocation_pct),
-            minHeight: computeMinHeight("subclass", subclass.allocation_pct),
-            emphasis: getEmphasis("subclass", subclass.allocation_pct),
-          },
-          draggable: true,
-        });
-
-        edges.push({
-          id: `edge-${coreLayerId}-${subclassId}`,
-          source: coreLayerId,
-          target: subclassId,
-          animated: false,
-          markerEnd: { type: MarkerType.ArrowClosed },
-          style: { strokeWidth: 2, stroke: "#C4B5FD" },
-        });
-      });
-
-      coreLayer.wallets.forEach((wallet, walletIndex) => {
-        const walletId = `${coreLayerId}-wallet-${wallet.wallet_id ?? wallet.wallet_name}-${walletIndex}`;
-        const walletX =
-          coreLayer.key === "stable_core"
-            ? position.x + 360
-            : coreLayer.key === "rotational_core"
-              ? position.x + 360
-              : coreLayer.key === "growth"
-                ? walletBaseX
-                : coreLayer.key === "rotational_anchors"
-                  ? position.x + 330
-                  : position.x + 360;
-        const walletY = position.y + 230 + walletIndex * 185;
-
-        const pctOfParent =
-          coreLayer.total_value_usd > 0
-            ? (safeNumber(wallet.total_value_usd) / safeNumber(coreLayer.total_value_usd)) * 100
-            : 0;
-
-        const pctOfTotal =
-          structure.total_value_usd > 0
-            ? (safeNumber(wallet.total_value_usd) / safeNumber(structure.total_value_usd)) * 100
-            : 0;
-
-        nodes.push({
-          id: walletId,
-          type: "flowCard",
-          position: { x: walletX, y: walletY },
-          data: {
-            title: wallet.wallet_name,
-            value: formatCompactCurrency(wallet.total_value_usd),
-            subtitle: `${wallet.role} • ${wallet.network_group}`,
-            meta: wallet.wallet_address_short,
-            secondary: `${formatPercent(pctOfParent)} of ${coreLayer.label}`,
-            tertiary: `${formatPercent(pctOfTotal)} of total MMII`,
-            tone: "wallet",
-            width: computeNodeWidth("wallet", pctOfTotal),
-            minHeight: computeMinHeight("wallet", pctOfTotal),
-            emphasis: getEmphasis("wallet", pctOfTotal),
-          },
-          draggable: true,
-        });
-
-        edges.push({
-          id: `edge-${coreLayerId}-${walletId}`,
-          source: coreLayerId,
-          target: walletId,
-          animated: false,
-          markerEnd: { type: MarkerType.ArrowClosed },
-          style: { strokeWidth: 2.2, stroke: "#60A5FA" },
-        });
       });
     }
   }
@@ -830,6 +850,7 @@ export default function StrategyFlowPage() {
   const [data, setData] = useState<StrategyFlowResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedBucketKey, setSelectedBucketKey] = useState<string | null>(null);
 
   const summary = data?.summary;
   const structure = data?.structure;
@@ -839,9 +860,15 @@ export default function StrategyFlowPage() {
   const alignmentHeadline = useMemo(() => getAlignmentHeadline(alignmentScore), [alignmentScore]);
   const alignmentInsight = useMemo(() => getAlignmentInsight(alignmentTiers), [alignmentTiers]);
   const alignmentMap = useMemo(() => getTierAlignmentMap(alignmentTiers), [alignmentTiers]);
+  const nodeLookup = useMemo(() => buildNodeLookup(structure), [structure]);
+
+  const selectedBucket =
+    selectedBucketKey && nodeLookup.has(selectedBucketKey)
+      ? nodeLookup.get(selectedBucketKey) || null
+      : null;
 
   const builtTree = useMemo(
-    () => buildTreeElements(structure, alignmentMap),
+    () => buildTreeElements(structure, alignmentMap, setSelectedBucketKey),
     [structure, alignmentMap]
   );
 
@@ -880,8 +907,18 @@ export default function StrategyFlowPage() {
     setEdges(builtTree.edges);
   }, [builtTree, setNodes, setEdges]);
 
+  useEffect(() => {
+    if (!selectedBucketKey) return;
+    if (!nodeLookup.has(selectedBucketKey)) {
+      setSelectedBucketKey(null);
+    }
+  }, [selectedBucketKey, nodeLookup]);
+
+  const drilldown = selectedBucket?.meta?.drilldown;
+
   return (
-    <div className="min-h-screen space-y-6 p-6">
+    <div className="min-h-screen space-y-
+    6 p-6">
       <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
         <div className="flex flex-col gap-4 desktop:flex-row desktop:items-end desktop:justify-between">
           <div>
@@ -893,8 +930,8 @@ export default function StrategyFlowPage() {
             </h1>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
               Visual representation of the MMII strategy structure. This page maps
-              portfolio capital through MMII tiers, core layers, subclass sleeves,
-              wallet placement, and alignment drift.
+              portfolio capital through MMII tiers and core layers, while the
+              execution layer is opened separately through bucket drilldown.
             </p>
           </div>
 
@@ -1003,13 +1040,13 @@ export default function StrategyFlowPage() {
               </h2>
               <p className="text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
                 Interactive structure canvas of MMII. Pan, zoom, and inspect how
-                the strategy flows from the MMII root into tiers, core layers,
-                subclass sleeves, and wallet nodes.
+                the strategy flows from the MMII root into tiers and core layers.
+                Click a bucket to inspect its execution layer in the side panel.
               </p>
             </div>
 
             <div className="mt-5 rounded-2xl border border-dashed border-[#D8B4FE] bg-[#FCFAFF] p-3 dark:border-[#3B2A57] dark:bg-[#140D20]">
-              <div className="h-[2500px] overflow-hidden rounded-2xl border border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]">
+              <div className="relative h-[1800px] overflow-hidden rounded-2xl border border-[#E9DAFF] bg-white dark:border-[#312047] dark:bg-[#100A19]">
                 <ReactFlow
                   nodes={nodes}
                   edges={edges}
@@ -1036,6 +1073,143 @@ export default function StrategyFlowPage() {
               </div>
             </div>
           </section>
+
+          {selectedBucket ? (
+            <section className="rounded-2xl border border-[#E9DAFF] bg-white p-6 shadow-sm dark:border-[#2A1D3B] dark:bg-[#100A19]">
+              <div className="flex flex-col gap-4 desktop:flex-row desktop:items-start desktop:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                    Bucket Execution Layer
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                    {selectedBucket.label}
+                  </h2>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+                    {selectedBucket.description}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedBucketKey(null)}
+                  className="rounded-xl border border-[#E9DAFF] bg-white px-4 py-2 text-sm font-medium text-[#6D28D9] transition-colors hover:bg-[#F3E8FF] dark:border-[#312047] dark:bg-[#100A19] dark:text-[#D8B4FE] dark:hover:bg-[#1A1226]"
+                >
+                  Close Drilldown
+                </button>
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-4">
+                <MetricCard
+                  label="Bucket Value"
+                  value={formatCurrency(selectedBucket.total_value_usd)}
+                  sublabel={`${formatPercent(selectedBucket.allocation_pct)} of total MMII`}
+                />
+                <MetricCard
+                  label="Wallets"
+                  value={String(selectedBucket.wallet_count)}
+                  sublabel="Active deployment wallets"
+                />
+                <MetricCard
+                  label="Holdings"
+                  value={String(drilldown?.total_holdings ?? selectedBucket.holding_count)}
+                  sublabel="Tracked holdings in bucket"
+                />
+                <MetricCard
+                  label="Subclasses"
+                  value={String(drilldown?.subclasses.length ?? 0)}
+                  sublabel="MMII sleeves in bucket"
+                />
+              </div>
+
+              <div className="mt-6 grid grid-cols-1 gap-6 desktop:grid-cols-12">
+                <div className="desktop:col-span-4 space-y-4">
+                  <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-4 dark:border-[#312047] dark:bg-[#140D20]">
+                    <h3 className="text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                      Subclass Sleeves
+                    </h3>
+                    <p className="mt-1 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
+                      Internal MMII sleeves grouped within this bucket.
+                    </p>
+
+                    <div className="mt-4 space-y-3">
+                      {drilldown?.subclasses?.length ? (
+                        drilldown.subclasses.map((subclass) => (
+                          <SubclassCard key={subclass.key} subclass={subclass} />
+                        ))
+                      ) : (
+                        <p className="text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
+                          No subclass sleeves available for this bucket yet.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="desktop:col-span-4 space-y-4">
+                  <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-4 dark:border-[#312047] dark:bg-[#140D20]">
+                    <h3 className="text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                      Wallet Deployment
+                    </h3>
+                    <p className="mt-1 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
+                      Wallets currently mapped into this execution layer.
+                    </p>
+
+                    <div className="mt-4 space-y-3">
+                      {drilldown?.wallets?.length ? (
+                        drilldown.wallets.map((wallet) => (
+                          <WalletCard
+                            key={wallet.wallet_id || `${wallet.wallet_name}-${wallet.wallet_address_short}`}
+                            wallet={wallet}
+                          />
+                        ))
+                      ) : (
+                        <p className="text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
+                          No wallet deployment entries available for this bucket yet.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="desktop:col-span-4 space-y-4">
+                  <div className="rounded-2xl border border-[#E9DAFF] bg-[#FCFAFF] p-4 dark:border-[#312047] dark:bg-[#140D20]">
+                    <h3 className="text-lg font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                      Example Assets
+                    </h3>
+                    <p className="mt-1 text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
+                      Sample holdings captured within the selected bucket.
+                    </p>
+
+                    <div className="mt-4 space-y-3">
+                      {drilldown?.examples?.length ? (
+                        drilldown.examples.map((asset, index) => (
+                          <ExampleAssetCard
+                            key={`${asset.asset_id || asset.token_symbol}-${index}`}
+                            asset={asset}
+                          />
+                        ))
+                      ) : (
+                        <p className="text-sm text-[#6B5A86] dark:text-[#BFA9F5]">
+                          No example asset records available for this bucket yet.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : (
+            <section className="rounded-2xl border border-dashed border-[#D8B4FE] bg-[#FCFAFF] p-6 shadow-sm dark:border-[#3B2A57] dark:bg-[#140D20]">
+              <h2 className="text-xl font-semibold text-[#2D1B45] dark:text-[#F3E8FF]">
+                Bucket Drilldown
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-[#6B5A86] dark:text-[#BFA9F5]">
+                Click a core layer bucket in the structural tree above to inspect its
+                subclasses, wallet deployment, and example assets without overcrowding
+                the main canvas.
+              </p>
+            </section>
+          )}
         </>
       ) : null}
     </div>

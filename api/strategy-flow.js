@@ -135,8 +135,7 @@ function getTierDefinitions() {
     tier_0: {
       key: "tier_0",
       label: "Tier 0 — Foundational Hub",
-      description:
-        "Permanent yield layer and stable core foundation of MMII.",
+      description: "Permanent yield layer and stable core foundation of MMII.",
       coreLayers: ["stable_core"],
     },
     tier_1: {
@@ -161,15 +160,8 @@ function getCoreLayerDefinitions() {
     stable_core: {
       key: "stable_core",
       label: "Stable Core",
-      description:
-        "Permanent yield and stable foundation layer.",
+      description: "Permanent yield and stable foundation layer.",
       tier_key: "tier_0",
-      subclassKeys: [
-        "stable_collateralized",
-        "stable_non_collateralized",
-        "stable_yield",
-        "cre_stable_yield",
-      ],
     },
     rotational_core: {
       key: "rotational_core",
@@ -177,11 +169,6 @@ function getCoreLayerDefinitions() {
       description:
         "Collateralized rotational yield layer for HAYP, metals yield, and core digital reserve yield.",
       tier_key: "tier_1",
-      subclassKeys: [
-        "hayp",
-        "gold_silver_yield",
-        "digital_reserve_yield",
-      ],
     },
     rotational_anchors: {
       key: "rotational_anchors",
@@ -189,12 +176,6 @@ function getCoreLayerDefinitions() {
       description:
         "Direct rotational anchor sleeves such as Genesis10, GeoEdge, and reserve sleeves.",
       tier_key: "tier_2",
-      subclassKeys: [
-        "genesis10",
-        "gold_silver_reserve",
-        "geoedge",
-        "digital_reserve",
-      ],
     },
     growth: {
       key: "growth",
@@ -202,13 +183,6 @@ function getCoreLayerDefinitions() {
       description:
         "Growth yield and growth hold sleeves across DeFi, RWA, AI, gaming, and similar sectors.",
       tier_key: "tier_2",
-      subclassKeys: [
-        "defi_growth_yield",
-        "rwa_growth_yield",
-        "realfi10",
-        "nova10",
-        "private_markets",
-      ],
     },
     swing: {
       key: "swing",
@@ -216,7 +190,6 @@ function getCoreLayerDefinitions() {
       description:
         "Short-term trading, narrative rotation, and swing deployment layer.",
       tier_key: "tier_2",
-      subclassKeys: ["short_term_narrative"],
     },
   };
 }
@@ -348,7 +321,7 @@ async function fetchWalletsWithFallback() {
   return lower;
 }
 
-function buildSubclassNodes(coreLayerHoldings, totalPortfolioValue) {
+function buildSubclassDrilldown(coreLayerHoldings, totalPortfolioValue) {
   const grouped = new Map();
 
   for (const holding of coreLayerHoldings) {
@@ -361,7 +334,7 @@ function buildSubclassNodes(coreLayerHoldings, totalPortfolioValue) {
       grouped.set(subclassKey, {
         total_value_usd: 0,
         holding_count: 0,
-        examples: [],
+        assets: [],
       });
     }
 
@@ -369,10 +342,11 @@ function buildSubclassNodes(coreLayerHoldings, totalPortfolioValue) {
     current.total_value_usd += safeNumber(holding.value_usd);
     current.holding_count += 1;
 
-    if (current.examples.length < 4) {
-      current.examples.push({
+    if (current.assets.length < 10) {
+      current.assets.push({
         asset_id: safeString(holding.asset_id),
-        token_symbol: safeString(holding.token_symbol || holding.asset_symbol) || "Unknown",
+        token_symbol:
+          safeString(holding.token_symbol || holding.asset_symbol) || "Unknown",
         value_usd: safeNumber(holding.value_usd),
         yield_profile: safeString(holding.yield_profile) || "none",
       });
@@ -380,23 +354,30 @@ function buildSubclassNodes(coreLayerHoldings, totalPortfolioValue) {
   }
 
   return [...grouped.entries()]
-    .map(([subclassKey, data]) =>
-      createNode({
-        key: subclassKey,
-        label: formatLabel(subclassKey),
-        type: "subclass",
-        description: `Subclass sleeve inside ${formatLabel(subclassKey)}.`,
-        total_value_usd: data.total_value_usd,
-        allocation_pct: computeAllocation(data.total_value_usd, totalPortfolioValue),
-        holding_count: data.holding_count,
-        children: [],
-        wallets: [],
-        meta: {
-          examples: data.examples,
-        },
-      })
-    )
+    .map(([subclassKey, data]) => ({
+      key: subclassKey,
+      label: formatLabel(subclassKey),
+      total_value_usd: data.total_value_usd,
+      allocation_pct: computeAllocation(data.total_value_usd, totalPortfolioValue),
+      holding_count: data.holding_count,
+      assets: data.assets,
+    }))
     .sort((a, b) => safeNumber(b.total_value_usd) - safeNumber(a.total_value_usd));
+}
+
+function buildBucketExamples(holdings) {
+  return [...holdings]
+    .sort((a, b) => safeNumber(b.value_usd) - safeNumber(a.value_usd))
+    .slice(0, 8)
+    .map((holding) => ({
+      asset_id: safeString(holding.asset_id),
+      token_symbol:
+        safeString(holding.token_symbol || holding.asset_symbol) || "Unknown",
+      value_usd: safeNumber(holding.value_usd),
+      mmii_subclass: safeString(holding.mmii_subclass) || "Unclassified",
+      yield_profile: safeString(holding.yield_profile) || "none",
+      protocol: safeString(holding.protocol) || "Unknown",
+    }));
 }
 
 export default async function handler(req, res) {
@@ -407,14 +388,12 @@ export default async function handler(req, res) {
   try {
     const [walletsResult, snapshotsResult, holdingsResult] = await Promise.all([
       fetchWalletsWithFallback(),
-      supabase
-        .from("wallet_snapshots")
-        .select("*")
-        .order("snapshot_time", { ascending: false }),
-      supabase
-        .from("wallet_holdings")
-        .select("*")
-        .order("snapshot_time", { ascending: false }),
+      supabase.from("wallet_snapshots").select("*").order("snapshot_time", {
+        ascending: false,
+      }),
+      supabase.from("wallet_holdings").select("*").order("snapshot_time", {
+        ascending: false,
+      }),
     ]);
 
     if (walletsResult.error) {
@@ -545,7 +524,16 @@ export default async function handler(req, res) {
     const tiers = Object.values(tierAccumulators).map((tier) => {
       const coreLayerNodes = [...tier.coreLayers.values()]
         .map((coreLayer) => {
-          const subclassNodes = buildSubclassNodes(coreLayer.holdings, totalPortfolioValue);
+          const sortedWallets = coreLayer.wallets.sort(
+            (a, b) => safeNumber(b.total_value_usd) - safeNumber(a.total_value_usd)
+          );
+
+          const drilldown = {
+            subclasses: buildSubclassDrilldown(coreLayer.holdings, totalPortfolioValue),
+            wallets: sortedWallets,
+            examples: buildBucketExamples(coreLayer.holdings),
+            total_holdings: coreLayer.holding_count,
+          };
 
           return createNode({
             key: coreLayer.key,
@@ -556,11 +544,11 @@ export default async function handler(req, res) {
             allocation_pct: computeAllocation(coreLayer.total_value_usd, totalPortfolioValue),
             wallet_count: coreLayer.wallet_count,
             holding_count: coreLayer.holding_count,
-            children: subclassNodes,
-            wallets: coreLayer.wallets.sort(
-              (a, b) => safeNumber(b.total_value_usd) - safeNumber(a.total_value_usd)
-            ),
-            meta: {},
+            children: [],
+            wallets: [],
+            meta: {
+              drilldown,
+            },
           });
         })
         .sort((a, b) => safeNumber(b.total_value_usd) - safeNumber(a.total_value_usd));
@@ -610,8 +598,9 @@ export default async function handler(req, res) {
       },
       structure: rootNode,
       methodology: {
-        mapping_type: "mmii_tier_corelayer_subclass_wallet_v2",
-        note: "Structure is now modeled using MMII tiers, core layers, subclasses, and wallet placement based on wallet metadata plus latest wallet_holdings classification fields.",
+        mapping_type: "mmii_tier_corelayer_bucket_drilldown_v3",
+        note:
+          "Main canvas now shows only MMII root, tiers, and bucket structure. Subclasses, wallets, and example holdings are exposed through bucket drilldown metadata.",
       },
     });
   } catch (error) {
