@@ -211,8 +211,13 @@ type PortfolioInDepthResponse = {
   historical_table?: HistoricalTablePayload;
 };
 
-function safeNumber(value: number | null | undefined) {
-  return Number.isFinite(Number(value)) ? Number(value) : 0;
+function safeNumber(value: unknown) {
+  const numericValue =
+    typeof value === "number" || typeof value === "string"
+      ? Number(value)
+      : NaN;
+
+  return Number.isFinite(numericValue) ? numericValue : 0;
 }
 
 function formatCurrency(value: number, digits = 2) {
