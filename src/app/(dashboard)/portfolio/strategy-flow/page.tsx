@@ -368,8 +368,8 @@ function computeNodeWidth(
 
 function computeMinHeight(
   level: "root" | "tier" | "core_layer",
-  allocationPct
-  ) {
+  allocationPct: number
+) {
   const pct = safeNumber(allocationPct);
 
   switch (level) {
