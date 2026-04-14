@@ -12,27 +12,8 @@ import type { PortaTimeframe } from "@/lib/market/types"
 
 const ALLOWED_TIMEFRAMES: PortaTimeframe[] = ["1h", "4h", "1d", "3d", "1w", "1m"]
 
-const ASSET_ALIASES: Record<string, string> = {
-  "base:STKWELL": "base:WELL",
-  "STKWELL": "base:WELL",
-}
-
 function normalizeAssetKey(value: string | null): string {
   return normalizeAssetRegistryKey(value)
-}
-  const raw = String(value ?? "").trim()
-
-  if (!raw) return ""
-
-  if (!raw.includes(":")) {
-    const upper = raw.toUpperCase()
-    return ASSET_ALIASES[upper] ?? upper
-  }
-
-  const [network = "", symbol = ""] = raw.split(":")
-  const normalized = `${network.trim().toLowerCase()}:${symbol.trim().toUpperCase()}`
-
-  return ASSET_ALIASES[normalized.toUpperCase()] ?? normalized
 }
 
 function normalizeTimeframe(value: string | null): PortaTimeframe {
