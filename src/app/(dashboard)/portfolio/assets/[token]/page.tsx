@@ -1060,35 +1060,6 @@ export default async function AssetViewerPage({
         description="Primary chart zone for TradingView or Dexscreener-style intelligence. This section is now treated as the dominant page focus so the asset viewer feels more like a trading intelligence terminal than a summary dashboard."
       >
         <div className="space-y-5">
-          <div className="flex flex-col gap-4 laptop:flex-row laptop:items-end laptop:justify-between">
-            <div>
-              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                Chart Source
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <TogglePill label="TradingView" />
-                <TogglePill label="Dexscreener" active />
-              </div>
-            </div>
-
-            {!isQcap ? (
-              <div className="laptop:text-right">
-                <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
-                  Chart Timeframe
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2 laptop:justify-end">
-                  {TIMEFRAME_OPTIONS.map((timeframe) => (
-                    <TimeframeLink
-                      key={timeframe}
-                      token={token}
-                      timeframe={timeframe}
-                      active={selectedTimeframe === timeframe}
-                    />
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
 
           {isQcap ? (
             <QcapCustomChart liveUsdPrice={market.price_per_unit_usd} />

@@ -1,13 +1,38 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getAssetRegistryEntry } from "@/lib/market/asset-registry"
-import { fetchLockedAssetCandles, getLockedPoolAddress } from "@/lib/market/gecko-terminal"
+import {
+  getAssetRegistryEntry,
+  normalizeAssetRegistryKey,
+} from "@/lib/market/asset-registry"
+import {
+  fetchLockedAssetCandles,
+  getLockedPoolAddress,
+} from "@/lib/market/gecko-terminal"
 import { computeIndicators } from "@/lib/indicator-engine"
 import type { PortaTimeframe } from "@/lib/market/types"
 
 const ALLOWED_TIMEFRAMES: PortaTimeframe[] = ["1h", "4h", "1d", "3d", "1w", "1m"]
 
+const ASSET_ALIASES: Record<string, string> = {
+  "base:STKWELL": "base:WELL",
+  "STKWELL": "base:WELL",
+}
+
 function normalizeAssetKey(value: string | null): string {
-  return String(value ?? "").trim()
+  return normalizeAssetRegistryKey(value)
+}
+  const raw = String(value ?? "").trim()
+
+  if (!raw) return ""
+
+  if (!raw.includes(":")) {
+    const upper = raw.toUpperCase()
+    return ASSET_ALIASES[upper] ?? upper
+  }
+
+  const [network = "", symbol = ""] = raw.split(":")
+  const normalized = `${network.trim().toLowerCase()}:${symbol.trim().toUpperCase()}`
+
+  return ASSET_ALIASES[normalized.toUpperCase()] ?? normalized
 }
 
 function normalizeTimeframe(value: string | null): PortaTimeframe {
@@ -29,12 +54,12 @@ function deriveSignalBias(params: {
   const { rsi, stochK, stochD, macd, macdSignal, macdHistogram } = params
 
   if (
-    rsi === null ||
-    stochK === null ||
-    stochD === null ||
-    macd === null ||
-    macdSignal === null ||
-    macdHistogram === null
+    rsi == null ||
+    stochK == null ||
+    stochD == null ||
+    macd == null ||
+    macdSignal == null ||
+    macdHistogram == null
   ) {
     return {
       label: "Unavailable",
@@ -78,7 +103,11 @@ function deriveSignalBias(params: {
 
 export async function GET(request: NextRequest) {
   try {
-    const asset = normalizeAssetKey(request.nextUrl.searchParams.get("asset"))
+    const requestedAsset = String(
+      request.nextUrl.searchParams.get("asset") ?? ""
+    ).trim()
+
+    const asset = normalizeAssetKey(requestedAsset)
     const timeframe = normalizeTimeframe(
       request.nextUrl.searchParams.get("timeframe")
     )
@@ -99,7 +128,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: `Unsupported asset: ${asset}`,
+          error: `Unsupported asset: ${requestedAsset}`,
+          requestedAsset,
+          canonicalAsset: asset,
         },
         { status: 404 }
       )
@@ -109,7 +140,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: `Indicator source not wired yet for ${asset}`,
+          error: `Indicator source not wired yet for ${requestedAsset}`,
+          requestedAsset,
+          canonicalAsset: asset,
           source: entry.source,
         },
         { status: 501 }
@@ -120,7 +153,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: `Invalid asset source for ${asset}`,
+          error: `Invalid asset source for ${requestedAsset}`,
+          requestedAsset,
+          canonicalAsset: asset,
           source: entry.source,
         },
         { status: 500 }
@@ -133,6 +168,19 @@ export async function GET(request: NextRequest) {
       currency: "usd",
       tokenSide: "base",
     })
+
+    if (!candles.length) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `No candles returned for ${requestedAsset} on ${timeframe}`,
+          requestedAsset,
+          canonicalAsset: asset,
+          source: entry.source,
+        },
+        { status: 424 }
+      )
+    }
 
     const indicators = computeIndicators(candles)
 
@@ -147,7 +195,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      asset,
+      asset: requestedAsset,
+      canonicalAsset: asset,
       timeframe,
       source: entry.source,
       resolvedPool: {

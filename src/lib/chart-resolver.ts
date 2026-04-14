@@ -1,65 +1,62 @@
-export type ChartSource = "tradingview" | "dexscreener" | "none";
+import { normalizeAssetRegistryKey } from "@/lib/market/asset-registry"
 
-export type ChartTimeframe = "1H" | "4H" | "1D" | "1W";
+export type ChartSource = "tradingview" | "dexscreener" | "none"
+
+export type ChartTimeframe = "1H" | "4H" | "1D" | "1W"
 
 export type ResolvedChartConfig = {
-  preferredSource: ChartSource;
-  availableSources: ChartSource[];
-  dexscreenerUrl?: string | null;
-  tradingviewSymbol?: string | null;
-};
+  preferredSource: ChartSource
+  availableSources: ChartSource[]
+  dexscreenerUrl?: string | null
+  tradingviewSymbol?: string | null
+}
 
 type ResolveChartConfigInput = {
-  network?: string | null;
-  tokenSymbol?: string | null;
-  assetId?: string | null;
-};
+  network?: string | null
+  tokenSymbol?: string | null
+  assetId?: string | null
+}
 
 type ChartRegistryEntry = {
-  preferredSource: Exclude<ChartSource, "none">;
-  tradingviewSymbol?: string | null;
-  dexscreenerUrl?: string | null;
-  proxyAssetKey?: string | null;
-};
-
-function normalize(value?: string | null) {
-  return String(value || "").trim();
+  preferredSource: Exclude<ChartSource, "none">
+  tradingviewSymbol?: string | null
+  dexscreenerUrl?: string | null
 }
 
-function normalizeLower(value?: string | null) {
-  return normalize(value).toLowerCase();
+function normalize(value?: string | null): string {
+  return String(value ?? "").trim()
 }
 
-function normalizeUpper(value?: string | null) {
-  return normalize(value).toUpperCase();
+function normalizeLower(value?: string | null): string {
+  return normalize(value).toLowerCase()
 }
 
-function buildAssetKey(network?: string | null, tokenSymbol?: string | null) {
-  const chain = normalizeLower(network);
-  const symbol = normalizeUpper(tokenSymbol);
+function normalizeUpper(value?: string | null): string {
+  return normalize(value).toUpperCase()
+}
 
-  if (!chain || !symbol) return "";
-  return `${chain}:${symbol}`;
+function buildAssetKey(network?: string | null, tokenSymbol?: string | null): string {
+  const chain = normalizeLower(network)
+  const symbol = normalizeUpper(tokenSymbol)
+
+  if (!chain || !symbol) return ""
+  return `${chain}:${symbol}`
 }
 
 const CHART_REGISTRY: Record<string, ChartRegistryEntry> = {
   "base:WELL": {
     preferredSource: "tradingview",
     tradingviewSymbol: "GATEIO:WELLUSDT",
-    dexscreenerUrl: "https://dexscreener.com/base/0xa88594d404727625a9437c3f886c7643872296ae?embed=1&theme=dark",
+    dexscreenerUrl:
+      "https://dexscreener.com/base/0xa88594d404727625a9437c3f886c7643872296ae?embed=1&theme=dark",
   },
 
-  "base:STKWELL": {
-    preferredSource: "tradingview",
-    proxyAssetKey: "base:WELL",
-  },
-
-  "eth:ETH": {
+  "ethereum:ETH": {
     preferredSource: "tradingview",
     tradingviewSymbol: "BITSTAMP:ETHUSD",
   },
 
-  "ethereum:ETH": {
+  "eth:ETH": {
     preferredSource: "tradingview",
     tradingviewSymbol: "BITSTAMP:ETHUSD",
   },
@@ -81,7 +78,8 @@ const CHART_REGISTRY: Record<string, ChartRegistryEntry> = {
 
   "base:MAMO": {
     preferredSource: "dexscreener",
-    dexscreenerUrl: "https://dexscreener.com/base/0xe2b3aa806e56603a244bfc111c9474f7dedd03db?embed=1&theme=dark",
+    dexscreenerUrl:
+      "https://dexscreener.com/base/0xe2b3aa806e56603a244bfc111c9474f7dedd03db?embed=1&theme=dark",
   },
 
   "qubic:QUBIC": {
@@ -93,37 +91,45 @@ const CHART_REGISTRY: Record<string, ChartRegistryEntry> = {
     preferredSource: "tradingview",
     tradingviewSymbol: "GATEIO:QUBICUSDT",
   },
-};
+}
 
-function resolveRegistryEntry(assetKey: string, visited = new Set<string>()): ChartRegistryEntry | null {
-  if (!assetKey) return null;
-  if (visited.has(assetKey)) return null;
+function resolveRegistryEntry(assetKey: string): ChartRegistryEntry | null {
+  if (!assetKey) return null
 
-  visited.add(assetKey);
+  const canonicalKey = normalizeAssetRegistryKey(assetKey)
+  return CHART_REGISTRY[canonicalKey] ?? null
+}
 
-  const entry = CHART_REGISTRY[assetKey];
-  if (!entry) return null;
-
-  if (entry.proxyAssetKey) {
-    const proxied = resolveRegistryEntry(entry.proxyAssetKey, visited);
-    if (!proxied) return null;
-
-    return {
-      preferredSource: entry.preferredSource || proxied.preferredSource,
-      tradingviewSymbol: proxied.tradingviewSymbol ?? null,
-      dexscreenerUrl: proxied.dexscreenerUrl ?? null,
-    };
+function resolveInputAssetKey({
+  network,
+  tokenSymbol,
+  assetId,
+}: ResolveChartConfigInput): string {
+  const normalizedAssetId = normalize(assetId)
+  if (normalizedAssetId) {
+    return normalizeAssetRegistryKey(normalizedAssetId)
   }
 
-  return entry;
+  const derivedAssetKey = buildAssetKey(network, tokenSymbol)
+  if (derivedAssetKey) {
+    return normalizeAssetRegistryKey(derivedAssetKey)
+  }
+
+  return ""
 }
 
 export function resolveChartConfig({
   network,
   tokenSymbol,
+  assetId,
 }: ResolveChartConfigInput): ResolvedChartConfig {
-  const assetKey = buildAssetKey(network, tokenSymbol);
-  const entry = resolveRegistryEntry(assetKey);
+  const assetKey = resolveInputAssetKey({
+    network,
+    tokenSymbol,
+    assetId,
+  })
+
+  const entry = resolveRegistryEntry(assetKey)
 
   if (!entry) {
     return {
@@ -131,17 +137,17 @@ export function resolveChartConfig({
       availableSources: ["none"],
       dexscreenerUrl: null,
       tradingviewSymbol: null,
-    };
+    }
   }
 
-  const availableSources: ChartSource[] = [];
+  const availableSources: ChartSource[] = []
 
   if (entry.tradingviewSymbol) {
-    availableSources.push("tradingview");
+    availableSources.push("tradingview")
   }
 
   if (entry.dexscreenerUrl) {
-    availableSources.push("dexscreener");
+    availableSources.push("dexscreener")
   }
 
   if (!availableSources.length) {
@@ -150,17 +156,17 @@ export function resolveChartConfig({
       availableSources: ["none"],
       dexscreenerUrl: null,
       tradingviewSymbol: null,
-    };
+    }
   }
 
   const preferredSource = availableSources.includes(entry.preferredSource)
     ? entry.preferredSource
-    : availableSources[0];
+    : availableSources[0]
 
   return {
     preferredSource,
     availableSources,
     dexscreenerUrl: entry.dexscreenerUrl ?? null,
     tradingviewSymbol: entry.tradingviewSymbol ?? null,
-  };
+  }
 }

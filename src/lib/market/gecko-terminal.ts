@@ -76,7 +76,10 @@ function uniqueCandlesByTime(candles: ChartCandle[]): ChartCandle[] {
   return Array.from(byTime.values()).sort((a, b) => a.time - b.time)
 }
 
-function aggregateCandles(candles: ChartCandle[], bucketSizeSeconds: number): ChartCandle[] {
+function aggregateCandles(
+  candles: ChartCandle[],
+  bucketSizeSeconds: number
+): ChartCandle[] {
   if (!candles.length || bucketSizeSeconds <= 0) {
     return uniqueCandlesByTime(candles)
   }
@@ -84,24 +87,24 @@ function aggregateCandles(candles: ChartCandle[], bucketSizeSeconds: number): Ch
   const buckets = new Map<number, ChartCandle[]>()
 
   for (const candle of candles) {
-    const bucket = Math.floor(candle.time / bucketSizeSeconds) * bucketSizeSeconds
+    const bucketStart = Math.floor(candle.time / bucketSizeSeconds) * bucketSizeSeconds
 
-    if (!buckets.has(bucket)) {
-      buckets.set(bucket, [])
+    if (!buckets.has(bucketStart)) {
+      buckets.set(bucketStart, [])
     }
 
-    buckets.get(bucket)!.push(candle)
+    buckets.get(bucketStart)!.push(candle)
   }
 
   return Array.from(buckets.entries())
     .sort((a, b) => a[0] - b[0])
-    .map(([, group]) => {
+    .map(([bucketStart, group]) => {
       const sorted = [...group].sort((a, b) => a.time - b.time)
       const first = sorted[0]
       const last = sorted[sorted.length - 1]
 
       return {
-        time: first.time,
+        time: bucketStart,
         open: first.open,
         high: Math.max(...sorted.map((c) => c.high)),
         low: Math.min(...sorted.map((c) => c.low)),
@@ -122,61 +125,63 @@ function mapPortaTimeframe(timeframe: PortaTimeframe): {
       return {
         geckoTimeframe: "hour",
         aggregate: "1",
-        limit: 300,
+        limit: 1000,
         postAggregateSeconds: null,
       }
 
     case "4h":
       return {
         geckoTimeframe: "hour",
-        aggregate: "4",
-        limit: 300,
-        postAggregateSeconds: null,
+        aggregate: "1",
+        limit: 1000,
+        postAggregateSeconds: 4 * 60 * 60,
       }
 
     case "1d":
       return {
         geckoTimeframe: "day",
         aggregate: "1",
-        limit: 300,
+        limit: 1000,
         postAggregateSeconds: null,
       }
 
     case "3d":
       return {
         geckoTimeframe: "day",
-        aggregate: "3",
-        limit: 300,
-        postAggregateSeconds: null,
+        aggregate: "1",
+        limit: 1000,
+        postAggregateSeconds: 3 * 24 * 60 * 60,
       }
 
     case "1w":
       return {
         geckoTimeframe: "day",
-        aggregate: "7",
-        limit: 300,
-        postAggregateSeconds: null,
+        aggregate: "1",
+        limit: 1000,
+        postAggregateSeconds: 7 * 24 * 60 * 60,
       }
 
     case "1m":
       return {
         geckoTimeframe: "day",
-        aggregate: "30",
-        limit: 300,
-        postAggregateSeconds: null,
+        aggregate: "1",
+        limit: 1000,
+        postAggregateSeconds: 30 * 24 * 60 * 60,
       }
 
     default:
       return {
         geckoTimeframe: "hour",
-        aggregate: "4",
-        limit: 300,
-        postAggregateSeconds: null,
+        aggregate: "1",
+        limit: 1000,
+        postAggregateSeconds: 4 * 60 * 60,
       }
   }
 }
 
-function buildDexNameLookup(included: GeckoTopPoolsResponse["included"]): Map<string, string> {
+function buildDexNameLookup(
+  included: GeckoTopPoolsResponse["included"]
+): Map<string, string> {
   const map = new Map<string, string>()
 
   for (const item of included ?? []) {
@@ -225,7 +230,6 @@ function pickPreferredPool(
     .sort((a, b) => {
       const liquidityDiff = b.reserveUsd - a.reserveUsd
       if (liquidityDiff !== 0) return liquidityDiff
-
       return b.volume24hUsd - a.volume24hUsd
     })
 
@@ -397,5 +401,7 @@ export async function fetchLockedAssetCandles(params: {
     })
   }
 
-  throw new Error(`[market] no locked pool or fallback token address for ${entry.assetKey}`)
+  throw new Error(
+    `[market] no locked pool or fallback token address for ${entry.assetKey}`
+  )
 }
