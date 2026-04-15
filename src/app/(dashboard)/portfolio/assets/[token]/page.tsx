@@ -984,7 +984,7 @@ export default async function AssetViewerPage({
             market.price_source
               ? `Latest price source: ${formatCategoryLabel(market.price_source)}`
               : "Latest market price from holdings layer."
-                        }
+          }
         />
         <StatCard
           label="24H Move"
@@ -1060,6 +1060,25 @@ export default async function AssetViewerPage({
         description="Primary chart zone for TradingView or Dexscreener-style intelligence. This section is now treated as the dominant page focus so the asset viewer feels more like a trading intelligence terminal than a summary dashboard."
       >
         <div className="space-y-5">
+          {!isQcap ? (
+            <div className="flex justify-end">
+              <div className="text-right">
+                <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8B5CF6] dark:text-[#C084FC]">
+                  Chart Timeframe
+                </p>
+                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                  {TIMEFRAME_OPTIONS.map((timeframe) => (
+                    <TimeframeLink
+                      key={timeframe}
+                      token={token}
+                      timeframe={timeframe}
+                      active={selectedTimeframe === timeframe}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {isQcap ? (
             <QcapCustomChart liveUsdPrice={market.price_per_unit_usd} />
@@ -1120,7 +1139,11 @@ export default async function AssetViewerPage({
               />
               <CompactSignalCard
                 label="Indicator Source"
-                value={indicatorData?.source ? formatCategoryLabel(indicatorData.source) : "—"}
+                value={
+                  indicatorData?.source
+                    ? formatCategoryLabel(indicatorData.source)
+                    : "—"
+                }
                 sublabel="Locked pool indicator engine source."
               />
             </div>
@@ -1252,7 +1275,9 @@ export default async function AssetViewerPage({
               />
               <StatCard
                 label="Risk Context"
-                value={asset.protocol ? formatCategoryLabel(asset.protocol) : "Pending"}
+                value={
+                  asset.protocol ? formatCategoryLabel(asset.protocol) : "Pending"
+                }
                 sublabel="Protocol / market condition summary."
               />
             </div>

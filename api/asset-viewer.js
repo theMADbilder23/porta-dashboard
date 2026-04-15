@@ -1,4 +1,7 @@
 const { createClient } = require("@supabase/supabase-js");
+const {
+  normalizeAssetRegistryKey,
+} = require("../src/lib/market/asset-registry");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -370,7 +373,11 @@ function reduceToLatestSnapshotRowsPerWallet(rows) {
 }
 
 async function fetchLockedMarketSummary(route) {
-  const locked = LOCKED_MARKET_POOLS[route.normalizedAssetKey];
+  const canonicalAssetKey = normalizeLower(
+    normalizeAssetRegistryKey(route.raw || route.normalizedAssetKey)
+  );
+
+  const locked = LOCKED_MARKET_POOLS[canonicalAssetKey];
 
   if (!locked || locked.network !== "base" || !locked.poolAddress) {
     return {
@@ -450,8 +457,7 @@ function buildResponse({ route, rows, walletMetaById, marketSummary }) {
     market: {
       price_per_unit_usd:
         marketSummary.price_per_unit_usd ?? safeNumber(primaryRow?.price_per_unit_usd),
-      price_source:
-        marketSummary.source || primaryRow?.price_source || null,
+      price_source: marketSummary.source || primaryRow?.price_source || null,
       change_24h_percent: marketSummary.change_24h_percent,
       change_7d_percent: marketSummary.change_7d_percent,
       market_cap_usd: marketSummary.market_cap_usd,
@@ -617,8 +623,7 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    const requested =
-      req.query.asset || req.query.token || req.query.id || null;
+    const requested = req.query.asset || req.query.token || req.query.id || null;
 
     if (!requested) {
       return res.status(400).json({
