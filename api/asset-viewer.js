@@ -1,7 +1,4 @@
 const { createClient } = require("@supabase/supabase-js");
-const {
-  normalizeAssetRegistryKey,
-} = require("../src/lib/market/asset-registry");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -19,6 +16,22 @@ const LOCKED_MARKET_POOLS = {
     network: "base",
     poolAddress: "0xE2B3aA806e56603a244bFc111c9474F7DeDD03db",
   },
+};
+
+const ASSET_ALIASES = {
+  "stkwell": "base:well",
+  "base:stkwell": "base:well",
+  "base:well": "base:well",
+  "well": "base:well",
+
+  "mamo": "base:mamo",
+  "base:mamo": "base:mamo",
+
+  "qcap": "qubic:qcap",
+  "qubic:qcap": "qubic:qcap",
+
+  "qubic": "qubic:qubic",
+  "qubic:qubic": "qubic:qubic",
 };
 
 function getDemoHeaders() {
@@ -54,6 +67,10 @@ function normalizeLower(value) {
   return normalizeText(value).toLowerCase();
 }
 
+function normalizeUpper(value) {
+  return normalizeText(value).toUpperCase();
+}
+
 function decodeToken(value) {
   try {
     return decodeURIComponent(value);
@@ -62,18 +79,46 @@ function decodeToken(value) {
   }
 }
 
+function canonicalizeAssetKey(value) {
+  const raw = normalizeText(value);
+  if (!raw) return "";
+
+  const lowered = normalizeLower(raw);
+  if (ASSET_ALIASES[lowered]) {
+    return ASSET_ALIASES[lowered];
+  }
+
+  if (!raw.includes(":")) {
+    return lowered;
+  }
+
+  const [network = "", symbol = ""] = raw.split(":");
+  const normalized = `${normalizeLower(network)}:${normalizeLower(symbol)}`;
+
+  return ASSET_ALIASES[normalized] || normalized;
+}
+
 function parseAssetRoute(token) {
   const decoded = decodeToken(token);
   const [network = "unknown", symbol = decoded] = decoded.split(":");
+  const rawNormalizedAssetKey = `${normalizeLower(network)}:${normalizeLower(symbol)}`;
+  const canonicalAssetKey = canonicalizeAssetKey(decoded);
 
   return {
     raw: decoded,
     network,
     networkLower: normalizeLower(network),
     symbol,
-    symbolUpper: normalizeText(symbol).toUpperCase(),
+    symbolUpper: normalizeUpper(symbol),
     symbolLower: normalizeLower(symbol),
-    normalizedAssetKey: normalizeLower(decoded),
+    normalizedAssetKey: rawNormalizedAssetKey,
+    canonicalAssetKey,
+    canonicalSymbolLower: canonicalAssetKey.includes(":")
+      ? canonicalAssetKey.split(":")[1]
+      : normalizeLower(symbol),
+    canonicalSymbolUpper: canonicalAssetKey.includes(":")
+      ? canonicalAssetKey.split(":")[1].toUpperCase()
+      : normalizeUpper(symbol),
   };
 }
 
@@ -221,13 +266,19 @@ function rowMatchesRoute(row, route) {
   const rowSymbol = normalizeLower(row.token_symbol);
   const rowTokenName = normalizeLower(row.token_name);
 
+  const rowComposite = rowNetwork && rowSymbol ? `${rowNetwork}:${rowSymbol}` : "";
+  const rowCanonical = canonicalizeAssetKey(rowAssetId || rowComposite);
+
   const routeAssetId = normalizeLower(route.raw);
-  const routeNetwork = route.networkLower;
-  const routeSymbol = route.symbolLower;
+  const routeComposite = `${route.networkLower}:${route.symbolLower}`;
 
   if (rowAssetId && rowAssetId === routeAssetId) return true;
-  if (rowNetwork === routeNetwork && rowSymbol === routeSymbol) return true;
-  if (rowNetwork === routeNetwork && rowTokenName === routeSymbol) return true;
+  if (rowNetwork === route.networkLower && rowSymbol === route.symbolLower) return true;
+  if (rowNetwork === route.networkLower && rowTokenName === route.symbolLower) return true;
+
+  if (rowCanonical && rowCanonical === route.canonicalAssetKey) return true;
+  if (canonicalizeAssetKey(routeAssetId) === rowCanonical) return true;
+  if (canonicalizeAssetKey(routeComposite) === rowCanonical) return true;
 
   return false;
 }
@@ -260,6 +311,8 @@ async function fetchCandidateRows(route) {
     route.symbol,
     route.symbolUpper,
     route.symbolLower,
+    route.canonicalSymbolUpper,
+    route.canonicalSymbolLower,
   ]);
 
   const { data, error } = await supabase
@@ -290,7 +343,7 @@ async function fetchCandidateRows(route) {
     )
     .in("token_symbol", symbolCandidates)
     .order("snapshot_time", { ascending: false })
-    .limit(500);
+    .limit(800);
 
   if (error) {
     throw error;
@@ -325,7 +378,7 @@ async function fetchCandidateRows(route) {
       `
     )
     .order("snapshot_time", { ascending: false })
-    .limit(1500);
+    .limit(2000);
 
   if (broaderError) {
     throw broaderError;
@@ -373,11 +426,7 @@ function reduceToLatestSnapshotRowsPerWallet(rows) {
 }
 
 async function fetchLockedMarketSummary(route) {
-  const canonicalAssetKey = normalizeLower(
-    normalizeAssetRegistryKey(route.raw || route.normalizedAssetKey)
-  );
-
-  const locked = LOCKED_MARKET_POOLS[canonicalAssetKey];
+  const locked = LOCKED_MARKET_POOLS[route.canonicalAssetKey];
 
   if (!locked || locked.network !== "base" || !locked.poolAddress) {
     return {
@@ -488,14 +537,10 @@ function buildResponse({ route, rows, walletMetaById, marketSummary }) {
     debug: {
       matched_rows: rows.length,
       matched_wallets: totals.wallet_count,
-      resolver: "wallet_holdings_case_insensitive_js_match_with_market_summary",
+      resolver: "wallet_holdings_case_insensitive_js_match_with_market_summary_and_alias_support",
     },
   };
 }
-
-/* ========================= */
-/* NEW: ROUTE LIST MODE      */
-/* ========================= */
 
 function reduceRouteRowsToLatestPerWallet(rows) {
   const latestByWalletAndRoute = new Map();
@@ -602,8 +647,6 @@ async function fetchRouteModeRows() {
 
   return Array.isArray(data) ? data : [];
 }
-
-/* ========================= */
 
 module.exports = async function handler(req, res) {
   if (req.method !== "GET") {

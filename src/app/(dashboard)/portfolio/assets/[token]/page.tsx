@@ -1110,7 +1110,7 @@ export default async function AssetViewerPage({
               <CompactSignalCard
                 label="MACD"
                 value={liveMacdValue}
-                sublabel={liveMacdSummary}
+                                sublabel={liveMacdSummary}
               />
               <CompactSignalCard
                 label="TF Volume"
