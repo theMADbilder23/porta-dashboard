@@ -91,6 +91,16 @@ const CHART_REGISTRY: Record<string, ChartRegistryEntry> = {
     preferredSource: "tradingview",
     tradingviewSymbol: "GATEIO:QUBICUSDT",
   },
+
+  "base:CBBTC": {
+    preferredSource: "tradingview",
+    tradingviewSymbol: "BITSTAMP:BTCUSD",
+  },
+
+  "base:BTC": {
+    preferredSource: "tradingview",
+    tradingviewSymbol: "BITSTAMP:BTCUSD",
+  },
 }
 
 function resolveRegistryEntry(assetKey: string): ChartRegistryEntry | null {
