@@ -36,7 +36,12 @@ export const ASSET_REGISTRY: Record<string, AssetRegistryEntry> = {
     assetKey: "qubic:QUBIC",
     symbol: "QUBIC",
     network: "qubic",
-    source: "qubicswap",
+    source: "gate_spot",
+    gateCurrencyPair: "QUBIC_USDT",
+    gateBaseSymbol: "QUBIC",
+    gateQuoteSymbol: "USDT",
+    quoteSymbol: "USDT",
+    pairLabel: "QUBIC / USDT",
   },
 }
 
@@ -70,7 +75,9 @@ function normalizeNetwork(value: unknown): string {
   return normalizeText(value).toLowerCase()
 }
 
-export function normalizeAssetRegistryKey(assetKey: string | null | undefined): string {
+export function normalizeAssetRegistryKey(
+  assetKey: string | null | undefined
+): string {
   const raw = normalizeText(assetKey)
   if (!raw) return ""
 

@@ -9,7 +9,7 @@ export type ChartCandle = {
   volume: number
 }
 
-export type AssetSourceKind = "gecko_pool" | "qubicswap"
+export type AssetSourceKind = "gecko_pool" | "qubicswap" | "gate_spot"
 
 export type AssetRegistryEntry = {
   assetKey: string
@@ -40,6 +40,14 @@ export type AssetRegistryEntry = {
    */
   quoteSymbol?: string
   pairLabel?: string
+
+  /**
+   * Optional centralized exchange pair metadata.
+   * Used for exchange-specific candle sourcing such as Gate spot.
+   */
+  gateCurrencyPair?: string
+  gateBaseSymbol?: string
+  gateQuoteSymbol?: string
 }
 
 export type ResolvedPool = {
@@ -70,3 +78,7 @@ export type GeckoOhlcvResponse = {
     }
   }
 }
+
+export type GateSpotCandlestickRow = Array<string | number>
+
+export type GateSpotCandlesticksResponse = GateSpotCandlestickRow[]

@@ -1,12 +1,14 @@
 import type {
   AssetRegistryEntry,
   ChartCandle,
+  GateSpotCandlesticksResponse,
   GeckoOhlcvResponse,
   PortaTimeframe,
   ResolvedPool,
 } from "@/lib/market/types"
 
 const GECKO_BASE_URL = "https://api.coingecko.com/api/v3"
+const GATE_BASE_URL = "https://api.gateio.ws/api/v4"
 
 type GeckoTopPoolsResponse = {
   data?: Array<{
@@ -52,6 +54,12 @@ function getDemoHeaders(): HeadersInit {
   }
 }
 
+function getGateHeaders(): HeadersInit {
+  return {
+    accept: "application/json",
+  }
+}
+
 function safeNumber(value: unknown): number {
   const n = Number(value)
   return Number.isFinite(n) ? n : 0
@@ -78,15 +86,17 @@ function uniqueCandlesByTime(candles: ChartCandle[]): ChartCandle[] {
 
 function startOfUtcDay(timestampSeconds: number): number {
   const date = new Date(timestampSeconds * 1000)
-  return Date.UTC(
-    date.getUTCFullYear(),
-    date.getUTCMonth(),
-    date.getUTCDate(),
-    0,
-    0,
-    0,
-    0
-  ) / 1000
+  return (
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate(),
+      0,
+      0,
+      0,
+      0
+    ) / 1000
+  )
 }
 
 function startOfUtcWeek(timestampSeconds: number): number {
@@ -155,9 +165,7 @@ function aggregateCandlesBySeconds(
   bucketSizeSeconds: number
 ): ChartCandle[] {
   return aggregateGroupedCandles(candles, (timestampSeconds) => {
-    return (
-      Math.floor(timestampSeconds / bucketSizeSeconds) * bucketSizeSeconds
-    )
+    return Math.floor(timestampSeconds / bucketSizeSeconds) * bucketSizeSeconds
   })
 }
 
@@ -193,7 +201,7 @@ function aggregateCandlesForPortaTimeframe(
   }
 }
 
-function mapPortaTimeframe(timeframe: PortaTimeframe): {
+function mapGeckoPortaTimeframe(timeframe: PortaTimeframe): {
   geckoTimeframe: "minute" | "hour" | "day"
   aggregate: string
   limit: number
@@ -238,6 +246,51 @@ function mapPortaTimeframe(timeframe: PortaTimeframe): {
       return {
         geckoTimeframe: "hour",
         aggregate: "1",
+        limit: 1000,
+        needsPostAggregation: true,
+      }
+  }
+}
+
+function mapGatePortaTimeframe(timeframe: PortaTimeframe): {
+  gateInterval: "1h" | "1d"
+  limit: number
+  needsPostAggregation: boolean
+} {
+  switch (timeframe) {
+    case "1h":
+      return {
+        gateInterval: "1h",
+        limit: 1000,
+        needsPostAggregation: false,
+      }
+
+    case "4h":
+      return {
+        gateInterval: "1h",
+        limit: 1000,
+        needsPostAggregation: true,
+      }
+
+    case "1d":
+      return {
+        gateInterval: "1d",
+        limit: 1000,
+        needsPostAggregation: false,
+      }
+
+    case "3d":
+    case "1w":
+    case "1m":
+      return {
+        gateInterval: "1d",
+        limit: 1000,
+        needsPostAggregation: true,
+      }
+
+    default:
+      return {
+        gateInterval: "1h",
         limit: 1000,
         needsPostAggregation: true,
       }
@@ -363,6 +416,11 @@ export function getLockedPoolAddress(entry: AssetRegistryEntry): string | null {
   return poolAddress || null
 }
 
+function getGateCurrencyPair(entry: AssetRegistryEntry): string | null {
+  const pair = normalizeText(entry.gateCurrencyPair)
+  return pair || null
+}
+
 export async function fetchGeckoPoolCandles(params: {
   poolAddress: string
   timeframe: PortaTimeframe
@@ -374,7 +432,7 @@ export async function fetchGeckoPoolCandles(params: {
     throw new Error("Missing pool address for Gecko OHLCV request")
   }
 
-  const mapped = mapPortaTimeframe(params.timeframe)
+  const mapped = mapGeckoPortaTimeframe(params.timeframe)
 
   const url = new URL(
     `${GECKO_BASE_URL}/onchain/networks/base/pools/${poolAddress}/ohlcv/${mapped.geckoTimeframe}`
@@ -431,6 +489,82 @@ export async function fetchGeckoPoolCandles(params: {
   return normalized
 }
 
+function parseGateSpotCandleRow(row: Array<string | number>): ChartCandle | null {
+  if (!Array.isArray(row) || row.length < 6) {
+    return null
+  }
+
+  const timestamp = safeNumber(row[0])
+  const volume = safeNumber(row[1])
+  const close = safeNumber(row[2])
+  const high = safeNumber(row[3])
+  const low = safeNumber(row[4])
+  const open = safeNumber(row[5])
+
+  if (
+    timestamp <= 0 ||
+    !Number.isFinite(open) ||
+    !Number.isFinite(high) ||
+    !Number.isFinite(low) ||
+    !Number.isFinite(close) ||
+    !Number.isFinite(volume)
+  ) {
+    return null
+  }
+
+  return {
+    time: timestamp,
+    open,
+    high,
+    low,
+    close,
+    volume,
+  }
+}
+
+export async function fetchGateSpotCandles(params: {
+  currencyPair: string
+  timeframe: PortaTimeframe
+}): Promise<ChartCandle[]> {
+  const currencyPair = normalizeText(params.currencyPair)
+  if (!currencyPair) {
+    throw new Error("Missing Gate currency pair for spot candlestick request")
+  }
+
+  const mapped = mapGatePortaTimeframe(params.timeframe)
+
+  const url = new URL(`${GATE_BASE_URL}/spot/candlesticks`)
+  url.searchParams.set("currency_pair", currencyPair)
+  url.searchParams.set("interval", mapped.gateInterval)
+  url.searchParams.set("limit", String(mapped.limit))
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: getGateHeaders(),
+    next: { revalidate: 30 },
+  })
+
+  if (!response.ok) {
+    throw new Error(
+      `[gate] candlesticks request failed: ${response.status} ${response.statusText}`
+    )
+  }
+
+  const json = (await response.json()) as GateSpotCandlesticksResponse
+
+  const candles = (Array.isArray(json) ? json : [])
+    .map((row) => parseGateSpotCandleRow(row))
+    .filter((candle): candle is ChartCandle => Boolean(candle))
+
+  const normalized = uniqueCandlesByTime(candles)
+
+  if (mapped.needsPostAggregation) {
+    return aggregateCandlesForPortaTimeframe(normalized, params.timeframe)
+  }
+
+  return normalized
+}
+
 export async function fetchLockedAssetCandles(params: {
   entry: AssetRegistryEntry
   timeframe: PortaTimeframe
@@ -439,36 +573,49 @@ export async function fetchLockedAssetCandles(params: {
 }): Promise<ChartCandle[]> {
   const { entry, timeframe } = params
 
-  if (entry.source !== "gecko_pool") {
-    throw new Error(`[market] unsupported locked candle source: ${entry.source}`)
+  if (entry.source === "gecko_pool") {
+    const lockedPoolAddress = getLockedPoolAddress(entry)
+
+    if (lockedPoolAddress) {
+      return fetchGeckoPoolCandles({
+        poolAddress: lockedPoolAddress,
+        timeframe,
+        currency: params.currency ?? "usd",
+        tokenSide: params.tokenSide ?? "base",
+      })
+    }
+
+    if (entry.tokenAddress && entry.network === "base") {
+      const resolved = await resolveBasePoolFromTokenAddress({
+        tokenAddress: entry.tokenAddress,
+        preferredDex: entry.preferredDex,
+      })
+
+      return fetchGeckoPoolCandles({
+        poolAddress: resolved.poolAddress,
+        timeframe,
+        currency: params.currency ?? "usd",
+        tokenSide: params.tokenSide ?? "base",
+      })
+    }
+
+    throw new Error(
+      `[market] no locked pool or fallback token address for ${entry.assetKey}`
+    )
   }
 
-  const lockedPoolAddress = getLockedPoolAddress(entry)
+  if (entry.source === "gate_spot") {
+    const gateCurrencyPair = getGateCurrencyPair(entry)
 
-  if (lockedPoolAddress) {
-    return fetchGeckoPoolCandles({
-      poolAddress: lockedPoolAddress,
+    if (!gateCurrencyPair) {
+      throw new Error(`[market] missing Gate currency pair for ${entry.assetKey}`)
+    }
+
+    return fetchGateSpotCandles({
+      currencyPair: gateCurrencyPair,
       timeframe,
-      currency: params.currency ?? "usd",
-      tokenSide: params.tokenSide ?? "base",
     })
   }
 
-  if (entry.tokenAddress && entry.network === "base") {
-    const resolved = await resolveBasePoolFromTokenAddress({
-      tokenAddress: entry.tokenAddress,
-      preferredDex: entry.preferredDex,
-    })
-
-    return fetchGeckoPoolCandles({
-      poolAddress: resolved.poolAddress,
-      timeframe,
-      currency: params.currency ?? "usd",
-      tokenSide: params.tokenSide ?? "base",
-    })
-  }
-
-  throw new Error(
-    `[market] no locked pool or fallback token address for ${entry.assetKey}`
-  )
+  throw new Error(`[market] unsupported locked candle source: ${entry.source}`)
 }

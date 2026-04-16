@@ -130,7 +130,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    if (entry.source !== "gecko_pool") {
+    if (entry.source !== "gecko_pool" && entry.source !== "gate_spot") {
       return NextResponse.json(
         {
           ok: false,
@@ -183,10 +183,20 @@ export async function GET(request: NextRequest) {
       resolvedPool: {
         network: entry.network,
         tokenAddress: entry.tokenAddress ?? "",
-        poolAddress: getLockedPoolAddress(entry) ?? "",
-        dexName: entry.preferredDex ?? null,
-        baseSymbol: entry.symbol ?? null,
-        quoteSymbol: entry.quoteSymbol ?? null,
+        poolAddress:
+          entry.source === "gecko_pool" ? getLockedPoolAddress(entry) ?? "" : "",
+        dexName:
+          entry.source === "gate_spot"
+            ? "GateIO"
+            : entry.preferredDex ?? null,
+        baseSymbol:
+          entry.source === "gate_spot"
+            ? entry.gateBaseSymbol ?? entry.symbol ?? null
+            : entry.symbol ?? null,
+        quoteSymbol:
+          entry.source === "gate_spot"
+            ? entry.gateQuoteSymbol ?? entry.quoteSymbol ?? null
+            : entry.quoteSymbol ?? null,
       },
       candleCount: candles.length,
       lastCandle: candles[candles.length - 1] ?? null,
