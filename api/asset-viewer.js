@@ -426,6 +426,41 @@ function reduceToLatestSnapshotRowsPerWallet(rows) {
 }
 
 async function fetchLockedMarketSummary(route) {
+  if (route.canonicalAssetKey === "qubic:qubic") {
+    const url = new URL(`${GECKO_BASE_URL}/coins/markets`);
+    url.searchParams.set("vs_currency", "usd");
+    url.searchParams.set("ids", "qubic");
+    url.searchParams.set("price_change_percentage", "24h,7d");
+    url.searchParams.set("precision", "full");
+
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: getDemoHeaders(),
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `[asset-viewer] QUBIC market fetch failed: ${response.status} ${response.statusText}`
+      );
+    }
+
+    const json = await response.json();
+    const coin = Array.isArray(json) ? json[0] : null;
+
+    return {
+      price_per_unit_usd: nullableNumber(coin?.current_price),
+      change_24h_percent: nullableNumber(coin?.price_change_percentage_24h),
+      change_7d_percent: nullableNumber(
+        coin?.price_change_percentage_7d_in_currency
+      ),
+      market_cap_usd: nullableNumber(coin?.market_cap),
+      fdv_usd: nullableNumber(coin?.fully_diluted_valuation),
+      volume_24h_usd: nullableNumber(coin?.total_volume),
+      liquidity_usd: null,
+      source: "coingecko_markets",
+    };
+  }
+
   const locked = LOCKED_MARKET_POOLS[route.canonicalAssetKey];
 
   if (!locked || locked.network !== "base" || !locked.poolAddress) {
