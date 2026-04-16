@@ -45,11 +45,11 @@ function buildAssetKey(network?: string | null, tokenSymbol?: string | null): st
 
 const CHART_REGISTRY: Record<string, ChartRegistryEntry> = {
   "base:WELL": {
-    preferredSource: "tradingview",
-    tradingviewSymbol: "GATEIO:WELLUSDT",
-    dexscreenerUrl:
-      "https://dexscreener.com/base/0xa88594d404727625a9437c3f886c7643872296ae?embed=1&theme=dark",
-  },
+  preferredSource: "tradingview",
+  tradingviewSymbol: "GATEIO:WELLUSDT",
+  dexscreenerUrl:
+    "https://dexscreener.com/base/0x89d0f320ac73dd7d9513ffc5bc58d1161452a657?embed=1&theme=dark",
+},
 
   "ethereum:ETH": {
     preferredSource: "tradingview",
