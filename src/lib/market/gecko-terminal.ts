@@ -76,27 +76,63 @@ function uniqueCandlesByTime(candles: ChartCandle[]): ChartCandle[] {
   return Array.from(byTime.values()).sort((a, b) => a.time - b.time)
 }
 
-function aggregateCandles(
-  candles: ChartCandle[],
-  bucketSizeSeconds: number
-): ChartCandle[] {
-  if (!candles.length || bucketSizeSeconds <= 0) {
-    return uniqueCandlesByTime(candles)
-  }
+function startOfUtcDay(timestampSeconds: number): number {
+  const date = new Date(timestampSeconds * 1000)
+  return Date.UTC(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate(),
+    0,
+    0,
+    0,
+    0
+  ) / 1000
+}
 
-  const buckets = new Map<number, ChartCandle[]>()
+function startOfUtcWeek(timestampSeconds: number): number {
+  const date = new Date(timestampSeconds * 1000)
+  const day = date.getUTCDay()
+  const diffToMonday = (day + 6) % 7
+  const monday = new Date(
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate() - diffToMonday,
+      0,
+      0,
+      0,
+      0
+    )
+  )
+  return Math.floor(monday.getTime() / 1000)
+}
+
+function startOfUtcMonth(timestampSeconds: number): number {
+  const date = new Date(timestampSeconds * 1000)
+  return (
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1, 0, 0, 0, 0) / 1000
+  )
+}
+
+function aggregateGroupedCandles(
+  candles: ChartCandle[],
+  bucketFn: (timestampSeconds: number) => number
+): ChartCandle[] {
+  if (!candles.length) return []
+
+  const groups = new Map<number, ChartCandle[]>()
 
   for (const candle of candles) {
-    const bucketStart = Math.floor(candle.time / bucketSizeSeconds) * bucketSizeSeconds
+    const bucketStart = bucketFn(candle.time)
 
-    if (!buckets.has(bucketStart)) {
-      buckets.set(bucketStart, [])
+    if (!groups.has(bucketStart)) {
+      groups.set(bucketStart, [])
     }
 
-    buckets.get(bucketStart)!.push(candle)
+    groups.get(bucketStart)!.push(candle)
   }
 
-  return Array.from(buckets.entries())
+  return Array.from(groups.entries())
     .sort((a, b) => a[0] - b[0])
     .map(([bucketStart, group]) => {
       const sorted = [...group].sort((a, b) => a.time - b.time)
@@ -114,11 +150,54 @@ function aggregateCandles(
     })
 }
 
+function aggregateCandlesBySeconds(
+  candles: ChartCandle[],
+  bucketSizeSeconds: number
+): ChartCandle[] {
+  return aggregateGroupedCandles(candles, (timestampSeconds) => {
+    return (
+      Math.floor(timestampSeconds / bucketSizeSeconds) * bucketSizeSeconds
+    )
+  })
+}
+
+function aggregateCandlesForPortaTimeframe(
+  candles: ChartCandle[],
+  timeframe: PortaTimeframe
+): ChartCandle[] {
+  const normalized = uniqueCandlesByTime(candles)
+
+  switch (timeframe) {
+    case "1h":
+    case "1d":
+      return normalized
+
+    case "4h":
+      return aggregateCandlesBySeconds(normalized, 4 * 60 * 60)
+
+    case "3d":
+      return aggregateGroupedCandles(normalized, (timestampSeconds) => {
+        const dayStart = startOfUtcDay(timestampSeconds)
+        const dayIndex = Math.floor(dayStart / 86400)
+        return Math.floor(dayIndex / 3) * 3 * 86400
+      })
+
+    case "1w":
+      return aggregateGroupedCandles(normalized, startOfUtcWeek)
+
+    case "1m":
+      return aggregateGroupedCandles(normalized, startOfUtcMonth)
+
+    default:
+      return normalized
+  }
+}
+
 function mapPortaTimeframe(timeframe: PortaTimeframe): {
   geckoTimeframe: "minute" | "hour" | "day"
   aggregate: string
   limit: number
-  postAggregateSeconds: number | null
+  needsPostAggregation: boolean
 } {
   switch (timeframe) {
     case "1h":
@@ -126,7 +205,7 @@ function mapPortaTimeframe(timeframe: PortaTimeframe): {
         geckoTimeframe: "hour",
         aggregate: "1",
         limit: 1000,
-        postAggregateSeconds: null,
+        needsPostAggregation: false,
       }
 
     case "4h":
@@ -134,7 +213,7 @@ function mapPortaTimeframe(timeframe: PortaTimeframe): {
         geckoTimeframe: "hour",
         aggregate: "1",
         limit: 1000,
-        postAggregateSeconds: 4 * 60 * 60,
+        needsPostAggregation: true,
       }
 
     case "1d":
@@ -142,31 +221,17 @@ function mapPortaTimeframe(timeframe: PortaTimeframe): {
         geckoTimeframe: "day",
         aggregate: "1",
         limit: 1000,
-        postAggregateSeconds: null,
+        needsPostAggregation: false,
       }
 
     case "3d":
-      return {
-        geckoTimeframe: "day",
-        aggregate: "1",
-        limit: 1000,
-        postAggregateSeconds: 3 * 24 * 60 * 60,
-      }
-
     case "1w":
-      return {
-        geckoTimeframe: "day",
-        aggregate: "1",
-        limit: 1000,
-        postAggregateSeconds: 7 * 24 * 60 * 60,
-      }
-
     case "1m":
       return {
         geckoTimeframe: "day",
         aggregate: "1",
         limit: 1000,
-        postAggregateSeconds: 30 * 24 * 60 * 60,
+        needsPostAggregation: true,
       }
 
     default:
@@ -174,7 +239,7 @@ function mapPortaTimeframe(timeframe: PortaTimeframe): {
         geckoTimeframe: "hour",
         aggregate: "1",
         limit: 1000,
-        postAggregateSeconds: 4 * 60 * 60,
+        needsPostAggregation: true,
       }
   }
 }
@@ -222,7 +287,9 @@ function pickPreferredPool(
   const preferred = normalizeLower(preferredDex)
 
   const filtered = preferred
-    ? normalizedPools.filter((pool) => normalizeLower(pool.dexName).includes(preferred))
+    ? normalizedPools.filter((pool) =>
+        normalizeLower(pool.dexName).includes(preferred)
+      )
     : normalizedPools
 
   const ranked = (filtered.length ? filtered : normalizedPools)
@@ -357,8 +424,8 @@ export async function fetchGeckoPoolCandles(params: {
 
   const normalized = uniqueCandlesByTime(candles)
 
-  if (mapped.postAggregateSeconds) {
-    return aggregateCandles(normalized, mapped.postAggregateSeconds)
+  if (mapped.needsPostAggregation) {
+    return aggregateCandlesForPortaTimeframe(normalized, params.timeframe)
   }
 
   return normalized
