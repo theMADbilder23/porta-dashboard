@@ -1,8 +1,8 @@
 import type { AssetRegistryEntry } from "@/lib/market/types"
 
 export const ASSET_REGISTRY: Record<string, AssetRegistryEntry> = {
-  "base:WELL": {
-    assetKey: "base:WELL",
+  "base:well": {
+    assetKey: "base:well",
     symbol: "WELL",
     network: "base",
     source: "gecko_pool",
@@ -13,8 +13,8 @@ export const ASSET_REGISTRY: Record<string, AssetRegistryEntry> = {
     pairLabel: "WELL / WETH",
   },
 
-  "base:MAMO": {
-    assetKey: "base:MAMO",
+  "base:mamo": {
+    assetKey: "base:mamo",
     symbol: "MAMO",
     network: "base",
     source: "gecko_pool",
@@ -25,15 +25,15 @@ export const ASSET_REGISTRY: Record<string, AssetRegistryEntry> = {
     pairLabel: "MAMO / cbBTC",
   },
 
-  "qubic:QCAP": {
-    assetKey: "qubic:QCAP",
+  "qubic:qcap": {
+    assetKey: "qubic:qcap",
     symbol: "QCAP",
     network: "qubic",
     source: "qubicswap",
   },
 
-  "qubic:QUBIC": {
-    assetKey: "qubic:QUBIC",
+  "qubic:qubic": {
+    assetKey: "qubic:qubic",
     symbol: "QUBIC",
     network: "qubic",
     source: "gate_spot",

@@ -315,78 +315,113 @@ async function fetchCandidateRows(route) {
     route.canonicalSymbolLower,
   ]);
 
-  const { data, error } = await supabase
-    .from("wallet_holdings")
-    .select(
-      `
-      id,
-      wallet_id,
-      token_symbol,
-      token_name,
-      network,
-      amount,
-      value_usd,
-      category,
-      protocol,
-      is_yield_position,
-      asset_id,
-      asset_class,
-      yield_profile,
-      mmii_bucket,
-      mmii_subclass,
-      price_source,
-      price_per_unit_usd,
-      position_role,
-      snapshot_time,
-      created_at
-      `
-    )
-    .in("token_symbol", symbolCandidates)
-    .order("snapshot_time", { ascending: false })
-    .limit(800);
+  const assetIdCandidates = uniq([
+    route.raw,
+    route.normalizedAssetKey,
+    route.canonicalAssetKey,
+    `${route.networkLower}:${route.symbolUpper}`,
+    `${route.networkLower}:${route.symbolLower}`,
+  ]);
 
-  if (error) {
-    throw error;
-  }
+  const [tokenResult, assetIdResult, broaderResult] = await Promise.all([
+    supabase
+      .from("wallet_holdings")
+      .select(
+        `
+        id,
+        wallet_id,
+        token_symbol,
+        token_name,
+        network,
+        amount,
+        value_usd,
+        category,
+        protocol,
+        is_yield_position,
+        asset_id,
+        asset_class,
+        yield_profile,
+        mmii_bucket,
+        mmii_subclass,
+        price_source,
+        price_per_unit_usd,
+        position_role,
+        snapshot_time,
+        created_at
+        `
+      )
+      .in("token_symbol", symbolCandidates)
+      .order("snapshot_time", { ascending: false })
+      .limit(1200),
 
-  const tokenRows = Array.isArray(data) ? data : [];
+    supabase
+      .from("wallet_holdings")
+      .select(
+        `
+        id,
+        wallet_id,
+        token_symbol,
+        token_name,
+        network,
+        amount,
+        value_usd,
+        category,
+        protocol,
+        is_yield_position,
+        asset_id,
+        asset_class,
+        yield_profile,
+        mmii_bucket,
+        mmii_subclass,
+        price_source,
+        price_per_unit_usd,
+        position_role,
+        snapshot_time,
+        created_at
+        `
+      )
+      .in("asset_id", assetIdCandidates)
+      .order("snapshot_time", { ascending: false })
+      .limit(1200),
 
-  const { data: broaderData, error: broaderError } = await supabase
-    .from("wallet_holdings")
-    .select(
-      `
-      id,
-      wallet_id,
-      token_symbol,
-      token_name,
-      network,
-      amount,
-      value_usd,
-      category,
-      protocol,
-      is_yield_position,
-      asset_id,
-      asset_class,
-      yield_profile,
-      mmii_bucket,
-      mmii_subclass,
-      price_source,
-      price_per_unit_usd,
-      position_role,
-      snapshot_time,
-      created_at
-      `
-    )
-    .order("snapshot_time", { ascending: false })
-    .limit(2000);
+    supabase
+      .from("wallet_holdings")
+      .select(
+        `
+        id,
+        wallet_id,
+        token_symbol,
+        token_name,
+        network,
+        amount,
+        value_usd,
+        category,
+        protocol,
+        is_yield_position,
+        asset_id,
+        asset_class,
+        yield_profile,
+        mmii_bucket,
+        mmii_subclass,
+        price_source,
+        price_per_unit_usd,
+        position_role,
+        snapshot_time,
+        created_at
+        `
+      )
+      .order("snapshot_time", { ascending: false })
+      .limit(5000),
+  ]);
 
-  if (broaderError) {
-    throw broaderError;
-  }
+  if (tokenResult.error) throw tokenResult.error;
+  if (assetIdResult.error) throw assetIdResult.error;
+  if (broaderResult.error) throw broaderResult.error;
 
   const combined = [
-    ...tokenRows,
-    ...(Array.isArray(broaderData) ? broaderData : []),
+    ...(Array.isArray(tokenResult.data) ? tokenResult.data : []),
+    ...(Array.isArray(assetIdResult.data) ? assetIdResult.data : []),
+    ...(Array.isArray(broaderResult.data) ? broaderResult.data : []),
   ];
 
   const deduped = new Map();
@@ -749,6 +784,21 @@ module.exports = async function handler(req, res) {
     const candidateRows = await fetchCandidateRows(route);
     const matchedRows = candidateRows.filter((row) => rowMatchesRoute(row, route));
     const latestRows = reduceToLatestSnapshotRowsPerWallet(matchedRows);
+
+    console.log("[asset-viewer] requested", requested);
+    console.log("[asset-viewer] route", route);
+    console.log("[asset-viewer] candidateRows", candidateRows.length);
+    console.log("[asset-viewer] matchedRows", matchedRows.length);
+    console.log(
+      "[asset-viewer] matched sample",
+      matchedRows.slice(0, 5).map((row) => ({
+        token_symbol: row.token_symbol,
+        token_name: row.token_name,
+        network: row.network,
+        asset_id: row.asset_id,
+        snapshot_time: row.snapshot_time,
+      }))
+    );
 
     if (!latestRows.length) {
       return res.status(200).json({
