@@ -178,6 +178,42 @@ function formatCurrency(value: unknown, digits = 2) {
   })}`;
 }
 
+function formatAssetPrice(value: unknown) {
+  const num = safeNumber(value)
+
+  if (!Number.isFinite(num) || num <= 0) return "—"
+
+  if (num >= 1) {
+    return `$${num.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`
+  }
+
+  if (num >= 0.01) {
+    return `$${num.toLocaleString(undefined, {
+      minimumFractionDigits: 4,
+      maximumFractionDigits: 4,
+    })}`
+  }
+
+  if (num >= 0.0001) {
+    return `$${num.toLocaleString(undefined, {
+      minimumFractionDigits: 6,
+      maximumFractionDigits: 6,
+    })}`
+  }
+
+  if (num >= 0.00000001) {
+    return `$${num.toLocaleString(undefined, {
+      minimumFractionDigits: 8,
+      maximumFractionDigits: 8,
+    })}`
+  }
+
+  return `$${num.toExponential(4)}`
+}
+
 function formatCompactCurrency(value: unknown) {
   const safeValue = safeNumber(value);
   const abs = Math.abs(safeValue);
@@ -838,32 +874,32 @@ export default async function AssetViewerPage({
 
   const liveStochValue =
     indicatorData?.indicators?.stoch_k !== null &&
-    indicatorData?.indicators?.stoch_k !== undefined &&
-    indicatorData?.indicators?.stoch_d !== null &&
-    indicatorData?.indicators?.stoch_d !== undefined
+      indicatorData?.indicators?.stoch_k !== undefined &&
+      indicatorData?.indicators?.stoch_d !== null &&
+      indicatorData?.indicators?.stoch_d !== undefined
       ? `${formatIndicatorNumber(
-          indicatorData.indicators.stoch_k,
-          2
-        )} / ${formatIndicatorNumber(indicatorData.indicators.stoch_d, 2)}`
+        indicatorData.indicators.stoch_k,
+        2
+      )} / ${formatIndicatorNumber(indicatorData.indicators.stoch_d, 2)}`
       : "—";
 
   const liveMacdValue = formatSignedIndicator(
-    indicatorData?.indicators?.macd_histogram,
+    indicatorData?.indicators?.macd,
     6
   );
 
   const liveMacdSummary =
     indicatorData?.indicators?.macd !== null &&
-    indicatorData?.indicators?.macd !== undefined &&
-    indicatorData?.indicators?.macd_signal !== null &&
-    indicatorData?.indicators?.macd_signal !== undefined
+      indicatorData?.indicators?.macd !== undefined &&
+      indicatorData?.indicators?.macd_signal !== null &&
+      indicatorData?.indicators?.macd_signal !== undefined
       ? `MACD ${formatSignedIndicator(
-          indicatorData.indicators.macd,
-          6
-        )} • Signal ${formatSignedIndicator(
-          indicatorData.indicators.macd_signal,
-          6
-        )}`
+        indicatorData.indicators.macd,
+        6
+      )} • Signal ${formatSignedIndicator(
+        indicatorData.indicators.macd_signal,
+        6
+      )}`
       : "Tracked indicator unavailable.";
 
   const liveSelectedTfVolume =
@@ -979,7 +1015,7 @@ export default async function AssetViewerPage({
       <section className="grid grid-cols-1 gap-4 laptop:grid-cols-2 desktop:grid-cols-4">
         <StatCard
           label="Asset Price"
-          value={formatCurrency(market.price_per_unit_usd, 4)}
+          value={formatAssetPrice(market.price_per_unit_usd)}
           sublabel={
             market.price_source
               ? `Latest price source: ${formatCategoryLabel(market.price_source)}`

@@ -177,11 +177,13 @@ function aggregateCandlesForPortaTimeframe(
 
   switch (timeframe) {
     case "1h":
-    case "1d":
       return normalized
 
     case "4h":
       return aggregateCandlesBySeconds(normalized, 4 * 60 * 60)
+
+    case "1d":
+      return aggregateGroupedCandles(normalized, startOfUtcDay)
 
     case "3d":
       return aggregateGroupedCandles(normalized, (timestampSeconds) => {
