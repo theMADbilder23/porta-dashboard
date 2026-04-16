@@ -274,9 +274,9 @@ function mapGatePortaTimeframe(timeframe: PortaTimeframe): {
 
     case "1d":
       return {
-        gateInterval: "1d",
+        gateInterval: "1h",
         limit: 1000,
-        needsPostAggregation: false,
+        needsPostAggregation: true,
       }
 
     case "3d":
