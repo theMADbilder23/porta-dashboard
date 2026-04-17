@@ -32,6 +32,18 @@ const ASSET_ALIASES = {
 
   qubic: "qubic:qubic",
   "qubic:qubic": "qubic:qubic",
+
+  eth: "eth:eth",
+  "eth:eth": "eth:eth",
+  "base:eth": "base:eth",
+  "op:eth": "op:eth",
+  "ethereum:eth": "ethereum:eth",
+
+  btc: "btc:btc",
+  "btc:btc": "btc:btc",
+  "base:btc": "base:btc",
+  cbbtc: "base:cbbtc",
+  "base:cbbtc": "base:cbbtc",
 };
 
 function getDemoHeaders() {
@@ -79,6 +91,10 @@ function decodeToken(value) {
   }
 }
 
+function uniq(values) {
+  return [...new Set((values || []).filter(Boolean))];
+}
+
 function canonicalizeAssetKey(value) {
   const raw = normalizeText(value);
   if (!raw) return "";
@@ -122,10 +138,6 @@ function parseAssetRoute(token) {
       ? canonicalAssetKey.split(":")[1].toUpperCase()
       : normalizeUpper(symbol),
   };
-}
-
-function uniq(values) {
-  return [...new Set((values || []).filter(Boolean))];
 }
 
 function formatTagSet(rows) {
@@ -262,6 +274,21 @@ function buildWalletBreakdown(rows, walletMetaById) {
   );
 }
 
+function deriveRowCanonicalAssetKey(row) {
+  const assetId = canonicalizeAssetKey(row.asset_id);
+  if (assetId) return assetId;
+
+  const composite =
+    normalizeText(row.network) && normalizeText(row.token_symbol)
+      ? `${normalizeLower(row.network)}:${normalizeLower(row.token_symbol)}`
+      : "";
+
+  const compositeCanonical = canonicalizeAssetKey(composite);
+  if (compositeCanonical) return compositeCanonical;
+
+  return "";
+}
+
 function rowMatchesRoute(row, route) {
   const rowAssetId = normalizeLower(row.asset_id);
   const rowNetwork = normalizeLower(row.network);
@@ -270,7 +297,7 @@ function rowMatchesRoute(row, route) {
 
   const rowComposite =
     rowNetwork && rowSymbol ? `${rowNetwork}:${rowSymbol}` : "";
-  const rowCanonical = canonicalizeAssetKey(rowAssetId || rowComposite);
+  const rowCanonical = deriveRowCanonicalAssetKey(row);
 
   const routeAssetId = normalizeLower(route.raw);
   const routeComposite = `${route.networkLower}:${route.symbolLower}`;
@@ -313,6 +340,32 @@ async function fetchWalletMeta(walletIds) {
   return map;
 }
 
+function reduceToLatestSnapshotRowsPerWallet(rows) {
+  const latestSnapshotByWallet = new Map();
+
+  for (const row of rows) {
+    const walletId = row.wallet_id;
+    if (!walletId) continue;
+
+    const rowTs = new Date(row.snapshot_time || 0).getTime();
+    const currentTs = latestSnapshotByWallet.has(walletId)
+      ? latestSnapshotByWallet.get(walletId)
+      : -Infinity;
+
+    if (rowTs > currentTs) {
+      latestSnapshotByWallet.set(walletId, rowTs);
+    }
+  }
+
+  return rows.filter((row) => {
+    const walletId = row.wallet_id;
+    if (!walletId) return false;
+
+    const rowTs = new Date(row.snapshot_time || 0).getTime();
+    return latestSnapshotByWallet.get(walletId) === rowTs;
+  });
+}
+
 async function fetchExactQubicRows(route) {
   if (route.canonicalAssetKey !== "qubic:qubic") {
     return [];
@@ -320,7 +373,6 @@ async function fetchExactQubicRows(route) {
 
   const selectClause = `
     id,
-    snapshot_id,
     wallet_id,
     token_symbol,
     token_name,
@@ -349,7 +401,7 @@ async function fetchExactQubicRows(route) {
       .eq("network", "qubic")
       .eq("asset_id", "qubic:QUBIC")
       .order("snapshot_time", { ascending: false })
-      .limit(500),
+      .limit(1000),
 
     supabase
       .from("wallet_holdings")
@@ -357,7 +409,7 @@ async function fetchExactQubicRows(route) {
       .eq("network", "qubic")
       .eq("token_symbol", "QUBIC")
       .order("snapshot_time", { ascending: false })
-      .limit(500),
+      .limit(1000),
 
     supabase
       .from("wallet_holdings")
@@ -365,7 +417,7 @@ async function fetchExactQubicRows(route) {
       .eq("network", "qubic")
       .eq("token_name", "Qubic")
       .order("snapshot_time", { ascending: false })
-      .limit(500),
+      .limit(1000),
   ]);
 
   for (const result of queries) {
@@ -382,28 +434,11 @@ async function fetchExactQubicRows(route) {
     deduped.set(row.id, row);
   }
 
-  const rows = Array.from(deduped.values());
+  const matched = Array.from(deduped.values()).filter((row) =>
+    rowMatchesRoute(row, route)
+  );
 
-  const latestByWallet = new Map();
-  for (const row of rows) {
-    const walletId = row.wallet_id;
-    if (!walletId) continue;
-
-    const rowTs = new Date(row.snapshot_time || 0).getTime();
-    const existing = latestByWallet.get(walletId);
-
-    if (!existing) {
-      latestByWallet.set(walletId, row);
-      continue;
-    }
-
-    const existingTs = new Date(existing.snapshot_time || 0).getTime();
-    if (rowTs > existingTs) {
-      latestByWallet.set(walletId, row);
-    }
-  }
-
-  return Array.from(latestByWallet.values());
+  return reduceToLatestSnapshotRowsPerWallet(matched);
 }
 
 async function fetchCandidateRows(route) {
@@ -542,32 +577,6 @@ async function fetchCandidateRows(route) {
   return Array.from(deduped.values());
 }
 
-function reduceToLatestSnapshotRowsPerWallet(rows) {
-  const latestSnapshotByWallet = new Map();
-
-  for (const row of rows) {
-    const walletId = row.wallet_id;
-    if (!walletId) continue;
-
-    const rowTs = new Date(row.snapshot_time || 0).getTime();
-    const currentTs = latestSnapshotByWallet.has(walletId)
-      ? latestSnapshotByWallet.get(walletId)
-      : -Infinity;
-
-    if (rowTs > currentTs) {
-      latestSnapshotByWallet.set(walletId, rowTs);
-    }
-  }
-
-  return rows.filter((row) => {
-    const walletId = row.wallet_id;
-    if (!walletId) return false;
-
-    const rowTs = new Date(row.snapshot_time || 0).getTime();
-    return latestSnapshotByWallet.get(walletId) === rowTs;
-  });
-}
-
 async function fetchCoinMarketsSummary(coinId) {
   const url = new URL(`${GECKO_BASE_URL}/coins/markets`);
   url.searchParams.set("vs_currency", "usd");
@@ -603,62 +612,9 @@ async function fetchCoinMarketsSummary(coinId) {
   };
 }
 
-async function fetchCoinDetailSummary(coinId) {
-  const url = new URL(`${GECKO_BASE_URL}/coins/${coinId}`);
-  url.searchParams.set("localization", "false");
-  url.searchParams.set("tickers", "false");
-  url.searchParams.set("community_data", "false");
-  url.searchParams.set("developer_data", "false");
-  url.searchParams.set("sparkline", "false");
-
-  const response = await fetch(url.toString(), {
-    method: "GET",
-    headers: getDemoHeaders(),
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      `[asset-viewer] ${coinId} detail fetch failed: ${response.status} ${response.statusText}`
-    );
-  }
-
-  const json = await response.json();
-  const marketData = json?.market_data || null;
-
-  return {
-    price_per_unit_usd: nullableNumber(marketData?.current_price?.usd),
-    change_24h_percent: nullableNumber(
-      marketData?.price_change_percentage_24h
-    ),
-    change_7d_percent: nullableNumber(marketData?.price_change_percentage_7d),
-    market_cap_usd: nullableNumber(marketData?.market_cap?.usd),
-    fdv_usd: nullableNumber(marketData?.fully_diluted_valuation?.usd),
-    volume_24h_usd: nullableNumber(marketData?.total_volume?.usd),
-    liquidity_usd: null,
-    source: "coingecko_markets",
-  };
-}
-
 async function fetchLockedMarketSummary(route) {
   if (route.canonicalAssetKey === "qubic:qubic") {
-    const marketSummary = await fetchCoinMarketsSummary("qubic");
-    const detailSummary = await fetchCoinDetailSummary("qubic");
-
-    return {
-      price_per_unit_usd:
-        marketSummary.price_per_unit_usd ?? detailSummary.price_per_unit_usd,
-      change_24h_percent:
-        marketSummary.change_24h_percent ?? detailSummary.change_24h_percent,
-      change_7d_percent:
-        marketSummary.change_7d_percent ?? detailSummary.change_7d_percent,
-      market_cap_usd:
-        marketSummary.market_cap_usd ?? detailSummary.market_cap_usd,
-      fdv_usd: marketSummary.fdv_usd ?? detailSummary.fdv_usd,
-      volume_24h_usd:
-        marketSummary.volume_24h_usd ?? detailSummary.volume_24h_usd,
-      liquidity_usd: null,
-      source: "coingecko_markets",
-    };
+    return fetchCoinMarketsSummary("qubic");
   }
 
   if (
@@ -928,10 +884,25 @@ module.exports = async function handler(req, res) {
     }
 
     const route = parseAssetRoute(requested);
-    const marketSummary = await fetchLockedMarketSummary(route);
+
+    let marketSummary = {
+      price_per_unit_usd: null,
+      change_24h_percent: null,
+      change_7d_percent: null,
+      market_cap_usd: null,
+      fdv_usd: null,
+      volume_24h_usd: null,
+      liquidity_usd: null,
+      source: null,
+    };
+
+    try {
+      marketSummary = await fetchLockedMarketSummary(route);
+    } catch (marketError) {
+      console.error("[asset-viewer] market summary error", marketError);
+    }
 
     const exactQubicRows = await fetchExactQubicRows(route);
-
     const candidateRows =
       exactQubicRows.length > 0
         ? exactQubicRows
