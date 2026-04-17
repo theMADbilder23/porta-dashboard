@@ -276,10 +276,12 @@ function rowMatchesRoute(row, route) {
   const routeComposite = `${route.networkLower}:${route.symbolLower}`;
 
   if (rowAssetId && rowAssetId === routeAssetId) return true;
-  if (rowNetwork === route.networkLower && rowSymbol === route.symbolLower)
+  if (rowNetwork === route.networkLower && rowSymbol === route.symbolLower) {
     return true;
-  if (rowNetwork === route.networkLower && rowTokenName === route.symbolLower)
+  }
+  if (rowNetwork === route.networkLower && rowTokenName === route.symbolLower) {
     return true;
+  }
 
   if (rowCanonical && rowCanonical === route.canonicalAssetKey) return true;
   if (canonicalizeAssetKey(routeAssetId) === rowCanonical) return true;
@@ -318,6 +320,7 @@ async function fetchExactQubicRows(route) {
 
   const selectClause = `
     id,
+    snapshot_id,
     wallet_id,
     token_symbol,
     token_name,
@@ -339,55 +342,68 @@ async function fetchExactQubicRows(route) {
     created_at
   `;
 
-  // 🔥 SAFE MULTI-QUERY APPROACH (NO .or())
-  const [byAssetId, bySymbol, byName] = await Promise.all([
+  const queries = await Promise.all([
     supabase
       .from("wallet_holdings")
       .select(selectClause)
       .eq("network", "qubic")
-      .in("asset_id", ["qubic:QUBIC", "qubic:qubic"])
+      .eq("asset_id", "qubic:QUBIC")
       .order("snapshot_time", { ascending: false })
-      .limit(1000),
+      .limit(500),
 
     supabase
       .from("wallet_holdings")
       .select(selectClause)
       .eq("network", "qubic")
-      .in("token_symbol", ["QUBIC", "qubic"])
+      .eq("token_symbol", "QUBIC")
       .order("snapshot_time", { ascending: false })
-      .limit(1000),
+      .limit(500),
 
     supabase
       .from("wallet_holdings")
       .select(selectClause)
       .eq("network", "qubic")
-      .in("token_name", ["Qubic", "QUBIC", "qubic"])
+      .eq("token_name", "Qubic")
       .order("snapshot_time", { ascending: false })
-      .limit(1000),
+      .limit(500),
   ]);
 
-  for (const result of [byAssetId, bySymbol, byName]) {
+  for (const result of queries) {
     if (result.error) throw result.error;
   }
 
-  const combined = [
-    ...(byAssetId.data || []),
-    ...(bySymbol.data || []),
-    ...(byName.data || []),
-  ];
+  const combined = queries.flatMap((result) =>
+    Array.isArray(result.data) ? result.data : []
+  );
 
-  // 🔥 HARD DEDUPE
-  const map = new Map();
+  const deduped = new Map();
   for (const row of combined) {
     if (!row?.id) continue;
-    map.set(row.id, row);
+    deduped.set(row.id, row);
   }
 
-  const finalRows = Array.from(map.values());
+  const rows = Array.from(deduped.values());
 
-  console.log("[QUBIC DEBUG] exact rows found:", finalRows.length);
+  const latestByWallet = new Map();
+  for (const row of rows) {
+    const walletId = row.wallet_id;
+    if (!walletId) continue;
 
-  return finalRows;
+    const rowTs = new Date(row.snapshot_time || 0).getTime();
+    const existing = latestByWallet.get(walletId);
+
+    if (!existing) {
+      latestByWallet.set(walletId, row);
+      continue;
+    }
+
+    const existingTs = new Date(existing.snapshot_time || 0).getTime();
+    if (rowTs > existingTs) {
+      latestByWallet.set(walletId, row);
+    }
+  }
+
+  return Array.from(latestByWallet.values());
 }
 
 async function fetchCandidateRows(route) {
@@ -849,7 +865,9 @@ function buildRouteList(rows) {
   }
 
   return Array.from(byRoute.values())
-    .sort((a, b) => safeNumber(b.total_value_usd) - safeNumber(a.total_value_usd))
+    .sort(
+      (a, b) => safeNumber(b.total_value_usd) - safeNumber(a.total_value_usd)
+    )
     .slice(0, 200)
     .map((entry) => ({
       route_param: entry.route_param,
@@ -910,18 +928,24 @@ module.exports = async function handler(req, res) {
     }
 
     const route = parseAssetRoute(requested);
+    const marketSummary = await fetchLockedMarketSummary(route);
 
     const exactQubicRows = await fetchExactQubicRows(route);
-    const candidateRows = exactQubicRows.length
-      ? exactQubicRows
-      : await fetchCandidateRows(route);
 
-    const matchedRows = exactQubicRows.length
-      ? exactQubicRows
-      : candidateRows.filter((row) => rowMatchesRoute(row, route));
+    const candidateRows =
+      exactQubicRows.length > 0
+        ? exactQubicRows
+        : await fetchCandidateRows(route);
 
-    const latestRows = reduceToLatestSnapshotRowsPerWallet(matchedRows);
-    const marketSummary = await fetchLockedMarketSummary(route);
+    const matchedRows =
+      exactQubicRows.length > 0
+        ? exactQubicRows
+        : candidateRows.filter((row) => rowMatchesRoute(row, route));
+
+    const latestRows =
+      exactQubicRows.length > 0
+        ? exactQubicRows
+        : reduceToLatestSnapshotRowsPerWallet(matchedRows);
 
     if (!latestRows.length) {
       return res.status(200).json({
