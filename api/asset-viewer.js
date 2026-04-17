@@ -283,6 +283,29 @@ function rowMatchesRoute(row, route) {
   return false;
 }
 
+async function fetchWalletMeta(walletIds) {
+  if (!Array.isArray(walletIds) || walletIds.length === 0) {
+    return new Map();
+  }
+
+  const { data, error } = await supabase
+    .from("Wallets")
+    .select("id, name, wallet_address, network_group, role")
+    .in("id", walletIds);
+
+  if (error) {
+    throw error;
+  }
+
+  const map = new Map();
+
+  for (const wallet of Array.isArray(data) ? data : []) {
+    map.set(wallet.id, wallet);
+  }
+
+  return map;
+}
+
 async function fetchCandidateRows(route) {
   const symbolCandidates = uniq([
     route.symbol,
@@ -292,113 +315,78 @@ async function fetchCandidateRows(route) {
     route.canonicalSymbolLower,
   ]);
 
-  const assetIdCandidates = uniq([
-    route.raw,
-    route.normalizedAssetKey,
-    route.canonicalAssetKey,
-    `${route.networkLower}:${route.symbolUpper}`,
-    `${route.networkLower}:${route.symbolLower}`,
-  ]);
+  const { data, error } = await supabase
+    .from("wallet_holdings")
+    .select(
+      `
+      id,
+      wallet_id,
+      token_symbol,
+      token_name,
+      network,
+      amount,
+      value_usd,
+      category,
+      protocol,
+      is_yield_position,
+      asset_id,
+      asset_class,
+      yield_profile,
+      mmii_bucket,
+      mmii_subclass,
+      price_source,
+      price_per_unit_usd,
+      position_role,
+      snapshot_time,
+      created_at
+      `
+    )
+    .in("token_symbol", symbolCandidates)
+    .order("snapshot_time", { ascending: false })
+    .limit(800);
 
-  const [tokenResult, assetIdResult, broaderResult] = await Promise.all([
-    supabase
-      .from("wallet_holdings")
-      .select(
-        `
-        id,
-        wallet_id,
-        token_symbol,
-        token_name,
-        network,
-        amount,
-        value_usd,
-        category,
-        protocol,
-        is_yield_position,
-        asset_id,
-        asset_class,
-        yield_profile,
-        mmii_bucket,
-        mmii_subclass,
-        price_source,
-        price_per_unit_usd,
-        position_role,
-        snapshot_time,
-        created_at
-        `
-      )
-      .in("token_symbol", symbolCandidates)
-      .order("snapshot_time", { ascending: false })
-      .limit(1200),
+  if (error) {
+    throw error;
+  }
 
-    supabase
-      .from("wallet_holdings")
-      .select(
-        `
-        id,
-        wallet_id,
-        token_symbol,
-        token_name,
-        network,
-        amount,
-        value_usd,
-        category,
-        protocol,
-        is_yield_position,
-        asset_id,
-        asset_class,
-        yield_profile,
-        mmii_bucket,
-        mmii_subclass,
-        price_source,
-        price_per_unit_usd,
-        position_role,
-        snapshot_time,
-        created_at
-        `
-      )
-      .in("asset_id", assetIdCandidates)
-      .order("snapshot_time", { ascending: false })
-      .limit(1200),
+  const tokenRows = Array.isArray(data) ? data : [];
 
-    supabase
-      .from("wallet_holdings")
-      .select(
-        `
-        id,
-        wallet_id,
-        token_symbol,
-        token_name,
-        network,
-        amount,
-        value_usd,
-        category,
-        protocol,
-        is_yield_position,
-        asset_id,
-        asset_class,
-        yield_profile,
-        mmii_bucket,
-        mmii_subclass,
-        price_source,
-        price_per_unit_usd,
-        position_role,
-        snapshot_time,
-        created_at
-        `
-      )
-      .order("snapshot_time", { ascending: false })
-      .limit(5000),
-  ]);
+  const { data: broaderData, error: broaderError } = await supabase
+    .from("wallet_holdings")
+    .select(
+      `
+      id,
+      wallet_id,
+      token_symbol,
+      token_name,
+      network,
+      amount,
+      value_usd,
+      category,
+      protocol,
+      is_yield_position,
+      asset_id,
+      asset_class,
+      yield_profile,
+      mmii_bucket,
+      mmii_subclass,
+      price_source,
+      price_per_unit_usd,
+      position_role,
+      snapshot_time,
+      created_at
+      `
+    )
+    .order("snapshot_time", { ascending: false })
+    .limit(2000);
 
-  if (tokenResult.error) throw tokenResult.error;
-  if (assetIdResult.error) throw assetIdResult.error;
-  if (broaderResult.error) throw broaderResult.error;
+  if (broaderError) {
+    throw broaderError;
+  }
 
   const combined = [
-    ...(Array.isArray(tokenResult.data) ? tokenResult.data : []),
-    ...(Array.isArray(assetIdResult.data) ? assetIdResult.data : []),
-    ...(Array.isArray(broaderResult.data) ? broaderResult.data : []),
+    ...tokenRows,
+    ...(Array.isArray(broaderData) ? broaderData : []),
   ];
 
   const deduped = new Map();
@@ -439,102 +427,9 @@ function reduceToLatestSnapshotRowsPerWallet(rows) {
 
 async function fetchLockedMarketSummary(route) {
   if (route.canonicalAssetKey === "qubic:qubic") {
-    const marketsUrl = new URL(`${GECKO_BASE_URL}/coins/markets`);
-    marketsUrl.searchParams.set("vs_currency", "usd");
-    marketsUrl.searchParams.set("ids", "qubic");
-    marketsUrl.searchParams.set("price_change_percentage", "24h,7d");
-    marketsUrl.searchParams.set("precision", "full");
-
-    const marketsResponse = await fetch(marketsUrl.toString(), {
-      method: "GET",
-      headers: getDemoHeaders(),
-    });
-
-    if (!marketsResponse.ok) {
-      throw new Error(
-        `[asset-viewer] QUBIC markets fetch failed: ${marketsResponse.status} ${marketsResponse.statusText}`
-      );
-    }
-
-    const marketsJson = await marketsResponse.json();
-    const marketCoin = Array.isArray(marketsJson) ? marketsJson[0] : null;
-
-    const marketPrice = nullableNumber(marketCoin?.current_price);
-    const marketChange24h = nullableNumber(marketCoin?.price_change_percentage_24h);
-    const marketChange7d = nullableNumber(
-      marketCoin?.price_change_percentage_7d_in_currency
-    );
-    const marketCap = nullableNumber(marketCoin?.market_cap);
-    const fdv = nullableNumber(marketCoin?.fully_diluted_valuation);
-    const volume24h = nullableNumber(marketCoin?.total_volume);
-
-    if (
-      marketPrice !== null &&
-      marketChange24h !== null &&
-      marketCap !== null &&
-      volume24h !== null
-    ) {
-      return {
-        price_per_unit_usd: marketPrice,
-        change_24h_percent: marketChange24h,
-        change_7d_percent: marketChange7d,
-        market_cap_usd: marketCap,
-        fdv_usd: fdv,
-        volume_24h_usd: volume24h,
-        liquidity_usd: null,
-        source: "coingecko_markets",
-      };
-    }
-
-    const coinUrl = new URL(`${GECKO_BASE_URL}/coins/qubic`);
-    coinUrl.searchParams.set("localization", "false");
-    coinUrl.searchParams.set("tickers", "false");
-    coinUrl.searchParams.set("community_data", "false");
-    coinUrl.searchParams.set("developer_data", "false");
-    coinUrl.searchParams.set("sparkline", "false");
-
-    const coinResponse = await fetch(coinUrl.toString(), {
-      method: "GET",
-      headers: getDemoHeaders(),
-    });
-
-    if (!coinResponse.ok) {
-      throw new Error(
-        `[asset-viewer] QUBIC coin fallback fetch failed: ${coinResponse.status} ${coinResponse.statusText}`
-      );
-    }
-
-    const coinJson = await coinResponse.json();
-    const marketData = coinJson?.market_data || null;
-
-    return {
-      price_per_unit_usd:
-        marketPrice ?? nullableNumber(marketData?.current_price?.usd),
-      change_24h_percent:
-        marketChange24h ??
-        nullableNumber(marketData?.price_change_percentage_24h),
-      change_7d_percent:
-        marketChange7d ??
-        nullableNumber(marketData?.price_change_percentage_7d),
-      market_cap_usd:
-        marketCap ?? nullableNumber(marketData?.market_cap?.usd),
-      fdv_usd:
-        fdv ?? nullableNumber(marketData?.fully_diluted_valuation?.usd),
-      volume_24h_usd:
-        volume24h ?? nullableNumber(marketData?.total_volume?.usd),
-      liquidity_usd: null,
-      source: "coingecko_markets",
-    };
-  }
-
-    if (
-    route.canonicalAssetKey === "eth:eth" ||
-    route.canonicalAssetKey === "ethereum:eth" ||
-    route.canonicalAssetKey === "base:eth"
-  ) {
     const url = new URL(`${GECKO_BASE_URL}/coins/markets`);
     url.searchParams.set("vs_currency", "usd");
-    url.searchParams.set("ids", "ethereum");
+    url.searchParams.set("ids", "qubic");
     url.searchParams.set("price_change_percentage", "24h,7d");
     url.searchParams.set("precision", "full");
 
@@ -545,46 +440,7 @@ async function fetchLockedMarketSummary(route) {
 
     if (!response.ok) {
       throw new Error(
-        `[asset-viewer] ETH market fetch failed: ${response.status} ${response.statusText}`
-      );
-    }
-
-    const json = await response.json();
-    const coin = Array.isArray(json) ? json[0] : null;
-
-    return {
-      price_per_unit_usd: nullableNumber(coin?.current_price),
-      change_24h_percent: nullableNumber(coin?.price_change_percentage_24h),
-      change_7d_percent: nullableNumber(
-        coin?.price_change_percentage_7d_in_currency
-      ),
-      market_cap_usd: nullableNumber(coin?.market_cap),
-      fdv_usd: nullableNumber(coin?.fully_diluted_valuation),
-      volume_24h_usd: nullableNumber(coin?.total_volume),
-      liquidity_usd: null,
-      source: "coingecko_markets",
-    };
-  }
-
-  if (
-    route.canonicalAssetKey === "base:cbbtc" ||
-    route.canonicalAssetKey === "base:btc" ||
-    route.canonicalAssetKey === "btc:btc"
-  ) {
-    const url = new URL(`${GECKO_BASE_URL}/coins/markets`);
-    url.searchParams.set("vs_currency", "usd");
-    url.searchParams.set("ids", "bitcoin");
-    url.searchParams.set("price_change_percentage", "24h,7d");
-    url.searchParams.set("precision", "full");
-
-    const response = await fetch(url.toString(), {
-      method: "GET",
-      headers: getDemoHeaders(),
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        `[asset-viewer] BTC market fetch failed: ${response.status} ${response.statusText}`
+        `[asset-viewer] QUBIC market fetch failed: ${response.status} ${response.statusText}`
       );
     }
 
@@ -914,9 +770,6 @@ module.exports = async function handler(req, res) {
       fetchWalletMeta(walletIds),
       fetchLockedMarketSummary(route),
     ]);
-
-    console.log("[asset-viewer] route", route);
-    console.log("[asset-viewer] marketSummary", marketSummary);
 
     return res.status(200).json({
       found: true,
