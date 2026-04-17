@@ -298,106 +298,183 @@ async function fetchCandidateRows(route) {
     route.canonicalAssetKey,
     `${route.networkLower}:${route.symbolUpper}`,
     `${route.networkLower}:${route.symbolLower}`,
+    `${route.networkLower}:${route.canonicalSymbolUpper}`,
+    `${route.networkLower}:${route.canonicalSymbolLower}`,
   ]);
 
-  const [tokenResult, assetIdResult, broaderResult] = await Promise.all([
-    supabase
-      .from("wallet_holdings")
-      .select(
-        `
-        id,
-        wallet_id,
-        token_symbol,
-        token_name,
-        network,
-        amount,
-        value_usd,
-        category,
-        protocol,
-        is_yield_position,
-        asset_id,
-        asset_class,
-        yield_profile,
-        mmii_bucket,
-        mmii_subclass,
-        price_source,
-        price_per_unit_usd,
-        position_role,
-        snapshot_time,
-        created_at
-        `
-      )
-      .in("token_symbol", symbolCandidates)
-      .order("snapshot_time", { ascending: false })
-      .limit(1200),
-
-    supabase
-      .from("wallet_holdings")
-      .select(
-        `
-        id,
-        wallet_id,
-        token_symbol,
-        token_name,
-        network,
-        amount,
-        value_usd,
-        category,
-        protocol,
-        is_yield_position,
-        asset_id,
-        asset_class,
-        yield_profile,
-        mmii_bucket,
-        mmii_subclass,
-        price_source,
-        price_per_unit_usd,
-        position_role,
-        snapshot_time,
-        created_at
-        `
-      )
-      .in("asset_id", assetIdCandidates)
-      .order("snapshot_time", { ascending: false })
-      .limit(1200),
-
-    supabase
-      .from("wallet_holdings")
-      .select(
-        `
-        id,
-        wallet_id,
-        token_symbol,
-        token_name,
-        network,
-        amount,
-        value_usd,
-        category,
-        protocol,
-        is_yield_position,
-        asset_id,
-        asset_class,
-        yield_profile,
-        mmii_bucket,
-        mmii_subclass,
-        price_source,
-        price_per_unit_usd,
-        position_role,
-        snapshot_time,
-        created_at
-        `
-      )
-      .order("snapshot_time", { ascending: false })
-      .limit(5000),
+  const tokenNameCandidates = uniq([
+    route.symbol,
+    route.symbolUpper,
+    route.symbolLower,
+    route.canonicalSymbolUpper,
+    route.canonicalSymbolLower,
   ]);
+
+  const [tokenResult, assetIdResult, networkSymbolResult, networkNameResult, broaderResult] =
+    await Promise.all([
+      supabase
+        .from("wallet_holdings")
+        .select(
+          `
+          id,
+          wallet_id,
+          token_symbol,
+          token_name,
+          network,
+          amount,
+          value_usd,
+          category,
+          protocol,
+          is_yield_position,
+          asset_id,
+          asset_class,
+          yield_profile,
+          mmii_bucket,
+          mmii_subclass,
+          price_source,
+          price_per_unit_usd,
+          position_role,
+          snapshot_time,
+          created_at
+          `
+        )
+        .in("token_symbol", symbolCandidates)
+        .order("snapshot_time", { ascending: false })
+        .limit(1500),
+
+      supabase
+        .from("wallet_holdings")
+        .select(
+          `
+          id,
+          wallet_id,
+          token_symbol,
+          token_name,
+          network,
+          amount,
+          value_usd,
+          category,
+          protocol,
+          is_yield_position,
+          asset_id,
+          asset_class,
+          yield_profile,
+          mmii_bucket,
+          mmii_subclass,
+          price_source,
+          price_per_unit_usd,
+          position_role,
+          snapshot_time,
+          created_at
+          `
+        )
+        .in("asset_id", assetIdCandidates)
+        .order("snapshot_time", { ascending: false })
+        .limit(1500),
+
+      supabase
+        .from("wallet_holdings")
+        .select(
+          `
+          id,
+          wallet_id,
+          token_symbol,
+          token_name,
+          network,
+          amount,
+          value_usd,
+          category,
+          protocol,
+          is_yield_position,
+          asset_id,
+          asset_class,
+          yield_profile,
+          mmii_bucket,
+          mmii_subclass,
+          price_source,
+          price_per_unit_usd,
+          position_role,
+          snapshot_time,
+          created_at
+          `
+        )
+        .eq("network", route.networkLower)
+        .in("token_symbol", symbolCandidates)
+        .order("snapshot_time", { ascending: false })
+        .limit(3000),
+
+      supabase
+        .from("wallet_holdings")
+        .select(
+          `
+          id,
+          wallet_id,
+          token_symbol,
+          token_name,
+          network,
+          amount,
+          value_usd,
+          category,
+          protocol,
+          is_yield_position,
+          asset_id,
+          asset_class,
+          yield_profile,
+          mmii_bucket,
+          mmii_subclass,
+          price_source,
+          price_per_unit_usd,
+          position_role,
+          snapshot_time,
+          created_at
+          `
+        )
+        .eq("network", route.networkLower)
+        .in("token_name", tokenNameCandidates)
+        .order("snapshot_time", { ascending: false })
+        .limit(3000),
+
+      supabase
+        .from("wallet_holdings")
+        .select(
+          `
+          id,
+          wallet_id,
+          token_symbol,
+          token_name,
+          network,
+          amount,
+          value_usd,
+          category,
+          protocol,
+          is_yield_position,
+          asset_id,
+          asset_class,
+          yield_profile,
+          mmii_bucket,
+          mmii_subclass,
+          price_source,
+          price_per_unit_usd,
+          position_role,
+          snapshot_time,
+          created_at
+          `
+        )
+        .order("snapshot_time", { ascending: false })
+        .limit(8000),
+    ]);
 
   if (tokenResult.error) throw tokenResult.error;
   if (assetIdResult.error) throw assetIdResult.error;
+  if (networkSymbolResult.error) throw networkSymbolResult.error;
+  if (networkNameResult.error) throw networkNameResult.error;
   if (broaderResult.error) throw broaderResult.error;
 
   const combined = [
     ...(Array.isArray(tokenResult.data) ? tokenResult.data : []),
     ...(Array.isArray(assetIdResult.data) ? assetIdResult.data : []),
+    ...(Array.isArray(networkSymbolResult.data) ? networkSymbolResult.data : []),
+    ...(Array.isArray(networkNameResult.data) ? networkNameResult.data : []),
     ...(Array.isArray(broaderResult.data) ? broaderResult.data : []),
   ];
 
