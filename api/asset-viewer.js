@@ -101,7 +101,9 @@ function canonicalizeAssetKey(value) {
 function parseAssetRoute(token) {
   const decoded = decodeToken(token);
   const [network = "unknown", symbol = decoded] = decoded.split(":");
-  const rawNormalizedAssetKey = `${normalizeLower(network)}:${normalizeLower(symbol)}`;
+  const rawNormalizedAssetKey = `${normalizeLower(network)}:${normalizeLower(
+    symbol
+  )}`;
   const canonicalAssetKey = canonicalizeAssetKey(decoded);
 
   return {
@@ -266,15 +268,18 @@ function rowMatchesRoute(row, route) {
   const rowSymbol = normalizeLower(row.token_symbol);
   const rowTokenName = normalizeLower(row.token_name);
 
-  const rowComposite = rowNetwork && rowSymbol ? `${rowNetwork}:${rowSymbol}` : "";
+  const rowComposite =
+    rowNetwork && rowSymbol ? `${rowNetwork}:${rowSymbol}` : "";
   const rowCanonical = canonicalizeAssetKey(rowAssetId || rowComposite);
 
   const routeAssetId = normalizeLower(route.raw);
   const routeComposite = `${route.networkLower}:${route.symbolLower}`;
 
   if (rowAssetId && rowAssetId === routeAssetId) return true;
-  if (rowNetwork === route.networkLower && rowSymbol === route.symbolLower) return true;
-  if (rowNetwork === route.networkLower && rowTokenName === route.symbolLower) return true;
+  if (rowNetwork === route.networkLower && rowSymbol === route.symbolLower)
+    return true;
+  if (rowNetwork === route.networkLower && rowTokenName === route.symbolLower)
+    return true;
 
   if (rowCanonical && rowCanonical === route.canonicalAssetKey) return true;
   if (canonicalizeAssetKey(routeAssetId) === rowCanonical) return true;
@@ -315,78 +320,121 @@ async function fetchCandidateRows(route) {
     route.canonicalSymbolLower,
   ]);
 
-  const { data, error } = await supabase
-    .from("wallet_holdings")
-    .select(
-      `
-      id,
-      wallet_id,
-      token_symbol,
-      token_name,
-      network,
-      amount,
-      value_usd,
-      category,
-      protocol,
-      is_yield_position,
-      asset_id,
-      asset_class,
-      yield_profile,
-      mmii_bucket,
-      mmii_subclass,
-      price_source,
-      price_per_unit_usd,
-      position_role,
-      snapshot_time,
-      created_at
-      `
-    )
-    .in("token_symbol", symbolCandidates)
-    .order("snapshot_time", { ascending: false })
-    .limit(800);
+  const assetIdCandidates = uniq([
+    route.raw,
+    route.normalizedAssetKey,
+    route.canonicalAssetKey,
+    `${route.networkLower}:${route.symbolUpper}`,
+    `${route.networkLower}:${route.symbolLower}`,
+    `${route.networkLower}:${route.canonicalSymbolUpper}`,
+    `${route.networkLower}:${route.canonicalSymbolLower}`,
+  ]);
 
-  if (error) {
-    throw error;
-  }
+  const tokenNameCandidates = uniq([
+    route.symbol,
+    route.symbolUpper,
+    route.symbolLower,
+    route.canonicalSymbolUpper,
+    route.canonicalSymbolLower,
+  ]);
 
-  const tokenRows = Array.isArray(data) ? data : [];
+  const selectClause = `
+    id,
+    wallet_id,
+    token_symbol,
+    token_name,
+    network,
+    amount,
+    value_usd,
+    category,
+    protocol,
+    is_yield_position,
+    asset_id,
+    asset_class,
+    yield_profile,
+    mmii_bucket,
+    mmii_subclass,
+    price_source,
+    price_per_unit_usd,
+    position_role,
+    snapshot_time,
+    created_at
+  `;
 
-  const { data: broaderData, error: broaderError } = await supabase
-    .from("wallet_holdings")
-    .select(
-      `
-      id,
-      wallet_id,
-      token_symbol,
-      token_name,
-      network,
-      amount,
-      value_usd,
-      category,
-      protocol,
-      is_yield_position,
-      asset_id,
-      asset_class,
-      yield_profile,
-      mmii_bucket,
-      mmii_subclass,
-      price_source,
-      price_per_unit_usd,
-      position_role,
-      snapshot_time,
-      created_at
-      `
-    )
-    .order("snapshot_time", { ascending: false })
-    .limit(2000);
+  const [
+    tokenResult,
+    assetIdResult,
+    networkSymbolResult,
+    networkNameResult,
+    networkOnlyResult,
+    broaderResult,
+  ] = await Promise.all([
+    supabase
+      .from("wallet_holdings")
+      .select(selectClause)
+      .in("token_symbol", symbolCandidates)
+      .order("snapshot_time", { ascending: false })
+      .limit(1500),
 
-  if (broaderError) {
-    throw broaderError;
+    supabase
+      .from("wallet_holdings")
+      .select(selectClause)
+      .in("asset_id", assetIdCandidates)
+      .order("snapshot_time", { ascending: false })
+      .limit(1500),
+
+    supabase
+      .from("wallet_holdings")
+      .select(selectClause)
+      .eq("network", route.networkLower)
+      .in("token_symbol", symbolCandidates)
+      .order("snapshot_time", { ascending: false })
+      .limit(1500),
+
+    supabase
+      .from("wallet_holdings")
+      .select(selectClause)
+      .eq("network", route.networkLower)
+      .in("token_name", tokenNameCandidates)
+      .order("snapshot_time", { ascending: false })
+      .limit(1500),
+
+    supabase
+      .from("wallet_holdings")
+      .select(selectClause)
+      .eq("network", route.networkLower)
+      .order("snapshot_time", { ascending: false })
+      .limit(3000),
+
+    supabase
+      .from("wallet_holdings")
+      .select(selectClause)
+      .order("snapshot_time", { ascending: false })
+      .limit(3000),
+  ]);
+
+  for (const result of [
+    tokenResult,
+    assetIdResult,
+    networkSymbolResult,
+    networkNameResult,
+    networkOnlyResult,
+    broaderResult,
+  ]) {
+    if (result.error) {
+      throw result.error;
+    }
   }
 
   const combined = [
-    ...tokenRows,
-    ...(Array.isArray(broaderData) ? broaderData : []),
+    ...(Array.isArray(tokenResult.data) ? tokenResult.data : []),
+    ...(Array.isArray(assetIdResult.data) ? assetIdResult.data : []),
+    ...(Array.isArray(networkSymbolResult.data)
+      ? networkSymbolResult.data
+      : []),
+    ...(Array.isArray(networkNameResult.data) ? networkNameResult.data : []),
+    ...(Array.isArray(networkOnlyResult.data) ? networkOnlyResult.data : []),
+    ...(Array.isArray(broaderResult.data) ? broaderResult.data : []),
   ];
 
   const deduped = new Map();
@@ -484,7 +532,9 @@ async function fetchCoinDetailSummary(coinId) {
 
   return {
     price_per_unit_usd: nullableNumber(marketData?.current_price?.usd),
-    change_24h_percent: nullableNumber(marketData?.price_change_percentage_24h),
+    change_24h_percent: nullableNumber(
+      marketData?.price_change_percentage_24h
+    ),
     change_7d_percent: nullableNumber(marketData?.price_change_percentage_7d),
     market_cap_usd: nullableNumber(marketData?.market_cap?.usd),
     fdv_usd: nullableNumber(marketData?.fully_diluted_valuation?.usd),
@@ -611,7 +661,8 @@ function buildResponse({ route, rows, walletMetaById, marketSummary }) {
 
     market: {
       price_per_unit_usd:
-        marketSummary.price_per_unit_usd ?? safeNumber(primaryRow?.price_per_unit_usd),
+        marketSummary.price_per_unit_usd ??
+        safeNumber(primaryRow?.price_per_unit_usd),
       price_source: marketSummary.source || primaryRow?.price_source || null,
       change_24h_percent: marketSummary.change_24h_percent,
       change_7d_percent: marketSummary.change_7d_percent,
@@ -643,7 +694,8 @@ function buildResponse({ route, rows, walletMetaById, marketSummary }) {
     debug: {
       matched_rows: rows.length,
       matched_wallets: totals.wallet_count,
-      resolver: "wallet_holdings_case_insensitive_js_match_with_market_summary_and_alias_support",
+      resolver:
+        "wallet_holdings_case_insensitive_js_match_with_market_summary_and_alias_support",
     },
   };
 }
@@ -733,8 +785,7 @@ function buildRouteList(rows) {
 async function fetchRouteModeRows() {
   const { data, error } = await supabase
     .from("wallet_holdings")
-    .select(
-      `
+    .select(`
       wallet_id,
       token_symbol,
       token_name,
@@ -742,8 +793,7 @@ async function fetchRouteModeRows() {
       value_usd,
       price_per_unit_usd,
       snapshot_time
-      `
-    )
+    `)
     .order("snapshot_time", { ascending: false })
     .limit(2500);
 
@@ -832,7 +882,8 @@ module.exports = async function handler(req, res) {
         debug: {
           matched_rows: 0,
           matched_wallets: 0,
-          resolver: "wallet_holdings_case_insensitive_js_match_with_market_summary_fallback",
+          resolver:
+            "wallet_holdings_case_insensitive_js_match_with_market_summary_fallback",
         },
       });
     }
