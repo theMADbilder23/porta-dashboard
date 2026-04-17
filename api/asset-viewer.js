@@ -311,6 +311,85 @@ async function fetchWalletMeta(walletIds) {
   return map;
 }
 
+async function fetchExactQubicRows(route) {
+  if (route.canonicalAssetKey !== "qubic:qubic") {
+    return [];
+  }
+
+  const selectClause = `
+    id,
+    wallet_id,
+    token_symbol,
+    token_name,
+    network,
+    amount,
+    value_usd,
+    category,
+    protocol,
+    is_yield_position,
+    asset_id,
+    asset_class,
+    yield_profile,
+    mmii_bucket,
+    mmii_subclass,
+    price_source,
+    price_per_unit_usd,
+    position_role,
+    snapshot_time,
+    created_at
+  `;
+
+  // 🔥 SAFE MULTI-QUERY APPROACH (NO .or())
+  const [byAssetId, bySymbol, byName] = await Promise.all([
+    supabase
+      .from("wallet_holdings")
+      .select(selectClause)
+      .eq("network", "qubic")
+      .in("asset_id", ["qubic:QUBIC", "qubic:qubic"])
+      .order("snapshot_time", { ascending: false })
+      .limit(1000),
+
+    supabase
+      .from("wallet_holdings")
+      .select(selectClause)
+      .eq("network", "qubic")
+      .in("token_symbol", ["QUBIC", "qubic"])
+      .order("snapshot_time", { ascending: false })
+      .limit(1000),
+
+    supabase
+      .from("wallet_holdings")
+      .select(selectClause)
+      .eq("network", "qubic")
+      .in("token_name", ["Qubic", "QUBIC", "qubic"])
+      .order("snapshot_time", { ascending: false })
+      .limit(1000),
+  ]);
+
+  for (const result of [byAssetId, bySymbol, byName]) {
+    if (result.error) throw result.error;
+  }
+
+  const combined = [
+    ...(byAssetId.data || []),
+    ...(bySymbol.data || []),
+    ...(byName.data || []),
+  ];
+
+  // 🔥 HARD DEDUPE
+  const map = new Map();
+  for (const row of combined) {
+    if (!row?.id) continue;
+    map.set(row.id, row);
+  }
+
+  const finalRows = Array.from(map.values());
+
+  console.log("[QUBIC DEBUG] exact rows found:", finalRows.length);
+
+  return finalRows;
+}
+
 async function fetchCandidateRows(route) {
   const symbolCandidates = uniq([
     route.symbol,
@@ -831,8 +910,16 @@ module.exports = async function handler(req, res) {
     }
 
     const route = parseAssetRoute(requested);
-    const candidateRows = await fetchCandidateRows(route);
-    const matchedRows = candidateRows.filter((row) => rowMatchesRoute(row, route));
+
+    const exactQubicRows = await fetchExactQubicRows(route);
+    const candidateRows = exactQubicRows.length
+      ? exactQubicRows
+      : await fetchCandidateRows(route);
+
+    const matchedRows = exactQubicRows.length
+      ? exactQubicRows
+      : candidateRows.filter((row) => rowMatchesRoute(row, route));
+
     const latestRows = reduceToLatestSnapshotRowsPerWallet(matchedRows);
     const marketSummary = await fetchLockedMarketSummary(route);
 
