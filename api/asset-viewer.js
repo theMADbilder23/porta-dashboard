@@ -425,40 +425,113 @@ function reduceToLatestSnapshotRowsPerWallet(rows) {
   });
 }
 
+async function fetchCoinMarketsSummary(coinId) {
+  const url = new URL(`${GECKO_BASE_URL}/coins/markets`);
+  url.searchParams.set("vs_currency", "usd");
+  url.searchParams.set("ids", coinId);
+  url.searchParams.set("price_change_percentage", "24h,7d");
+  url.searchParams.set("precision", "full");
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: getDemoHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `[asset-viewer] ${coinId} markets fetch failed: ${response.status} ${response.statusText}`
+    );
+  }
+
+  const json = await response.json();
+  const coin = Array.isArray(json) ? json[0] : null;
+
+  return {
+    price_per_unit_usd: nullableNumber(coin?.current_price),
+    change_24h_percent: nullableNumber(coin?.price_change_percentage_24h),
+    change_7d_percent: nullableNumber(
+      coin?.price_change_percentage_7d_in_currency
+    ),
+    market_cap_usd: nullableNumber(coin?.market_cap),
+    fdv_usd: nullableNumber(coin?.fully_diluted_valuation),
+    volume_24h_usd: nullableNumber(coin?.total_volume),
+    liquidity_usd: null,
+    source: "coingecko_markets",
+  };
+}
+
+async function fetchCoinDetailSummary(coinId) {
+  const url = new URL(`${GECKO_BASE_URL}/coins/${coinId}`);
+  url.searchParams.set("localization", "false");
+  url.searchParams.set("tickers", "false");
+  url.searchParams.set("community_data", "false");
+  url.searchParams.set("developer_data", "false");
+  url.searchParams.set("sparkline", "false");
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: getDemoHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `[asset-viewer] ${coinId} detail fetch failed: ${response.status} ${response.statusText}`
+    );
+  }
+
+  const json = await response.json();
+  const marketData = json?.market_data || null;
+
+  return {
+    price_per_unit_usd: nullableNumber(marketData?.current_price?.usd),
+    change_24h_percent: nullableNumber(
+      marketData?.price_change_percentage_24h
+    ),
+    change_7d_percent: nullableNumber(marketData?.price_change_percentage_7d),
+    market_cap_usd: nullableNumber(marketData?.market_cap?.usd),
+    fdv_usd: nullableNumber(marketData?.fully_diluted_valuation?.usd),
+    volume_24h_usd: nullableNumber(marketData?.total_volume?.usd),
+    liquidity_usd: null,
+    source: "coingecko_markets",
+  };
+}
+
 async function fetchLockedMarketSummary(route) {
   if (route.canonicalAssetKey === "qubic:qubic") {
-    const url = new URL(`${GECKO_BASE_URL}/coins/markets`);
-    url.searchParams.set("vs_currency", "usd");
-    url.searchParams.set("ids", "qubic");
-    url.searchParams.set("price_change_percentage", "24h,7d");
-    url.searchParams.set("precision", "full");
-
-    const response = await fetch(url.toString(), {
-      method: "GET",
-      headers: getDemoHeaders(),
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        `[asset-viewer] QUBIC market fetch failed: ${response.status} ${response.statusText}`
-      );
-    }
-
-    const json = await response.json();
-    const coin = Array.isArray(json) ? json[0] : null;
+    const marketSummary = await fetchCoinMarketsSummary("qubic");
+    const detailSummary = await fetchCoinDetailSummary("qubic");
 
     return {
-      price_per_unit_usd: nullableNumber(coin?.current_price),
-      change_24h_percent: nullableNumber(coin?.price_change_percentage_24h),
-      change_7d_percent: nullableNumber(
-        coin?.price_change_percentage_7d_in_currency
-      ),
-      market_cap_usd: nullableNumber(coin?.market_cap),
-      fdv_usd: nullableNumber(coin?.fully_diluted_valuation),
-      volume_24h_usd: nullableNumber(coin?.total_volume),
+      price_per_unit_usd:
+        marketSummary.price_per_unit_usd ?? detailSummary.price_per_unit_usd,
+      change_24h_percent:
+        marketSummary.change_24h_percent ?? detailSummary.change_24h_percent,
+      change_7d_percent:
+        marketSummary.change_7d_percent ?? detailSummary.change_7d_percent,
+      market_cap_usd:
+        marketSummary.market_cap_usd ?? detailSummary.market_cap_usd,
+      fdv_usd: marketSummary.fdv_usd ?? detailSummary.fdv_usd,
+      volume_24h_usd:
+        marketSummary.volume_24h_usd ?? detailSummary.volume_24h_usd,
       liquidity_usd: null,
       source: "coingecko_markets",
     };
+  }
+
+  if (
+    route.canonicalAssetKey === "eth:eth" ||
+    route.canonicalAssetKey === "ethereum:eth" ||
+    route.canonicalAssetKey === "base:eth"
+  ) {
+    return fetchCoinMarketsSummary("ethereum");
+  }
+
+  if (
+    route.canonicalAssetKey === "base:cbbtc" ||
+    route.canonicalAssetKey === "base:btc" ||
+    route.canonicalAssetKey === "btc:btc"
+  ) {
+    return fetchCoinMarketsSummary("bitcoin");
   }
 
   const locked = LOCKED_MARKET_POOLS[route.canonicalAssetKey];
