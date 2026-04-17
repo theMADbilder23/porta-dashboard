@@ -19,18 +19,18 @@ const LOCKED_MARKET_POOLS = {
 };
 
 const ASSET_ALIASES = {
-  "stkwell": "base:well",
+  stkwell: "base:well",
   "base:stkwell": "base:well",
   "base:well": "base:well",
-  "well": "base:well",
+  well: "base:well",
 
-  "mamo": "base:mamo",
+  mamo: "base:mamo",
   "base:mamo": "base:mamo",
 
-  "qcap": "qubic:qcap",
+  qcap: "qubic:qcap",
   "qubic:qcap": "qubic:qcap",
 
-  "qubic": "qubic:qubic",
+  qubic: "qubic:qubic",
   "qubic:qubic": "qubic:qubic",
 };
 
@@ -484,9 +484,7 @@ async function fetchCoinDetailSummary(coinId) {
 
   return {
     price_per_unit_usd: nullableNumber(marketData?.current_price?.usd),
-    change_24h_percent: nullableNumber(
-      marketData?.price_change_percentage_24h
-    ),
+    change_24h_percent: nullableNumber(marketData?.price_change_percentage_24h),
     change_7d_percent: nullableNumber(marketData?.price_change_percentage_7d),
     market_cap_usd: nullableNumber(marketData?.market_cap?.usd),
     fdv_usd: nullableNumber(marketData?.fully_diluted_valuation?.usd),
@@ -786,6 +784,7 @@ module.exports = async function handler(req, res) {
     const candidateRows = await fetchCandidateRows(route);
     const matchedRows = candidateRows.filter((row) => rowMatchesRoute(row, route));
     const latestRows = reduceToLatestSnapshotRowsPerWallet(matchedRows);
+    const marketSummary = await fetchLockedMarketSummary(route);
 
     if (!latestRows.length) {
       return res.status(200).json({
@@ -806,14 +805,14 @@ module.exports = async function handler(req, res) {
           is_yield_position: false,
         },
         market: {
-          price_per_unit_usd: 0,
-          price_source: null,
-          change_24h_percent: null,
-          change_7d_percent: null,
-          market_cap_usd: null,
-          fdv_usd: null,
-          volume_24h_usd: null,
-          liquidity_usd: null,
+          price_per_unit_usd: marketSummary.price_per_unit_usd ?? 0,
+          price_source: marketSummary.source || null,
+          change_24h_percent: marketSummary.change_24h_percent ?? null,
+          change_7d_percent: marketSummary.change_7d_percent ?? null,
+          market_cap_usd: marketSummary.market_cap_usd ?? null,
+          fdv_usd: marketSummary.fdv_usd ?? null,
+          volume_24h_usd: marketSummary.volume_24h_usd ?? null,
+          liquidity_usd: marketSummary.liquidity_usd ?? null,
         },
         position: {
           total_amount: 0,
@@ -833,16 +832,13 @@ module.exports = async function handler(req, res) {
         debug: {
           matched_rows: 0,
           matched_wallets: 0,
-          resolver: "wallet_holdings_case_insensitive_js_match",
+          resolver: "wallet_holdings_case_insensitive_js_match_with_market_summary_fallback",
         },
       });
     }
 
     const walletIds = uniq(latestRows.map((row) => row.wallet_id));
-    const [walletMetaById, marketSummary] = await Promise.all([
-      fetchWalletMeta(walletIds),
-      fetchLockedMarketSummary(route),
-    ]);
+    const walletMetaById = await fetchWalletMeta(walletIds);
 
     return res.status(200).json({
       found: true,
