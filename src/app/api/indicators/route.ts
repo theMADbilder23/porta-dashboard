@@ -8,9 +8,10 @@ import {
   getLockedPoolAddress,
 } from "@/lib/market/gecko-terminal"
 import { computeIndicators } from "@/lib/indicator-engine"
-import type { PortaTimeframe } from "@/lib/market/types"
+import type { ChartCandle, PortaTimeframe } from "@/lib/market/types"
 
 const ALLOWED_TIMEFRAMES: PortaTimeframe[] = ["1h", "4h", "1d", "3d", "1w", "1m"]
+const GECKO_BASE_URL = "https://api.coingecko.com/api/v3"
 
 function normalizeAssetKey(value: string | null): string {
   return normalizeAssetRegistryKey(value)
@@ -19,6 +20,280 @@ function normalizeAssetKey(value: string | null): string {
 function normalizeTimeframe(value: string | null): PortaTimeframe {
   const candidate = String(value ?? "4h").trim().toLowerCase() as PortaTimeframe
   return ALLOWED_TIMEFRAMES.includes(candidate) ? candidate : "4h"
+}
+
+function getDemoHeaders(): HeadersInit {
+  const apiKey = process.env.COINGECKO_DEMO_API_KEY
+
+  if (!apiKey) {
+    return {
+      accept: "application/json",
+    }
+  }
+
+  return {
+    accept: "application/json",
+    "x-cg-demo-api-key": apiKey,
+  }
+}
+
+function safeNumber(value: unknown): number {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
+}
+
+function uniqueCandlesByTime(candles: ChartCandle[]): ChartCandle[] {
+  const byTime = new Map<number, ChartCandle>()
+
+  for (const candle of candles) {
+    if (!Number.isFinite(candle.time) || candle.time <= 0) continue
+    byTime.set(candle.time, candle)
+  }
+
+  return Array.from(byTime.values()).sort((a, b) => a.time - b.time)
+}
+
+function startOfUtcDay(timestampSeconds: number): number {
+  const date = new Date(timestampSeconds * 1000)
+  return (
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate(),
+      0,
+      0,
+      0,
+      0
+    ) / 1000
+  )
+}
+
+function startOfUtcWeek(timestampSeconds: number): number {
+  const date = new Date(timestampSeconds * 1000)
+  const day = date.getUTCDay()
+  const diffToMonday = (day + 6) % 7
+
+  return (
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate() - diffToMonday,
+      0,
+      0,
+      0,
+      0
+    ) / 1000
+  )
+}
+
+function startOfUtcMonth(timestampSeconds: number): number {
+  const date = new Date(timestampSeconds * 1000)
+  return (
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1, 0, 0, 0, 0) / 1000
+  )
+}
+
+function aggregateGroupedCandles(
+  candles: ChartCandle[],
+  bucketFn: (timestampSeconds: number) => number
+): ChartCandle[] {
+  if (!candles.length) return []
+
+  const groups = new Map<number, ChartCandle[]>()
+
+  for (const candle of candles) {
+    const bucketStart = bucketFn(candle.time)
+
+    if (!groups.has(bucketStart)) {
+      groups.set(bucketStart, [])
+    }
+
+    groups.get(bucketStart)!.push(candle)
+  }
+
+  return Array.from(groups.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([bucketStart, group]) => {
+      const sorted = [...group].sort((a, b) => a.time - b.time)
+      const first = sorted[0]
+      const last = sorted[sorted.length - 1]
+
+      return {
+        time: bucketStart,
+        open: first.open,
+        high: Math.max(...sorted.map((c) => c.high)),
+        low: Math.min(...sorted.map((c) => c.low)),
+        close: last.close,
+        volume: sorted.reduce((sum, candle) => sum + candle.volume, 0),
+      }
+    })
+}
+
+function aggregateCandlesBySeconds(
+  candles: ChartCandle[],
+  bucketSizeSeconds: number
+): ChartCandle[] {
+  return aggregateGroupedCandles(candles, (timestampSeconds) => {
+    return Math.floor(timestampSeconds / bucketSizeSeconds) * bucketSizeSeconds
+  })
+}
+
+function aggregateCandlesForPortaTimeframe(
+  candles: ChartCandle[],
+  timeframe: PortaTimeframe
+): ChartCandle[] {
+  const normalized = uniqueCandlesByTime(candles)
+
+  switch (timeframe) {
+    case "1h":
+    case "1d":
+      return normalized
+
+    case "4h":
+      return aggregateCandlesBySeconds(normalized, 4 * 60 * 60)
+
+    case "3d":
+      return aggregateGroupedCandles(normalized, (timestampSeconds) => {
+        const dayStart = startOfUtcDay(timestampSeconds)
+        const dayIndex = Math.floor(dayStart / 86400)
+        return Math.floor(dayIndex / 3) * 3 * 86400
+      })
+
+    case "1w":
+      return aggregateGroupedCandles(normalized, startOfUtcWeek)
+
+    case "1m":
+      return aggregateGroupedCandles(normalized, startOfUtcMonth)
+
+    default:
+      return normalized
+  }
+}
+
+function mapCoinGeckoDays(timeframe: PortaTimeframe): string {
+  switch (timeframe) {
+    case "1h":
+      return "1"
+    case "4h":
+      return "7"
+    case "1d":
+      return "30"
+    case "3d":
+      return "90"
+    case "1w":
+      return "180"
+    case "1m":
+      return "365"
+    default:
+      return "7"
+  }
+}
+
+async function fetchCoinGeckoOhlcCandles(params: {
+  coinId: string
+  timeframe: PortaTimeframe
+}): Promise<ChartCandle[]> {
+  const days = mapCoinGeckoDays(params.timeframe)
+
+  const ohlcUrl = new URL(`${GECKO_BASE_URL}/coins/${params.coinId}/ohlc`)
+  ohlcUrl.searchParams.set("vs_currency", "usd")
+  ohlcUrl.searchParams.set("days", days)
+
+  const volumeUrl = new URL(`${GECKO_BASE_URL}/coins/${params.coinId}/market_chart`)
+  volumeUrl.searchParams.set("vs_currency", "usd")
+  volumeUrl.searchParams.set("days", days)
+
+  const [ohlcResponse, volumeResponse] = await Promise.all([
+    fetch(ohlcUrl.toString(), {
+      method: "GET",
+      headers: getDemoHeaders(),
+      next: { revalidate: 30 },
+    }),
+    fetch(volumeUrl.toString(), {
+      method: "GET",
+      headers: getDemoHeaders(),
+      next: { revalidate: 30 },
+    }),
+  ])
+
+  if (!ohlcResponse.ok) {
+    throw new Error(
+      `[indicators] ${params.coinId} OHLC fetch failed: ${ohlcResponse.status} ${ohlcResponse.statusText}`
+    )
+  }
+
+  if (!volumeResponse.ok) {
+    throw new Error(
+      `[indicators] ${params.coinId} market_chart fetch failed: ${volumeResponse.status} ${volumeResponse.statusText}`
+    )
+  }
+
+  const ohlcJson = await ohlcResponse.json()
+  const volumeJson = await volumeResponse.json()
+
+  const ohlcRows = Array.isArray(ohlcJson) ? ohlcJson : []
+  const volumeRows = Array.isArray(volumeJson?.total_volumes)
+    ? volumeJson.total_volumes
+    : []
+
+  const volumeByTime = new Map<number, number>()
+
+  for (const row of volumeRows) {
+    if (!Array.isArray(row) || row.length < 2) continue
+    const timestampMs = safeNumber(row[0])
+    const volume = safeNumber(row[1])
+    const timestampSec = Math.floor(timestampMs / 1000)
+    if (timestampSec > 0) {
+      volumeByTime.set(timestampSec, volume)
+    }
+  }
+
+  const candles = ohlcRows
+    .map((row: unknown) => {
+      if (!Array.isArray(row) || row.length < 5) return null
+
+      const timestampMs = safeNumber(row[0])
+      const time = Math.floor(timestampMs / 1000)
+      const open = safeNumber(row[1])
+      const high = safeNumber(row[2])
+      const low = safeNumber(row[3])
+      const close = safeNumber(row[4])
+
+      let volume = 0
+
+      if (volumeByTime.has(time)) {
+        volume = volumeByTime.get(time) ?? 0
+      } else {
+        const candidates = Array.from(volumeByTime.keys()).sort(
+          (a, b) => Math.abs(a - time) - Math.abs(b - time)
+        )
+        const nearest = candidates[0]
+        if (nearest != null && Math.abs(nearest - time) <= 4 * 60 * 60) {
+          volume = volumeByTime.get(nearest) ?? 0
+        }
+      }
+
+      return {
+        time,
+        open,
+        high,
+        low,
+        close,
+        volume,
+      }
+    })
+    .filter((candle): candle is ChartCandle => {
+      return Boolean(
+        candle &&
+          candle.time > 0 &&
+          Number.isFinite(candle.open) &&
+          Number.isFinite(candle.high) &&
+          Number.isFinite(candle.low) &&
+          Number.isFinite(candle.close)
+      )
+    })
+
+  return aggregateCandlesForPortaTimeframe(candles, params.timeframe)
 }
 
 function deriveSignalBias(params: {
@@ -117,38 +392,49 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    let candles: ChartCandle[] = []
+    let resolvedSource = entry.source
+
     if (entry.source === "qubicswap") {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: `Indicator source not wired yet for ${requestedAsset}`,
-          requestedAsset,
-          canonicalAsset: asset,
-          source: entry.source,
-        },
-        { status: 501 }
-      )
-    }
+      if (asset !== "qubic:QUBIC" && asset !== "qubic:qubic") {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Indicator source not wired yet for ${requestedAsset}`,
+            requestedAsset,
+            canonicalAsset: asset,
+            source: entry.source,
+          },
+          { status: 501 }
+        )
+      }
 
-    if (entry.source !== "gecko_pool") {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: `Invalid asset source for ${requestedAsset}`,
-          requestedAsset,
-          canonicalAsset: asset,
-          source: entry.source,
-        },
-        { status: 500 }
-      )
-    }
+      candles = await fetchCoinGeckoOhlcCandles({
+        coinId: "qubic-network",
+        timeframe,
+      })
+      resolvedSource = "coingecko_markets"
+    } else {
+      if (entry.source !== "gecko_pool") {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Invalid asset source for ${requestedAsset}`,
+            requestedAsset,
+            canonicalAsset: asset,
+            source: entry.source,
+          },
+          { status: 500 }
+        )
+      }
 
-    const candles = await fetchLockedAssetCandles({
-      entry,
-      timeframe,
-      currency: "usd",
-      tokenSide: "base",
-    })
+      candles = await fetchLockedAssetCandles({
+        entry,
+        timeframe,
+        currency: "usd",
+        tokenSide: "base",
+      })
+    }
 
     if (!candles.length) {
       return NextResponse.json(
@@ -157,7 +443,7 @@ export async function GET(request: NextRequest) {
           error: `No candles returned for ${requestedAsset} on ${timeframe}`,
           requestedAsset,
           canonicalAsset: asset,
-          source: entry.source,
+          source: resolvedSource,
         },
         { status: 424 }
       )
@@ -179,7 +465,7 @@ export async function GET(request: NextRequest) {
       asset: requestedAsset,
       canonicalAsset: asset,
       timeframe,
-      source: entry.source,
+      source: resolvedSource,
       resolvedPool: {
         network: entry.network,
         tokenAddress: entry.tokenAddress ?? "",
