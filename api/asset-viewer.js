@@ -616,7 +616,7 @@ async function fetchCoinMarketsSummary(coinId) {
 
 async function fetchLockedMarketSummary(route) {
   if (route.canonicalAssetKey === "qubic:qubic") {
-    return fetchCoinMarketsSummary("qubic");
+    return fetchCoinMarketsSummary("qubic-network");
   }
 
   if (
