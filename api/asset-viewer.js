@@ -598,10 +598,6 @@ async function fetchCoinMarketsSummary(coinId) {
   const json = await response.json();
   const coin = Array.isArray(json) ? json[0] : null;
 
-  if (coinId === "qubic") {
-    console.log("[asset-viewer] qubic market coin raw", coin);
-  }
-
   return {
     price_per_unit_usd: nullableNumber(coin?.current_price),
     change_24h_percent: nullableNumber(coin?.price_change_percentage_24h),
