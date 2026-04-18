@@ -91,6 +91,7 @@ type AssetIndicatorsResponse = {
   asset?: string;
   timeframe?: AssetIndicatorTimeframe | string;
   source?: string;
+  indicatorSourceLabel?: string | null;
   resolvedPool?: {
     network: string;
     tokenAddress: string;
@@ -1176,11 +1177,17 @@ export default async function AssetViewerPage({
               <CompactSignalCard
                 label="Indicator Source"
                 value={
-                  indicatorData?.source
-                    ? formatCategoryLabel(indicatorData.source)
-                    : "—"
+                  indicatorData?.indicatorSourceLabel
+                    ? indicatorData.indicatorSourceLabel
+                    : indicatorData?.source
+                      ? formatCategoryLabel(indicatorData.source)
+                      : "—"
                 }
-                sublabel="Locked pool indicator engine source."
+                sublabel={
+                  indicatorData?.indicatorSourceLabel
+                    ? "Resolved indicator candle feed."
+                    : "Locked pool indicator engine source."
+                }
               />
             </div>
           ) : null}

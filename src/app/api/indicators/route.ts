@@ -244,6 +244,7 @@ async function fetchCoinGeckoOhlcCandles(params: {
     const timestampMs = safeNumber(row[0])
     const volume = safeNumber(row[1])
     const timestampSec = Math.floor(timestampMs / 1000)
+
     if (timestampSec > 0) {
       volumeByTime.set(timestampSec, volume)
     }
@@ -269,6 +270,7 @@ async function fetchCoinGeckoOhlcCandles(params: {
           (a, b) => Math.abs(a - time) - Math.abs(b - time)
         )
         const nearest = candidates[0]
+
         if (nearest != null && Math.abs(nearest - time) <= 4 * 60 * 60) {
           volume = volumeByTime.get(nearest) ?? 0
         }
@@ -395,6 +397,7 @@ export async function GET(request: NextRequest) {
 
     let candles: ChartCandle[] = []
     let resolvedSource = entry.source
+    let indicatorSourceLabel: string | null = null
 
     if (entry.source === "qubicswap") {
       if (asset !== "qubic:QUBIC" && asset !== "qubic:qubic") {
@@ -414,8 +417,9 @@ export async function GET(request: NextRequest) {
         coinId: "qubic-network",
         timeframe,
       })
-      
+
       resolvedSource = entry.source
+      indicatorSourceLabel = "Gate Spot"
     } else {
       if (entry.source !== "gecko_pool") {
         return NextResponse.json(
@@ -436,6 +440,10 @@ export async function GET(request: NextRequest) {
         currency: "usd",
         tokenSide: "base",
       })
+
+      indicatorSourceLabel = entry.preferredDex
+        ? `${entry.preferredDex} Pool`
+        : entry.source
     }
 
     if (!candles.length) {
@@ -468,6 +476,7 @@ export async function GET(request: NextRequest) {
       canonicalAsset: asset,
       timeframe,
       source: resolvedSource,
+      indicatorSourceLabel,
       resolvedPool: {
         network: entry.network,
         tokenAddress: entry.tokenAddress ?? "",
