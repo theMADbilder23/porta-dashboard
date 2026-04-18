@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server"
+import type { NextRequest } from "next/server"
+import { NextResponse } from "next/server"
 import {
   getAssetRegistryEntry,
   normalizeAssetRegistryKey,
@@ -413,7 +414,8 @@ export async function GET(request: NextRequest) {
         coinId: "qubic-network",
         timeframe,
       })
-      resolvedSource = "coingecko_markets"
+      
+      resolvedSource = entry.source
     } else {
       if (entry.source !== "gecko_pool") {
         return NextResponse.json(
