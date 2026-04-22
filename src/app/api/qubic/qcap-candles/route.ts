@@ -1,31 +1,34 @@
-const BASE_URL = "https://qubicswap.com/api/v1/markets/QCAP/candles";
+const BASE_URLS = [
+  "https://qubicswap.com/api/v1/markets/QCAP/candles",
+  "https://qubicswap.com/api/v1/markets/qcap/candles",
+]
 
 type CandleRequestConfig = {
-  interval: string;
-  days: number;
-  limit: number;
-};
+  interval: string
+  days: number
+  limit: number
+}
 
 type RawCandle = {
-  openTime?: number | string;
-  open?: number | string;
-  high?: number | string;
-  low?: number | string;
-  close?: number | string;
-  volume?: number | string;
-};
+  openTime?: number | string
+  open?: number | string
+  high?: number | string
+  low?: number | string
+  close?: number | string
+  volume?: number | string
+}
 
-type JsonObject = Record<string, unknown>;
+type JsonObject = Record<string, unknown>
 
 type CandlePayload =
   | RawCandle[]
   | {
-      data?: RawCandle[];
-      items?: RawCandle[];
-      results?: RawCandle[];
-      candles?: RawCandle[];
+      data?: RawCandle[]
+      items?: RawCandle[]
+      results?: RawCandle[]
+      candles?: RawCandle[]
     }
-  | JsonObject;
+  | JsonObject
 
 const TIMEFRAME_MAP: Record<string, CandleRequestConfig> = {
   "30m": { interval: "30m", days: 7, limit: 220 },
@@ -34,20 +37,20 @@ const TIMEFRAME_MAP: Record<string, CandleRequestConfig> = {
   "4h": { interval: "4h", days: 60, limit: 260 },
   "8h": { interval: "8h", days: 120, limit: 220 },
   "1d": { interval: "1d", days: 220, limit: 220 },
-};
+}
 
 function toNumber(value: unknown): number | null {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
+  const num = Number(value)
+  return Number.isFinite(num) ? num : null
 }
 
 function normalizeCandle(candle: RawCandle) {
-  const openTime = Number(candle?.openTime);
-  const open = toNumber(candle?.open);
-  const high = toNumber(candle?.high);
-  const low = toNumber(candle?.low);
-  const close = toNumber(candle?.close);
-  const volume = toNumber(candle?.volume);
+  const openTime = Number(candle?.openTime)
+  const open = toNumber(candle?.open)
+  const high = toNumber(candle?.high)
+  const low = toNumber(candle?.low)
+  const close = toNumber(candle?.close)
+  const volume = toNumber(candle?.volume)
 
   if (
     !Number.isFinite(openTime) ||
@@ -57,7 +60,7 @@ function normalizeCandle(candle: RawCandle) {
     close === null ||
     volume === null
   ) {
-    return null;
+    return null
   }
 
   return {
@@ -67,90 +70,152 @@ function normalizeCandle(candle: RawCandle) {
     low,
     close,
     volume,
-  };
+  }
 }
 
 function extractCandles(payload: CandlePayload): RawCandle[] {
-  if (Array.isArray(payload)) return payload;
-  if ("data" in payload && Array.isArray(payload.data)) return payload.data;
-  if ("items" in payload && Array.isArray(payload.items)) return payload.items;
-  if ("results" in payload && Array.isArray(payload.results)) return payload.results;
-  if ("candles" in payload && Array.isArray(payload.candles)) return payload.candles;
-  return [];
+  if (Array.isArray(payload)) return payload
+  if ("data" in payload && Array.isArray(payload.data)) return payload.data
+  if ("items" in payload && Array.isArray(payload.items)) return payload.items
+  if ("results" in payload && Array.isArray(payload.results)) return payload.results
+  if ("candles" in payload && Array.isArray(payload.candles)) return payload.candles
+  return []
 }
 
-export async function GET(request: Request) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+function buildUpstreamUrls(config: CandleRequestConfig): string[] {
+  return BASE_URLS.map(
+    (baseUrl) =>
+      `${baseUrl}?interval=${encodeURIComponent(config.interval)}` +
+      `&days=${config.days}&limit=${config.limit}`
+  )
+}
 
-  try {
-    const { searchParams } = new URL(request.url);
-    const timeframe = (searchParams.get("timeframe") || "8h").toLowerCase();
-    const config = TIMEFRAME_MAP[timeframe] || TIMEFRAME_MAP["8h"];
+async function fetchFirstWorkingUpstream(args: {
+  upstreamUrls: string[]
+  signal: AbortSignal
+}) {
+  const attempts: Array<{
+    upstreamUrl: string
+    ok: boolean
+    status: number | null
+    contentType: string
+    rawText: string
+  }> = []
 
-    const upstreamUrl =
-      `${BASE_URL}?interval=${encodeURIComponent(config.interval)}` +
-      `&days=${config.days}&limit=${config.limit}`;
-
+  for (const upstreamUrl of args.upstreamUrls) {
     const response = await fetch(upstreamUrl, {
       method: "GET",
       headers: {
         Accept: "application/json, text/plain, */*",
         "User-Agent": "Mozilla/5.0 PortaDashboard/1.0",
+        Referer: "https://qubicswap.com/",
+        Origin: "https://qubicswap.com",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
       },
       cache: "no-store",
+      signal: args.signal,
+    })
+
+    const contentType = response.headers.get("content-type") || ""
+    const rawText = await response.text()
+
+    attempts.push({
+      upstreamUrl,
+      ok: response.ok,
+      status: response.status,
+      contentType,
+      rawText,
+    })
+
+    if (response.ok) {
+      return {
+        success: true as const,
+        upstreamUrl,
+        contentType,
+        rawText,
+        attempts,
+      }
+    }
+  }
+
+  return {
+    success: false as const,
+    attempts,
+  }
+}
+
+export async function GET(request: Request) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 30000)
+
+  try {
+    const { searchParams } = new URL(request.url)
+    const timeframe = (searchParams.get("timeframe") || "8h").toLowerCase()
+    const config = TIMEFRAME_MAP[timeframe] || TIMEFRAME_MAP["8h"]
+    const upstreamUrls = buildUpstreamUrls(config)
+
+    const upstreamResult = await fetchFirstWorkingUpstream({
+      upstreamUrls,
       signal: controller.signal,
-    });
+    })
 
-    const contentType = response.headers.get("content-type") || "";
-    const rawText = await response.text();
+    if (!upstreamResult.success) {
+      const lastAttempt = upstreamResult.attempts[upstreamResult.attempts.length - 1]
 
-    if (!response.ok) {
       return Response.json(
         {
           error: "Upstream fetch failed",
-          status: response.status,
-          contentType,
-          preview: rawText.slice(0, 500),
           timeframe,
-          upstreamUrl,
+          attemptedUrls: upstreamResult.attempts.map((attempt) => attempt.upstreamUrl),
+          attempts: upstreamResult.attempts.map((attempt) => ({
+            upstreamUrl: attempt.upstreamUrl,
+            ok: attempt.ok,
+            status: attempt.status,
+            contentType: attempt.contentType,
+            preview: attempt.rawText.slice(0, 500),
+          })),
+          status: lastAttempt?.status ?? 502,
+          contentType: lastAttempt?.contentType ?? "",
+          preview: lastAttempt?.rawText?.slice(0, 500) ?? "",
         },
         { status: 502 }
-      );
+      )
     }
 
-    let parsed: CandlePayload;
+    let parsed: CandlePayload
 
     try {
-      parsed = JSON.parse(rawText) as CandlePayload;
+      parsed = JSON.parse(upstreamResult.rawText) as CandlePayload
     } catch {
       return Response.json(
         {
           error: "Upstream returned non-JSON response",
-          contentType,
-          preview: rawText.slice(0, 500),
+          contentType: upstreamResult.contentType,
+          preview: upstreamResult.rawText.slice(0, 500),
           timeframe,
-          upstreamUrl,
+          upstreamUrl: upstreamResult.upstreamUrl,
+          attemptedUrls: upstreamResult.attempts.map((attempt) => attempt.upstreamUrl),
         },
         { status: 502 }
-      );
+      )
     }
 
-    const rawCandles = extractCandles(parsed);
+    const rawCandles = extractCandles(parsed)
     const candles = rawCandles
       .map(normalizeCandle)
       .filter(
         (
           candle
         ): candle is {
-          time: number;
-          open: number;
-          high: number;
-          low: number;
-          close: number;
-          volume: number;
+          time: number
+          open: number
+          high: number
+          low: number
+          close: number
+          volume: number
         } => candle !== null
-      );
+      )
 
     if (!candles.length) {
       return Response.json(
@@ -159,10 +224,11 @@ export async function GET(request: Request) {
           rawCount: Array.isArray(rawCandles) ? rawCandles.length : 0,
           sample: Array.isArray(rawCandles) ? rawCandles.slice(0, 3) : [],
           timeframe,
-          upstreamUrl,
+          upstreamUrl: upstreamResult.upstreamUrl,
+          attemptedUrls: upstreamResult.attempts.map((attempt) => attempt.upstreamUrl),
         },
         { status: 502 }
-      );
+      )
     }
 
     return Response.json({
@@ -170,10 +236,10 @@ export async function GET(request: Request) {
       interval: config.interval,
       days: config.days,
       candles,
-    });
+    })
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Unknown server error";
+      error instanceof Error ? error.message : "Unknown server error"
 
     return Response.json(
       {
@@ -181,8 +247,8 @@ export async function GET(request: Request) {
         message,
       },
       { status: 500 }
-    );
+    )
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timeout)
   }
 }
