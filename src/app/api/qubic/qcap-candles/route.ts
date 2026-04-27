@@ -160,7 +160,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const timeframe = (searchParams.get("timeframe") || "1d").toLowerCase()
-    const config = TIMEFRAME_MAP[timeframe] || TIMEFRAME_MAP["8h"]
+    const config = TIMEFRAME_MAP[timeframe] || TIMEFRAME_MAP["1d"]
     const upstreamUrls = buildUpstreamUrls(config)
 
     const upstreamResult = await fetchFirstWorkingUpstream({
