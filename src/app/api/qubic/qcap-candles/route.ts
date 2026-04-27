@@ -5,7 +5,6 @@ const BASE_URLS = [
 
 type CandleRequestConfig = {
   interval: string
-  days: number
   limit: number
 }
 
@@ -21,6 +20,14 @@ type RawCandle = {
 type JsonObject = Record<string, unknown>
 
 type CandlePayload =
+  | {
+      page?: {
+        oldestOpenTime?: number
+        hasMoreOlder?: boolean
+        newestOpenTime?: number
+      }
+      candles?: RawCandle[]
+    }
   | RawCandle[]
   | {
       data?: RawCandle[]
@@ -31,12 +38,13 @@ type CandlePayload =
   | JsonObject
 
 const TIMEFRAME_MAP: Record<string, CandleRequestConfig> = {
-  "30m": { interval: "30m", days: 7, limit: 220 },
-  "1h": { interval: "1h", days: 14, limit: 240 },
-  "2h": { interval: "2h", days: 30, limit: 260 },
-  "4h": { interval: "4h", days: 60, limit: 260 },
-  "8h": { interval: "8h", days: 120, limit: 220 },
-  "1d": { interval: "1d", days: 220, limit: 220 },
+  "30m": { interval: "30m", limit: 220 },
+  "1h": { interval: "1h", limit: 240 },
+  "2h": { interval: "2h", limit: 260 },
+  "4h": { interval: "4h", limit: 260 },
+  "8h": { interval: "8h", limit: 220 },
+  "1d": { interval: "1d", limit: 220 },
+  "7d": { interval: "7d", limit: 120 },
 }
 
 function toNumber(value: unknown): number | null {
@@ -75,10 +83,10 @@ function normalizeCandle(candle: RawCandle) {
 
 function extractCandles(payload: CandlePayload): RawCandle[] {
   if (Array.isArray(payload)) return payload
+  if ("candles" in payload && Array.isArray(payload.candles)) return payload.candles
   if ("data" in payload && Array.isArray(payload.data)) return payload.data
   if ("items" in payload && Array.isArray(payload.items)) return payload.items
   if ("results" in payload && Array.isArray(payload.results)) return payload.results
-  if ("candles" in payload && Array.isArray(payload.candles)) return payload.candles
   return []
 }
 
@@ -86,7 +94,7 @@ function buildUpstreamUrls(config: CandleRequestConfig): string[] {
   return BASE_URLS.map(
     (baseUrl) =>
       `${baseUrl}?interval=${encodeURIComponent(config.interval)}` +
-      `&days=${config.days}&limit=${config.limit}`
+      `&limit=${config.limit}`
   )
 }
 
@@ -216,6 +224,7 @@ export async function GET(request: Request) {
           volume: number
         } => candle !== null
       )
+      .sort((a, b) => a.time - b.time)
 
     if (!candles.length) {
       return Response.json(
@@ -234,7 +243,6 @@ export async function GET(request: Request) {
     return Response.json({
       timeframe,
       interval: config.interval,
-      days: config.days,
       candles,
     })
   } catch (error) {
