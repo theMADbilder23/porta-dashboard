@@ -42,9 +42,9 @@ const TIMEFRAME_MAP: Record<string, CandleRequestConfig> = {
   "1h": { interval: "1h", limit: 200 },
   "2h": { interval: "2h", limit: 200 },
   "4h": { interval: "4h", limit: 200 },
-  "8h": { interval: "8h", limit: 200 },
   "1d": { interval: "1d", limit: 200 },
-  "7d": { interval: "7d", limit: 200 },
+  "3d": { interval: "1d", limit: 200 },
+  "1w": { interval: "7d", limit: 200 },
 }
 
 function toNumber(value: unknown): number | null {
