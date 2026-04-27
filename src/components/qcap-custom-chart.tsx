@@ -61,8 +61,9 @@ const TIMEFRAMES: TimeframeOption[] = [
   { key: "1h", label: "1H", minCandles: 120 },
   { key: "2h", label: "2H", minCandles: 120 },
   { key: "4h", label: "4H", minCandles: 120 },
-  { key: "8h", label: "8H", minCandles: 120 },
   { key: "1d", label: "1D", minCandles: 120 },
+  { key: "3d", label: "3D", minCandles: 120 },
+  { key: "1w", label: "1W", minCandles: 120 },
 ]
 
 const MIN_CANDLES_FOR_INDICATORS = 120
@@ -442,7 +443,7 @@ export default function QcapCustomChart({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [hoveredCandle, setHoveredCandle] = useState<ChartCandle | null>(null)
-  const [timeframe, setTimeframe] = useState<string>("8h")
+  const [timeframe, setTimeframe] = useState<string>("1d")
   const [showTimeframeMenu, setShowTimeframeMenu] = useState(false)
 
   const priceContainerRef = useRef<HTMLDivElement | null>(null)
@@ -461,7 +462,7 @@ export default function QcapCustomChart({
   const syncingFromMacdRef = useRef(false)
   const syncingFromStochRef = useRef(false)
 
-  const supportedTimeframes = useMemo(() => ["8h", "1d"], [])
+  const supportedTimeframes = useMemo(() => ["1h", "2h", "4h", "1d", "3d", "1w"], [])
 
   useEffect(() => {
     const safeTimeframe = getDefaultSupportedTimeframe(
