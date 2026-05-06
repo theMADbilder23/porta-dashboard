@@ -340,7 +340,10 @@ function buildTimeframeSummary(rows, timeframe) {
   const claimableRollup = buildResetAwareTotalClaimable(rows);
   const yieldFlowRollup = buildResetAwarePeriodYieldFlow(rows, timeframe);
 
-  const totalYieldFlowUsd = safeNumber(yieldFlowRollup.total_yield_flow_usd);
+  const totalYieldFlowUsd =
+    timeframe === "daily"
+      ? safeNumber(yieldFlowRollup.total_yield_flow_usd)
+      : safeNumber(yieldFlowRollup.active_yield_flow_usd);
   const periodYieldRatio = avgTpv > 0 ? totalYieldFlowUsd / avgTpv : 0;
 
   return {
