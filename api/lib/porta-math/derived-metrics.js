@@ -62,19 +62,10 @@ function getStartDateIso(timeframe) {
   const days = getTimeframeDays(timeframe);
 
   const start = new Date(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate(),
-      0,
-      0,
-      0,
-      0
-    )
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
   );
 
   start.setUTCDate(start.getUTCDate() - (days - 1));
-
   return start.toISOString().split("T")[0];
 }
 
@@ -82,15 +73,7 @@ function getIntradayStartIso() {
   const now = new Date();
 
   return new Date(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate(),
-      0,
-      0,
-      0,
-      0
-    )
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
   ).toISOString();
 }
 
@@ -100,36 +83,21 @@ function getAsOfDateIso() {
 
 function formatMetricDateLabel(metricDate, timeframe) {
   const date = new Date(`${metricDate}T00:00:00Z`);
-
   if (!Number.isFinite(date.getTime())) return "—";
 
-  if (
-    timeframe === "daily" ||
-    timeframe === "weekly" ||
-    timeframe === "monthly"
-  ) {
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    });
+  if (timeframe === "daily" || timeframe === "weekly" || timeframe === "monthly") {
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   }
 
   if (timeframe === "quarterly") {
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      year: "2-digit",
-    });
+    return date.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
   }
 
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    year: "numeric",
-  });
+  return date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
 }
 
 function formatDailyBucketLabel(metricTime) {
   const date = new Date(metricTime);
-
   if (!Number.isFinite(date.getTime())) return "—";
 
   return date.toLocaleTimeString("en-US", {
@@ -215,10 +183,7 @@ function shouldTreatAsClaimableReset(previousRow, currentRow) {
   const dropUsd = previousClaimable - currentClaimable;
   const ratio = currentClaimable / previousClaimable;
 
-  return (
-    dropUsd >= CLAIMABLE_RESET_MIN_DROP_USD &&
-    ratio <= CLAIMABLE_RESET_RATIO_THRESHOLD
-  );
+  return dropUsd >= CLAIMABLE_RESET_MIN_DROP_USD && ratio <= CLAIMABLE_RESET_RATIO_THRESHOLD;
 }
 
 function buildResetAwareTotalClaimable(rows) {
@@ -268,20 +233,85 @@ function buildResetAwareTotalClaimable(rows) {
   };
 }
 
+function buildResetAwarePeriodYieldFlow(rows, timeframe = "daily") {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return {
+      total_yield_flow_usd: 0,
+      locked_yield_flow_usd: 0,
+      active_yield_flow_usd: 0,
+      reset_count: 0,
+      reset_points: [],
+    };
+  }
+
+  if (timeframe === "daily") {
+    const latest = rows[rows.length - 1];
+
+    return {
+      total_yield_flow_usd: safeNumber(latest.total_daily_yield_flow),
+      locked_yield_flow_usd: 0,
+      active_yield_flow_usd: safeNumber(latest.total_daily_yield_flow),
+      reset_count: 0,
+      reset_points: [],
+    };
+  }
+
+  let lockedYieldFlowUsd = 0;
+  let activeSegmentRows = [rows[0]];
+  let resetCount = 0;
+  const resetPoints = [];
+
+  for (let i = 1; i < rows.length; i += 1) {
+    const previousRow = rows[i - 1];
+    const currentRow = rows[i];
+
+    if (shouldTreatAsClaimableReset(previousRow, currentRow)) {
+      const previousSegmentYield = activeSegmentRows.reduce(
+        (sum, row) => sum + safeNumber(row.total_daily_yield_flow),
+        0
+      );
+
+      lockedYieldFlowUsd += previousSegmentYield;
+      resetCount += 1;
+
+      resetPoints.push({
+        previous_metric_date: previousRow.metric_date,
+        current_metric_date: currentRow.metric_date,
+        locked_yield_flow_usd: previousSegmentYield,
+        previous_claimable_usd: safeNumber(previousRow.total_claimable_usd),
+        restarted_claimable_usd: safeNumber(currentRow.total_claimable_usd),
+      });
+
+      activeSegmentRows = [currentRow];
+    } else {
+      activeSegmentRows.push(currentRow);
+    }
+  }
+
+  const activeYieldFlowUsd = activeSegmentRows.reduce(
+    (sum, row) => sum + safeNumber(row.total_daily_yield_flow),
+    0
+  );
+
+  return {
+    total_yield_flow_usd: safeNumber(lockedYieldFlowUsd + activeYieldFlowUsd),
+    locked_yield_flow_usd: safeNumber(lockedYieldFlowUsd),
+    active_yield_flow_usd: safeNumber(activeYieldFlowUsd),
+    reset_count: resetCount,
+    reset_points: resetPoints,
+  };
+}
+
 function buildTimeframeSummary(rows, timeframe) {
   if (!Array.isArray(rows) || rows.length === 0) {
     return {
       is_live_mode: timeframe === "daily",
       header_labels: {
         tpv: timeframe === "daily" ? "Current TPV" : "Avg TPV",
-        claimable:
-          timeframe === "daily" ? "Current Claimable" : "Total Claimable",
+        claimable: timeframe === "daily" ? "Current Claimable" : "Total Claimable",
         yield_flow:
-          timeframe === "daily"
-            ? "Current DYF"
-            : `Total ${getYieldFlowPrefix(timeframe)}`,
-        ratio:
-          timeframe === "daily" ? "Yield / TVD" : getPeriodYieldLabel(timeframe),
+          timeframe === "daily" ? "Current DYF" : `Total ${getYieldFlowPrefix(timeframe)}`,
+        ratio: timeframe === "daily" ? "Yield / TVD" : getPeriodYieldLabel(timeframe),
       },
       latest_metric_date: null,
       latest_metric_time: null,
@@ -294,45 +324,49 @@ function buildTimeframeSummary(rows, timeframe) {
       active_claimable_usd: 0,
       claimable_reset_count: 0,
       claimable_reset_points: [],
+      locked_yield_flow_usd: 0,
+      active_yield_flow_usd: 0,
+      yield_flow_reset_count: 0,
+      yield_flow_reset_points: [],
     };
   }
 
   const latest = rows[rows.length - 1];
+
   const avgTpv = getAverageValue(
     rows.map((row) => safeNumber(row.total_portfolio_value))
   );
-  const totalYieldFlowUsd = rows.reduce(
-    (sum, row) => sum + safeNumber(row.total_daily_yield_flow),
-    0
-  );
 
   const claimableRollup = buildResetAwareTotalClaimable(rows);
+  const yieldFlowRollup = buildResetAwarePeriodYieldFlow(rows, timeframe);
+
+  const totalYieldFlowUsd = safeNumber(yieldFlowRollup.total_yield_flow_usd);
   const periodYieldRatio = avgTpv > 0 ? totalYieldFlowUsd / avgTpv : 0;
 
   return {
     is_live_mode: timeframe === "daily",
     header_labels: {
       tpv: timeframe === "daily" ? "Current TPV" : "Avg TPV",
-      claimable:
-        timeframe === "daily" ? "Current Claimable" : "Total Claimable",
+      claimable: timeframe === "daily" ? "Current Claimable" : "Total Claimable",
       yield_flow:
-        timeframe === "daily"
-          ? "Current DYF"
-          : `Total ${getYieldFlowPrefix(timeframe)}`,
-      ratio:
-        timeframe === "daily" ? "Yield / TVD" : getPeriodYieldLabel(timeframe),
+        timeframe === "daily" ? "Current DYF" : `Total ${getYieldFlowPrefix(timeframe)}`,
+      ratio: timeframe === "daily" ? "Yield / TVD" : getPeriodYieldLabel(timeframe),
     },
     latest_metric_date: latest.metric_date || null,
     latest_metric_time: latest.metric_time || null,
     avg_tpv: safeNumber(avgTpv),
     total_claimable_usd: safeNumber(claimableRollup.total_claimable_usd),
-    total_yield_flow_usd: safeNumber(totalYieldFlowUsd),
+    total_yield_flow_usd: totalYieldFlowUsd,
     period_yield_ratio: safeNumber(periodYieldRatio),
     period_yield_pct: safeNumber(periodYieldRatio * 100),
     locked_claimable_usd: safeNumber(claimableRollup.locked_claimable_usd),
     active_claimable_usd: safeNumber(claimableRollup.active_claimable_usd),
     claimable_reset_count: claimableRollup.reset_count,
     claimable_reset_points: claimableRollup.reset_points,
+    locked_yield_flow_usd: safeNumber(yieldFlowRollup.locked_yield_flow_usd),
+    active_yield_flow_usd: safeNumber(yieldFlowRollup.active_yield_flow_usd),
+    yield_flow_reset_count: yieldFlowRollup.reset_count,
+    yield_flow_reset_points: yieldFlowRollup.reset_points,
   };
 }
 
@@ -405,19 +439,15 @@ function buildSummary(rows, { intraday = false, timeframe = "daily" } = {}) {
       avg_portfolio_value: getAverageValue(portfolioValues),
       min_portfolio_value: minPortfolioValue,
       max_portfolio_value: maxPortfolioValue,
-
       avg_claimable_usd: getAverageValue(claimableValues),
       min_claimable_usd: minClaimableUsd,
       max_claimable_usd: maxClaimableUsd,
-
       avg_daily_yield_flow: getAverageValue(dailyYieldValues),
       min_daily_yield_flow: minDailyYieldFlow,
       max_daily_yield_flow: maxDailyYieldFlow,
-
       avg_yield_tvd_ratio: getAverageValue(yieldTvdRatios),
       min_yield_tvd_ratio: getMinValue(yieldTvdRatios),
       max_yield_tvd_ratio: getMaxValue(yieldTvdRatios),
-
       range_portfolio_pct: getPctChange(minPortfolioValue, maxPortfolioValue),
       range_claimable_pct: getPctChange(minClaimableUsd, maxClaimableUsd),
       range_daily_yield_pct: getPctChange(minDailyYieldFlow, maxDailyYieldFlow),
@@ -440,31 +470,19 @@ function findStrongestWeakest(rows, timeframe) {
   let weakestRow = rows[0];
 
   for (const row of rows) {
-    if (
-      safeNumber(row.total_daily_yield_flow) >
-      safeNumber(strongestRow.total_daily_yield_flow)
-    ) {
+    if (safeNumber(row.total_daily_yield_flow) > safeNumber(strongestRow.total_daily_yield_flow)) {
       strongestRow = row;
     }
 
-    if (
-      safeNumber(row.total_daily_yield_flow) <
-      safeNumber(weakestRow.total_daily_yield_flow)
-    ) {
+    if (safeNumber(row.total_daily_yield_flow) < safeNumber(weakestRow.total_daily_yield_flow)) {
       weakestRow = row;
     }
   }
 
   return {
-    strongest_period_label: formatMetricDateLabel(
-      strongestRow.metric_date,
-      timeframe
-    ),
+    strongest_period_label: formatMetricDateLabel(strongestRow.metric_date, timeframe),
     strongest_period_value: safeNumber(strongestRow.total_daily_yield_flow),
-    weakest_period_label: formatMetricDateLabel(
-      weakestRow.metric_date,
-      timeframe
-    ),
+    weakest_period_label: formatMetricDateLabel(weakestRow.metric_date, timeframe),
     weakest_period_value: safeNumber(weakestRow.total_daily_yield_flow),
   };
 }
@@ -484,6 +502,7 @@ module.exports = {
   buildIntradayTrend,
   shouldTreatAsClaimableReset,
   buildResetAwareTotalClaimable,
+  buildResetAwarePeriodYieldFlow,
   buildTimeframeSummary,
   buildSummary,
   findStrongestWeakest,
